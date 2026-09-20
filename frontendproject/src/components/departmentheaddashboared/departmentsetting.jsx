@@ -1,0 +1,40 @@
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { Bell, Check, CheckCircle2, Clock3, Inbox, Mail, Monitor, Save } from 'lucide-react';
+
+const API_URL = 'http://localhost:3000/api/department-head/settings';
+const defaults = {
+	notificationPreferences: { emailNotifications: true, newClearanceRequest: true, requestResubmitted: true, pendingReviewReminder: true, hrClearanceUpdate: true, importantUpdates: true, inSystemNewRequest: true, inSystemRequestResubmitted: true },
+	displayPreferences: { theme: 'system', language: 'English' },
+};
+
+const getConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } });
+
+export default function DepartmentSettings() {
+	const [settings, setSettings] = useState(defaults);
+	const [status, setStatus] = useState('');
+
+	useEffect(() => {
+		axios.get(API_URL, getConfig()).then(({ data }) => setSettings({
+			notificationPreferences: { ...defaults.notificationPreferences, ...data.settings?.notificationPreferences },
+			displayPreferences: { ...defaults.displayPreferences, ...data.settings?.displayPreferences },
+		})).catch(() => setStatus('Unable to load settings.'));
+	}, []);
+
+	const updateNotification = (key, value) => setSettings((current) => ({ ...current, notificationPreferences: { ...current.notificationPreferences, [key]: value } }));
+	const save = async (event) => {
+		event.preventDefault();
+		setStatus('');
+		try { await axios.put(API_URL, settings, getConfig()); setStatus('Settings saved successfully.'); }
+		catch (error) { setStatus(error.response?.data?.message || 'Unable to save settings.'); }
+	};
+
+	const ToggleRow = ({ icon: Icon, keyName, label, description }) => <label className="group flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 transition hover:border-teal-300 hover:bg-teal-50/30"><span className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 group-hover:bg-teal-100 group-hover:text-teal-700"><Icon size={17} /></span><span className="min-w-0"><span className="block text-sm font-semibold text-slate-800">{label}</span><span className="mt-0.5 block text-xs text-slate-500">{description}</span></span></span><span className="relative shrink-0"><input type="checkbox" checked={settings.notificationPreferences[keyName]} onChange={(event) => updateNotification(keyName, event.target.checked)} className="peer sr-only" /><span className="block h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-teal-600 peer-focus-visible:ring-2 peer-focus-visible:ring-teal-500 peer-focus-visible:ring-offset-2" /><span className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" /></span></label>;
+	const setDisplay = (key, value) => setSettings((current) => ({ ...current, displayPreferences: { ...current.displayPreferences, [key]: value } }));
+	return <form onSubmit={save} className="max-w-4xl space-y-6 text-slate-800">
+		<header className="border-b border-slate-200 pb-5"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-600">Department Head Portal</p><h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Settings</h1><p className="mt-2 max-w-xl text-sm text-slate-500">Control the clearance updates and reminders that matter to your department.</p></div><span className="hidden h-12 w-12 items-center justify-center rounded-xl bg-teal-50 text-teal-700 sm:flex"><Bell size={23} /></span></div></header>
+		<section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70 shadow-sm"><div className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-4"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-600 text-white"><Bell size={19} /></span><div><h2 className="font-bold text-slate-950">Notification Preferences</h2><p className="text-xs text-slate-500">Choose how the system keeps you informed.</p></div></div><div className="space-y-6 p-5"><ToggleRow icon={Mail} keyName="emailNotifications" label="Email notifications" description="Receive notification emails for important activity." /><div><div className="mb-3 flex items-center gap-2"><Inbox size={16} className="text-teal-700" /><h3 className="text-sm font-bold text-slate-900">Clearance notifications</h3></div><div className="grid gap-3 sm:grid-cols-2"><ToggleRow icon={Inbox} keyName="newClearanceRequest" label="New clearance request" description="When a new request needs review." /><ToggleRow icon={CheckCircle2} keyName="requestResubmitted" label="Request resubmitted" description="When an employee resubmits a request." /><ToggleRow icon={Clock3} keyName="pendingReviewReminder" label="Pending review reminder" description="Reminders for requests waiting too long." /><ToggleRow icon={CheckCircle2} keyName="hrClearanceUpdate" label="HR clearance update" description="Updates from the final HR review." /></div></div><div><div className="mb-3 flex items-center gap-2"><Bell size={16} className="text-teal-700" /><h3 className="text-sm font-bold text-slate-900">In-system notifications</h3></div><div className="grid gap-3 sm:grid-cols-2"><ToggleRow icon={Inbox} keyName="inSystemNewRequest" label="New request" description="Show new requests in your notifications." /><ToggleRow icon={CheckCircle2} keyName="inSystemRequestResubmitted" label="Returned / resubmitted" description="Show changes to returned requests." /><ToggleRow icon={Bell} keyName="importantUpdates" label="Important updates" description="Show high-priority workflow updates." /></div></div></div></section>
+		<section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><Monitor size={19} /></span><div><h2 className="font-bold text-slate-950">Display Preferences</h2><p className="text-xs text-slate-500">Personalize the way this portal looks.</p></div></div><div className="grid gap-6 p-5 sm:grid-cols-2"><fieldset><legend className="mb-3 text-sm font-bold text-slate-900">Theme</legend><div className="grid grid-cols-3 gap-2">{['system', 'light', 'dark'].map((theme) => <label key={theme} className={`cursor-pointer rounded-lg border px-3 py-3 text-center text-xs font-semibold capitalize transition ${settings.displayPreferences.theme === theme ? 'border-teal-500 bg-teal-50 text-teal-800 ring-1 ring-teal-500' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}><input type="radio" name="theme" value={theme} checked={settings.displayPreferences.theme === theme} onChange={() => setDisplay('theme', theme)} className="sr-only" />{theme}</label>)}</div></fieldset><label className="text-sm font-bold text-slate-900">Language<select value={settings.displayPreferences.language} onChange={(event) => setDisplay('language', event.target.value)} className="mt-3 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"><option value="English">English</option><option value="Amharic">Amharic</option></select></label></div></section>
+		<div className="flex flex-col-reverse items-start justify-between gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center"><span className={`text-sm ${status.includes('successfully') ? 'text-emerald-600' : 'text-slate-500'}`} role="status">{status}</span><button type="submit" className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"><Save size={16} /> Save Changes <Check size={15} /></button></div>
+	</form>;
+}

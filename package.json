@@ -1,0 +1,20 @@
+{
+  "scripts": {
+    "start": "concurrently \"npm --prefix server run start\" \"npm --prefix frontendproject run dev\"",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix frontendproject run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cores": "^0.8.5",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.9.3",
+    "nodemon": "^3.1.14",
+    "path": "^0.12.7",
+    "qrcode": "^1.5.4",
+    "react-router-dom": "^7.18.2"
+  }
+}

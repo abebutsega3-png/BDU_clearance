@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+.action-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	border: 1px solid #e2e8f0;
+	border-radius: 0.375rem;
+	background: #fff;
+	padding: 0.5rem 0.7rem;
+	font-size: 0.65rem;
+	font-weight: 600;
+	color: #475569;
+}
+
+@keyframes hero-zoom {
+	from {
+		transform: scale(1.02) translate3d(0, 0, 0);
+	}
+
+	to {
+		transform: scale(1.04) translate3d(-0.5%, -0.5%, 0);
+	}
+}
+
+@keyframes hero-reveal {
+	from {
+		opacity: 0;
+		transform: translateY(24px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.hero-image-active {
+	animation: hero-zoom 5.5s ease-out both;
+}
+
+.hero-content {
+	animation: hero-reveal 900ms 120ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.hero-image-active,
+	.hero-content {
+		animation: none;
+	}
+}
+
+@media print {
+	body * {
+		visibility: hidden;
+	}
+
+	.print-certificate,
+	.print-certificate * {
+		visibility: visible;
+	}
+
+	.print-certificate {
+		display: block !important;
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		border: 0;
+	}
+}

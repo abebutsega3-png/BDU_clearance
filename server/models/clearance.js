@@ -1,0 +1,47 @@
+import mongoose from 'mongoose';
+
+const clearanceSchema = new mongoose.Schema({
+	requestId: {
+		type: String,
+		default: () => `CLR-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+		index: true,
+	},
+	employee: { type: mongoose.Schema.Types.Mixed, default: '' },
+	employeeId: { type: String, default: '' },
+	employeeName: { type: String, default: '' },
+	department: { type: mongoose.Schema.Types.Mixed, default: '' },
+	departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
+	assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+	clearanceType: { type: String, default: 'Resignation' },
+	reason: { type: String, default: '' },
+	requestDate: { type: String, default: '' },
+	lastWorkingDate: { type: String, default: '' },
+	relievingDate: { type: String, default: '' },
+	remarks: { type: String, default: '' },
+	hrRemarks: { type: String, default: '' },
+	requiredOffices: { type: [String], default: ['Department Head', 'Library', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Final HR Clearance'] },
+	currentStep: { type: String, default: 'Department Head' },
+	workflow: { type: [mongoose.Schema.Types.Mixed], default: [] },
+	status: { type: String, enum: ['Pending', 'In Progress', 'Approved', 'Completed', 'Returned', 'Rejected', 'Cancelled'], default: 'Pending' },
+	financeStatus: { type: String, enum: ['Pending', 'Under Review', 'In Progress', 'Approved', 'Returned'], default: 'Pending', index: true },
+	financeRemarks: { type: String, default: '' },
+	financeReviewedBy: { type: String, default: '' },
+	financeReviewedAt: { type: Date, default: null },
+	libraryStatus: { type: String, enum: ['Pending', 'In Progress', 'Completed', 'Returned', 'Rejected'], default: 'Pending' },
+	libraryVerificationResult: { type: String, enum: ['Clear', 'Not Clear', ''], default: '' },
+	libraryComment: { type: String, default: '' },
+	libraryReturnReason: { type: String, default: '' },
+	departmentStatus: { type: String, enum: ['Pending', 'In Progress', 'Approved', 'Returned'], default: 'Pending', index: true },
+	departmentReturnReason: { type: String, default: '' },
+	departmentReviewedBy: { type: String, default: '' },
+	departmentReviewedAt: { type: Date, default: null },
+	departmentComment: { type: String, default: '' },
+	departmentClearance: { type: mongoose.Schema.Types.Mixed, default: null },
+	departmentClearances: { type: [mongoose.Schema.Types.Mixed], default: [] },
+	outstandingItems: { type: [String], default: [] },
+	checklistCompleted: { type: Boolean, default: false },
+	certificate: { type: mongoose.Schema.Types.Mixed, default: null },
+}, { timestamps: true, strict: false });
+
+const Clearance = mongoose.model('Clearance', clearanceSchema);
+export default Clearance;
