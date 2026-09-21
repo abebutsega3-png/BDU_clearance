@@ -242,6 +242,9 @@ const getClearances = async (_req, res) => {
 	try {
 		const role = String(_req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ');
 		const workflowFilter = {};
+		if (role === 'hr officer' || role === 'hr') {
+			workflowFilter.initialHRStatus = { $in: [null, 'Pending', 'Under Review', 'Returned'] };
+		}
 		if (role === 'finance officer') {
 			workflowFilter.departmentStatus = 'Approved';
 		}
@@ -255,6 +258,7 @@ const getClearances = async (_req, res) => {
 		const officeVisibility = {
 			'department head': { currentStep: { $in: ['Department Head', 'Department'] } },
 		};
+		if (role === 'department head') workflowFilter.initialHRStatus = 'Approved';
 		const roleVisibility = officeVisibility[role] || {};
 		const query = Object.keys(roleVisibility).length ? { ...workflowFilter, ...roleVisibility } : workflowFilter;
 		const clearances = await Clearance.find(query).sort({ createdAt: -1 }).lean();
@@ -445,6 +449,11 @@ const deleteClearance = async (req, res) => {
 
 const addClearance = async (req, res) => {
 	try {
+		const minimumLastWorkingDate = '2027-01-01';
+		const lastWorkingDate = String(req.body?.lastWorkingDate || req.body?.expectedLastWorkingDate || '').slice(0, 10);
+		if (!lastWorkingDate || lastWorkingDate < minimumLastWorkingDate) {
+			return res.status(400).json({ success: false, message: 'Last working date must be January 1, 2027 or later.' });
+		}
 		const employeeRecord = req.body?.employeeId
 			? await Employee.findOne({ employeeId: req.body.employeeId }).select('employeeId fullName department position campus phone email').lean()
 			: null;
@@ -481,6 +490,7 @@ const addClearance = async (req, res) => {
 				}))
 				.filter((step) => step.office)
 			: buildRequiredOfficeWorkflow(requestedOffices);
+		workflow.unshift({ office: 'Initial HR Review', status: 'Pending', updatedAt: new Date().toISOString() });
 		if (!workflow.some((step) => /department\s*head|^department$/i.test(String(step.office || '').trim()))) {
 			workflow.unshift({ office: 'Department Head', status: 'Pending', updatedAt: new Date().toISOString() });
 		}
@@ -489,11 +499,12 @@ const addClearance = async (req, res) => {
 			...(req.body || {}),
 			employeeId: employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId || '',
 			department: resolvedDepartment,
+			initialHRStatus: 'Pending',
 			departmentStatus: 'Pending',
 			employeeName: resolvedEmployeeName,
 			clearanceType: req.body?.clearanceType || req.body?.clearanceReason || 'Resignation',
 			requiredOffices: requestedOffices,
-			currentStep: 'Department Head',
+			currentStep: 'Initial HR Review',
 			workflow,
 			status: req.body?.status || 'Pending',
 			propertyStatus: 'Pending',
@@ -536,11 +547,13 @@ const addClearance = async (req, res) => {
 			console.error('Failed to create employee notification:', notifError.message);
 		}
 
-		await notifyDepartmentHeads({
+		await notifyHrOfficers({
 			clearance,
 			type: 'NEW_CLEARANCE_REQUEST',
-			title: 'New Clearance Request',
-			message: `${clearance.employeeName || 'An employee'} submitted a clearance request. Request No: ${clearance.requestId || 'N/A'}`,
+			title: 'New Clearance Request for Initial HR Review',
+			message: `${clearance.employeeName || 'An employee'} submitted a clearance request. Review the employee information before sending it to the Department Head. Request No: ${clearance.requestId || 'N/A'}`,
+			actionText: 'Review Request',
+			actionLink: '/hr-office/clearance-requests',
 		});
 		return res.status(201).json({ success: true, clearance });
 	} catch (error) {
@@ -620,13 +633,14 @@ const updateClearance = async (req, res) => {
 				requestUpdates.returnReason = departmentDecision.returnReason.trim();
 			}
 			requestUpdates.departmentReturnReason = departmentDecision.returnReason || '';
-			requestUpdates.departmentReviewedBy = req.user?._id || req.user?.id || req.user?.name || '';
+			const departmentReviewer = req.user?.fullName || req.user?.name || '';
+			requestUpdates.departmentReviewedBy = departmentReviewer;
 			requestUpdates.departmentReviewedAt = reviewedAt;
 			requestUpdates.departmentComment = departmentDecision.comment || requestUpdates.remarks || '';
 			requestUpdates.departmentClearance = {
 				...departmentDecision,
 				status: departmentStatus,
-				reviewedBy: req.user?._id || req.user?.id || req.user?.name || '',
+				 reviewedBy: departmentReviewer,
 				reviewedAt,
 				comment: departmentDecision.comment || requestUpdates.remarks || '',
 				returnReason: departmentDecision.returnReason || '',
@@ -634,7 +648,7 @@ const updateClearance = async (req, res) => {
 			requestUpdates.departmentClearances = [{
 				...departmentDecision,
 				status: departmentStatus,
-				reviewedBy: req.user?._id || req.user?.id || req.user?.name || '',
+				reviewedBy: departmentReviewer,
 				reviewedAt,
 			}];
 		}
@@ -646,6 +660,8 @@ const updateClearance = async (req, res) => {
 			requestUpdates.libraryVerificationResult = verificationResult;
 			requestUpdates.libraryComment = comment;
 			requestUpdates.libraryReturnReason = returnReason;
+			requestUpdates.libraryReviewedBy = req.user?.fullName || req.user?.name || 'Library Officer';
+			requestUpdates.libraryReviewedAt = new Date();
 			if (status === 'Rejected') {
 				requestUpdates.status = 'Returned';
 				requestUpdates.overallStatus = 'Returned';
@@ -675,7 +691,7 @@ const updateClearance = async (req, res) => {
 			const clearanceFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };
-			const existingClearance = await Clearance.findOne(clearanceFilter).select('workflow departmentClearances').lean();
+			const existingClearance = await Clearance.findOne(clearanceFilter).select('workflow departmentClearances initialHRStatus').lean();
 			if (!existingClearance) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
 			requestUpdates.workflow = (Array.isArray(existingClearance.workflow) ? existingClearance.workflow : []).map((step) => {
 				if (String(step.status || '').toLowerCase() !== 'returned' && String(step.status || '').toLowerCase() !== 'rejected') return step;
@@ -696,6 +712,14 @@ const updateClearance = async (req, res) => {
 			});
 			requestUpdates.departmentReturnReason = '';
 			requestUpdates.departmentComment = requestUpdates.resolutionRemark || '';
+			if (existingClearance.initialHRStatus === 'Returned') {
+				requestUpdates.initialHRStatus = 'Pending';
+				requestUpdates.currentStep = 'Initial HR Review';
+				requestUpdates.workflow = [
+					{ office: 'Initial HR Review', status: 'Pending', updatedAt: new Date() },
+					...(Array.isArray(requestUpdates.workflow) ? requestUpdates.workflow : []),
+				];
+			}
 		}
 		const clearanceFilter = mongoose.isValidObjectId(req.params.id)
 			? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }

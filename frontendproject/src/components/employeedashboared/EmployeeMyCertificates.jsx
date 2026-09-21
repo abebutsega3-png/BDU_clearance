@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Download, Eye, Printer, X } from 'lucide-react';
+import axios from 'axios';
+import { Download, Eye, Printer, Search, ShieldCheck, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import universityLogo from '../../assets/image.png';
 
@@ -30,29 +31,43 @@ const downloadCertificate = (certificate) => {
   pdf.setFontSize(11);
   pdf.text(`Certificate No: ${certificate.certificateNo}`, 25, 62);
   pdf.text(`Certificate Type: ${certificate.clearanceType || 'Employee Clearance'}`, 25, 70);
-  pdf.text(`Issue Date: ${formatDate(certificate.completedDate)}`, 25, 78);
+  pdf.text(`Issue Date: ${formatDate(certificate.issuedAt || certificate.completedDate)}`, 25, 78);
   pdf.text(`Employee Name: ${employeeName}`, 25, 92);
   pdf.text(`Employee ID: ${certificate.employeeId || '—'}`, 25, 100);
   pdf.text(`Department: ${certificate.department || '—'}`, 25, 108);
   pdf.text(`Position: ${certificate.position || '—'}`, 25, 116);
   pdf.text('Clearance Summary', 25, 134);
   (certificate.departmentClearances || []).forEach((item, index) => {
-    pdf.text(`${item.name || item.department || 'Office'}: ${item.status || 'Cleared'}`, 32, 143 + (index * 8));
+    pdf.text(`${item.name || item.office || item.department || 'Office'}: ${item.status || 'Cleared'}`, 32, 143 + (index * 8));
   });
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(22, 139, 83);
   pdf.text('FINAL STATUS: CLEARED / ISSUED', 25, 205);
   pdf.setTextColor(35, 35, 35);
   pdf.setFont('helvetica', 'normal');
-  pdf.text(`Issued By: ${certificate.hrManagerName || 'HR Officer'}`, 25, 255);
+  pdf.text(`Issued By: ${certificate.issuedBy || certificate.certificate?.generatedBy || certificate.hrManagerName || 'HR Officer'}`, 25, 255);
   pdf.text('Signature / Approval: ____________________', 25, 265);
   pdf.save(fileName);
 };
 
 export default function EmployeeMyCertificates({ certificates = [] }) {
   const [selectedCertificate, setSelectedCertificate] = useState(null);
+  const [verification, setVerification] = useState(null);
+  const [verifying, setVerifying] = useState(false);
 
   const handlePrint = () => window.print();
+
+  const handleVerify = async (certificate) => {
+    setVerifying(true);
+    try {
+      const { data } = await axios.get(`http://localhost:3000/api/hr-final-clearance/certificates/verify/${encodeURIComponent(certificate.certificateNo)}`);
+      setVerification(data);
+    } catch (error) {
+      setVerification({ valid: false, message: error.response?.data?.message || 'Unable to verify certificate.' });
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   return (
     <section className="mt-12">
@@ -84,6 +99,7 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                   <div className="flex justify-center gap-2">
                     <button type="button" onClick={() => setSelectedCertificate(certificate)} className="inline-flex items-center gap-1 rounded px-2 py-2 text-blue-600 hover:bg-blue-50"><Eye size={16} /> View</button>
                     <button type="button" onClick={() => downloadCertificate(certificate)} className="inline-flex items-center gap-1 rounded px-2 py-2 text-green-600 hover:bg-green-50"><Download size={16} /> Download</button>
+                    <button type="button" onClick={() => handleVerify(certificate)} className="inline-flex items-center gap-1 rounded px-2 py-2 text-indigo-600 hover:bg-indigo-50"><Search size={16} /> Verify</button>
                   </div>
                 </td>
               </tr>
@@ -112,15 +128,15 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                   <span className="text-slate-500">Employee ID:</span><strong>{selectedCertificate.employeeId || '—'}</strong>
                   <span className="text-slate-500">Department:</span><strong>{selectedCertificate.department || '—'}</strong>
                   <span className="text-slate-500">Position:</span><strong>{selectedCertificate.position || '—'}</strong>
-                  <span className="text-slate-500">Issue Date:</span><strong>{formatDate(selectedCertificate.completedDate)}</strong>
-                  <span className="text-slate-500">Issued By:</span><strong>{selectedCertificate.hrManagerName || 'HR Officer'}</strong>
+                  <span className="text-slate-500">Issue Date:</span><strong>{formatDate(selectedCertificate.issuedAt || selectedCertificate.completedDate)}</strong>
+                  <span className="text-slate-500">Issued By:</span><strong>{selectedCertificate.issuedBy || selectedCertificate.hrManagerName || 'HR Officer'}</strong>
                   <span className="text-slate-500">Status:</span><strong className="text-emerald-700">ISSUED</strong>
                 </div>
 
                 <h3 className="mb-3 mt-7 text-sm font-bold text-slate-800">Clearance Summary</h3>
                 <div className="space-y-2">
                   {(selectedCertificate.departmentClearances || []).map((item, index) => (
-                    <div key={`${item.name || item.department}-${index}`} className="flex justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"><span>✓ {item.name || item.department || 'Office'}</span><strong className="text-emerald-700">{item.status || 'Cleared'}</strong></div>
+                    <div key={`${item.name || item.office || item.department}-${index}`} className="flex justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"><span>✓ {item.name || item.office || item.department || 'Office'}</span><strong className="text-emerald-700">{item.status || 'Cleared'}</strong></div>
                   ))}
                 </div>
               </div>
@@ -166,7 +182,7 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
 
                     <div className="mt-4 border border-slate-300 bg-slate-50 p-2 text-left text-[9px] text-slate-700">
                       <div className="mb-1 grid grid-cols-2 border-b border-slate-300 pb-1 font-bold"><span>Office / Department</span><span className="text-right">Clearance Status</span></div>
-                      {(selectedCertificate.departmentClearances || []).map((item, index) => <div key={`preview-${index}`} className="grid grid-cols-2 border-b border-slate-200 py-1 last:border-0"><span>{index + 1}. {item.name || item.department || 'Office'}</span><strong className="text-right text-emerald-700">{item.status || 'Cleared'}</strong></div>)}
+                      {(selectedCertificate.departmentClearances || []).map((item, index) => <div key={`preview-${index}`} className="grid grid-cols-2 border-b border-slate-200 py-1 last:border-0"><span>{index + 1}. {item.name || item.office || item.department || 'Office'}</span><strong className="text-right text-emerald-700">{item.status || 'Cleared'}</strong></div>)}
                     </div>
 
                     <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-2 py-2 text-center text-emerald-700">
@@ -177,7 +193,7 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                     <div className="mt-4 grid grid-cols-2 gap-4 text-[8px] text-slate-600">
                       <div>
                         <div>Final HR Officer</div>
-                        <div className="mt-2 border-b border-slate-500 pb-1 font-semibold">{displayValue(selectedCertificate.hrManagerName, 'Final HR Officer')}</div>
+                        <div className="mt-2 border-b border-slate-500 pb-1 font-semibold">{displayValue(selectedCertificate.issuedBy || selectedCertificate.certificate?.generatedBy || selectedCertificate.hrManagerName, 'Final HR Officer')}</div>
                         <div className="mt-2">Signature: <span className="inline-block w-16 border-b border-slate-500" /></div>
                         <div className="mt-2">Date: <span className="inline-block w-16 border-b border-slate-500">{formatDate(selectedCertificate.completedDate)}</span></div>
                       </div>
@@ -192,11 +208,33 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                 <div className="mt-5 flex justify-end gap-2">
                   <button type="button" onClick={() => downloadCertificate(selectedCertificate)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"><Download size={14} /> Download PDF</button>
                   <button type="button" onClick={handlePrint} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Printer size={14} /> Print</button>
+                  <button type="button" onClick={() => handleVerify(selectedCertificate)} disabled={verifying} className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"><ShieldCheck size={14} /> {verifying ? 'Verifying...' : 'Verify Certificate'}</button>
                 </div>
               </div>
             </div>
 
             <div className="border-t border-slate-200 bg-white px-5 py-4"><button type="button" onClick={() => setSelectedCertificate(null)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">← Back to My Certificates</button></div>
+          </div>
+        </div>
+      )}
+
+      {verification && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Certificate Verification</h2>
+              <button type="button" onClick={() => setVerification(null)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+            </div>
+            {verification.valid ? (
+              <div className="mt-5 space-y-2 text-sm">
+                <p className="font-semibold text-emerald-700">Valid issued certificate</p>
+                <p><span className="text-slate-500">Certificate No:</span> {verification.certificate.certificateNo}</p>
+                <p><span className="text-slate-500">Employee:</span> {verification.certificate.employeeName}</p>
+                <p><span className="text-slate-500">Issued By:</span> {verification.certificate.issuedBy}</p>
+                <p><span className="text-slate-500">Issue Date:</span> {formatDate(verification.certificate.issuedAt)}</p>
+                <p className="font-semibold text-emerald-700">Status: ISSUED</p>
+              </div>
+            ) : <p className="mt-5 text-sm text-red-600">{verification.message}</p>}
           </div>
         </div>
       )}

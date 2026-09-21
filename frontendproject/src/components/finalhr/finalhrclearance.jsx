@@ -142,6 +142,7 @@ export default function HRFinalClearance() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [decisionSaving, setDecisionSaving] = useState(false);
   const [decisionError, setDecisionError] = useState('');
+  const [certificateSaving, setCertificateSaving] = useState(false);
 
   useEffect(() => {
     const fetchRequests = async () => {
@@ -235,11 +236,23 @@ export default function HRFinalClearance() {
     }
   };
 
-  const handleGenerateCertificate = () => {
+  const handleGenerateCertificate = async () => {
     const requestId = selectedRequest?.requestId || selectedRequest?._id;
     if (!requestId) return;
 
-    navigate('/hr-office/certificate-preview', { state: { clearance: selectedRequest, fromDetails: true } });
+    try {
+      setCertificateSaving(true);
+      setDecisionError('');
+      const { data } = await axios.post(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`);
+      navigate('/hr-office/certificates', {
+        replace: true,
+        state: { generatedCertificateNo: data?.certificate?.number || '' },
+      });
+    } catch (error) {
+      setDecisionError(error.response?.data?.message || 'Unable to generate certificate.');
+    } finally {
+      setCertificateSaving(false);
+    }
   };
 
   const selectedProgress = selectedRequest ? getProgressInfo(selectedRequest) : null;
@@ -557,11 +570,11 @@ export default function HRFinalClearance() {
                         <button
                           type="button"
                           onClick={handleGenerateCertificate}
-                          disabled={!certificateAvailable}
+                          disabled={!certificateAvailable || certificateSaving}
                           className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2cc26b] px-3 py-2.5 text-[11px] font-bold text-white hover:bg-[#25ad5d] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <ShieldCheck size={14} />
-                          {certificateAvailable ? 'Generate Certificate' : 'Awaiting HR Final Approval'}
+                          {certificateSaving ? 'Generating...' : certificateAvailable ? 'Generate Certificate' : 'Awaiting HR Final Approval'}
                         </button>
                       </div>
                     </div>

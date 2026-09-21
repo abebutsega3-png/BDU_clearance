@@ -20,6 +20,7 @@ const departmentRequestQuery = async (department) => {
   const employees = await Employee.find(departmentQuery(department)).select('employeeId').lean();
   return {
     $and: [{
+      initialHRStatus: 'Approved',
       $or: [
         departmentQuery(department),
         { employeeId: { $in: employees.map((employee) => employee.employeeId) } },

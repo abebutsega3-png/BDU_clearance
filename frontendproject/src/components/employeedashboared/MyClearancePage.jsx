@@ -36,6 +36,7 @@ const statusStyles = {
 };
 
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
+const minimumLastWorkingDate = '2027-01-01';
 
 export default function MyClearancePage() {
   const { user } = useAuth();
@@ -73,12 +74,20 @@ export default function MyClearancePage() {
   const college = user?.college || user?.institute || '';
 
   useEffect(() => {
+    if (!employeeId) {
+      setLoading(false);
+      return undefined;
+    }
+
+    setLoading(true);
     fetchClearances()
       .then((items) => {
         setRequests(items);
       })
-      .catch(() => setError('Unable to load your clearance requests.'))
+      .catch((requestError) => setError(requestError.message || 'Unable to load your clearance requests.'))
       .finally(() => setLoading(false));
+
+    return undefined;
   }, [employeeId]);
 
   const handleInputChange = (event) => {
@@ -117,6 +126,10 @@ export default function MyClearancePage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (!formData.lastWorkingDate || formData.lastWorkingDate < minimumLastWorkingDate) {
+      setError('Last working date must be January 1, 2027 or later.');
+      return;
+    }
     if (!formData.confirmed) {
       setError('Please confirm that the information provided is correct.');
       return;
@@ -270,7 +283,7 @@ export default function MyClearancePage() {
                 <label className="mb-2 block text-[12px] font-semibold text-slate-700">Last Working Date <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input type="date" name="lastWorkingDate" value={formData.lastWorkingDate} onChange={handleInputChange} className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
+                  <input type="date" name="lastWorkingDate" value={formData.lastWorkingDate} min={minimumLastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
                 </div>
               </div>
 

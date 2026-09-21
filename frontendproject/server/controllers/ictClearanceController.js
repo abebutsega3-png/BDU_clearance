@@ -152,7 +152,7 @@ const notifyIctOfficers = async (data) => {
 			relatedRequestId: data.requestId,
       clearanceRequestId: data.requestId,
 			actionText: 'View Request',
-			actionLink: '/ict/clearance-requests'
+      actionLink: '/ict-office/requests'
 		}));
 		
 		await Notification.insertMany(notifications);

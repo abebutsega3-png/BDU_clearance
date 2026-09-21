@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import jsPDF from 'jspdf';
 import { useNavigate } from 'react-router-dom';
 import {
   CalendarDays,
@@ -8,6 +9,7 @@ import {
   ChevronDown,
   Download,
   FileText,
+  Printer,
   Search,
   ShieldCheck,
   X,
@@ -119,6 +121,7 @@ export default function HRCertificateList() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [selectedRow, setSelectedRow] = useState(null);
+  const [issuingCertificateNo, setIssuingCertificateNo] = useState('');
 
   useEffect(() => {
     const fetchCertificates = async () => {
@@ -160,8 +163,6 @@ export default function HRCertificateList() {
   const generatedCount = rows.filter((row) => row.status === 'Generated').length;
   const issuedCount = rows.filter((row) => row.status === 'Issued').length;
 
-  const handleViewClick = (row) => setSelectedRow(row);
-
   const handlePreviewCertificate = (row) => {
     navigate('/hr-office/certificate-preview', {
       state: {
@@ -173,10 +174,12 @@ export default function HRCertificateList() {
           campus: row.campus || 'Main Campus',
           collegeInstitute: row.collegeInstitute || row.college || row.institute,
           employmentType: row.employmentType || 'Permanent',
-          requestId: row.requestId,
+          requestId: row.requestId || row.clearanceId || row._id,
           requestDate: row.requestDate,
           lastWorkingDate: row.lastWorkingDate || row.expectedLastWorkingDate,
           completedDate: row.completedDate || row.generatedDate,
+          initialHRReviewedBy: row.initialHRReviewedBy || row.generatedBy || 'HR Officer',
+          initialHRReviewedAt: row.initialHRReviewedAt || row.generatedDate,
           status: 'Completed',
           finalHRApproval: row.finalHRApproval === true,
           overallStatus: 'CERTIFICATE ISSUED',
@@ -184,6 +187,8 @@ export default function HRCertificateList() {
           departmentClearances: row.clearanceSummary.map((item) => ({
             name: item.name,
             status: item.status.toUpperCase() === 'APPROVED' ? 'APPROVED' : 'CLEARED',
+            clearedBy: item.clearedBy || item.approvedBy || item.reviewedBy || '—',
+            clearedDate: item.clearedDate || item.completedAt || item.updatedAt || '',
           })),
         },
       },
@@ -193,15 +198,47 @@ export default function HRCertificateList() {
   const handleIssueToEmployee = (row) => {
     const issue = async () => {
       try {
+        setIssuingCertificateNo(row.certificateNo);
         await axios.patch(`http://localhost:3000/api/hr-final-clearance/certificate/${row.clearanceId}/issue`);
         setRows((prev) => prev.map((item) => item.certificateNo === row.certificateNo ? { ...item, status: 'Issued' } : item));
         setSelectedRow((prev) => (prev ? { ...prev, status: 'Issued' } : prev));
       } catch (error) {
         console.error('Failed to issue certificate:', error);
+      } finally {
+        setIssuingCertificateNo('');
       }
     };
 
     issue();
+  };
+
+  const handleDownloadPdf = (row) => {
+    const pdf = new jsPDF();
+    pdf.setDrawColor(29, 59, 130);
+    pdf.setLineWidth(1.5);
+    pdf.rect(15, 15, 180, 267);
+    pdf.setTextColor(29, 59, 130);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(17);
+    pdf.text('BAHIR DAR UNIVERSITY', 105, 35, { align: 'center' });
+    pdf.setFontSize(12);
+    pdf.text('EMPLOYEE CLEARANCE CERTIFICATE', 105, 43, { align: 'center' });
+    pdf.setTextColor(35, 35, 35);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(11);
+    pdf.text(`Certificate No: ${row.certificateNo}`, 25, 62);
+    pdf.text(`Employee: ${row.employee}`, 25, 72);
+    pdf.text(`Employee ID: ${row.employeeId}`, 25, 82);
+    pdf.text(`Department: ${row.department}`, 25, 92);
+    pdf.text(`Issue Date: ${formatDate(row.issuedAt || row.generatedDate)}`, 25, 102);
+    pdf.text('Clearance Summary', 25, 120);
+    (row.clearanceSummary || []).forEach((item, index) => {
+      pdf.text(`${item.name || 'Office'}: APPROVED`, 32, 130 + index * 8);
+    });
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(22, 139, 83);
+    pdf.text('FINAL STATUS: ISSUED', 25, 205);
+    pdf.save(`Certificate_${row.certificateNo}.pdf`);
   };
 
   return (
@@ -313,7 +350,7 @@ export default function HRCertificateList() {
                         <td className="px-4 py-3">
                           <button
                             type="button"
-                            onClick={() => handleViewClick(row)}
+                            onClick={() => handlePreviewCertificate(row)}
                             className={`rounded-md px-3 py-1.5 text-[11px] font-semibold text-white ${
                               row.status === 'Generated' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
                             }`}
@@ -412,6 +449,7 @@ export default function HRCertificateList() {
 
                   <button
                     type="button"
+                    onClick={() => handleDownloadPdf(selectedRow)}
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] font-semibold text-slate-700 hover:bg-slate-100"
                   >
                     <Download size={14} />
@@ -420,11 +458,20 @@ export default function HRCertificateList() {
 
                   <button
                     type="button"
+                    onClick={() => window.print()}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    <Printer size={14} />
+                    Print
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => handleIssueToEmployee(selectedRow)}
-                    disabled={selectedRow.status === 'Issued'}
+                    disabled={selectedRow.status === 'Issued' || issuingCertificateNo === selectedRow.certificateNo}
                     className="relative flex w-full items-center justify-center gap-2 rounded-full bg-[#2CC26B] px-3 py-2.5 text-[12px] font-bold text-white shadow-sm hover:bg-[#25ad5d]"
                   >
-                    {selectedRow.status === 'Issued' ? 'Issued to Employee' : 'Issue to Employee'}
+                    {selectedRow.status === 'Issued' ? 'Issued to Employee' : issuingCertificateNo === selectedRow.certificateNo ? 'Issuing...' : 'Issue to Employee'}
                     {selectedRow.status !== 'Issued' && <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">5</span>}
                   </button>
                 </div>

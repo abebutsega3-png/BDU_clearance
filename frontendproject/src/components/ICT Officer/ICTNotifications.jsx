@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell, CheckCircle, Clock, RotateCcw, MessageSquare,
   CheckCheck, Trash2, Eye, Filter
@@ -61,6 +62,7 @@ const normalizeNotification = (item = {}) => {
 };
 
 const ICTNotifications = () => {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState('All');
   const [activeTab, setActiveTab] = useState('all');
   const [notifications, setNotifications] = useState([]);
@@ -110,6 +112,17 @@ const ICTNotifications = () => {
     } catch (error) {
       console.error('Unable to delete notification:', error);
     }
+  };
+
+  const handleViewRequest = async (notification) => {
+    if (!notification.isRead) {
+      await handleMarkAsRead(notification.id);
+    }
+
+    const requestPath = notification.requestId
+      ? `/ict-office/requests?requestId=${encodeURIComponent(notification.requestId)}`
+      : '/ict-office/requests';
+    navigate(requestPath);
   };
 
   const notificationSettings = getICTOfficerSettings().notifications;
@@ -270,7 +283,7 @@ const ICTNotifications = () => {
                   </button>
                 )}
                 <button
-                  onClick={() => { window.location.href = n.actionLink; }}
+                  onClick={() => handleViewRequest(n)}
                   className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 text-xs font-medium"
                 >
                   <Eye size={14} /> {n.actionText}

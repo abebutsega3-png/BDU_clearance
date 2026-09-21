@@ -620,13 +620,14 @@ const updateClearance = async (req, res) => {
 				requestUpdates.returnReason = departmentDecision.returnReason.trim();
 			}
 			requestUpdates.departmentReturnReason = departmentDecision.returnReason || '';
-			requestUpdates.departmentReviewedBy = req.user?._id || req.user?.id || req.user?.name || '';
+			const departmentReviewer = req.user?.fullName || req.user?.name || '';
+			requestUpdates.departmentReviewedBy = departmentReviewer;
 			requestUpdates.departmentReviewedAt = reviewedAt;
 			requestUpdates.departmentComment = departmentDecision.comment || requestUpdates.remarks || '';
 			requestUpdates.departmentClearance = {
 				...departmentDecision,
 				status: departmentStatus,
-				reviewedBy: req.user?._id || req.user?.id || req.user?.name || '',
+				reviewedBy: departmentReviewer,
 				reviewedAt,
 				comment: departmentDecision.comment || requestUpdates.remarks || '',
 				returnReason: departmentDecision.returnReason || '',
@@ -646,6 +647,8 @@ const updateClearance = async (req, res) => {
 			requestUpdates.libraryVerificationResult = verificationResult;
 			requestUpdates.libraryComment = comment;
 			requestUpdates.libraryReturnReason = returnReason;
+			requestUpdates.libraryReviewedBy = req.user?.fullName || req.user?.name || 'Library Officer';
+			requestUpdates.libraryReviewedAt = new Date();
 			if (status === 'Rejected') {
 				requestUpdates.status = 'Returned';
 				requestUpdates.overallStatus = 'Returned';

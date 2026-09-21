@@ -176,7 +176,9 @@ export const approveClearance = async (req, res) => {
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
     const workflow = Array.isArray(request.workflow) ? [...request.workflow] : [];
     const propertyStepIndex = workflow.findIndex((step) => String(step.office || '').toLowerCase().includes('property'));
-    const propertyStep = { office: 'Property / Asset Office', status: 'Completed', updatedAt: new Date() };
+    const approvedBy = req.user?.fullName || req.user?.name || 'Property Officer';
+    const approvedAt = new Date();
+    const propertyStep = { office: 'Property / Asset Office', status: 'Completed', approvedBy, performedBy: approvedBy, approvedAt, updatedAt: approvedAt };
     if (propertyStepIndex >= 0) {
       workflow[propertyStepIndex] = { ...workflow[propertyStepIndex], ...propertyStep };
     } else {
@@ -186,8 +188,8 @@ export const approveClearance = async (req, res) => {
       { requestId: req.params.requestId },
       { $set: {
         propertyStatus: 'Approved',
-        propertyReviewedAt: new Date(),
-        propertyReviewedBy: req.user?._id || req.user?.name || 'Property Officer',
+        propertyReviewedAt: approvedAt,
+        propertyReviewedBy: approvedBy,
         reviewedAt: new Date(),
         officerComment: officerComment || 'All assets verified and returned.',
         currentStep: resolveNextStepAfterDecision('Property / Asset Office', 'Approved'),

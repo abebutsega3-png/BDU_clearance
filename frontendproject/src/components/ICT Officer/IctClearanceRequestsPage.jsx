@@ -55,7 +55,9 @@ const IctClearanceRequestsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState(() => mapDefaultViewToTab(getICTOfficerSettings().clearancePreferences.defaultView));
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('requestId')
+    ? 'All'
+    : mapDefaultViewToTab(getICTOfficerSettings().clearancePreferences.defaultView));
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -162,6 +164,15 @@ const IctClearanceRequestsPage = () => {
     setReturnReason("");
     setIsModalOpen(true);
   };
+
+  useEffect(() => {
+    const requestedId = searchParams.get('requestId');
+    if (!requestedId || !requests.length || selectedRequest) return;
+
+    const request = requests.find((item) => [item.clearanceId, item.requestId, item._id]
+      .some((id) => String(id || '') === requestedId));
+    if (request) handleOpenReviewModal(request);
+  }, [requests, searchParams, selectedRequest]);
 
   const handleOpenEmployeeAssets = () => {
     if (!selectedRequest?.employee?.employeeId && !selectedRequest?.employeeId) return;

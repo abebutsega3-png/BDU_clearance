@@ -484,36 +484,16 @@ const FinanceClearanceRequestPage = () => {
                         {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                           <button
                             onClick={() => {
                               setOpenReturnMode(false);
                               setSelectedRequestId(request._id);
                             }}
-                            className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                            className="rounded-md bg-slate-900 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-slate-700"
                           >
                             View
                           </button>
-                          {['Pending', 'Under Review'].includes(normalizeFinanceStatus(request.financeStatus)) && (
-                            <>
-                              <button
-                                onClick={() => handleListApprove(request)}
-                                disabled={approvingRequestId === request._id}
-                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {approvingRequestId === request._id ? 'Approving...' : 'Approve'}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setOpenReturnMode(true);
-                                  setSelectedRequestId(request._id);
-                                }}
-                                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                              >
-                                Return
-                              </button>
-                            </>
-                          )}
                         </div>
                       </td>
                     </tr>

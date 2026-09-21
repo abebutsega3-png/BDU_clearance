@@ -402,7 +402,7 @@ export const startFinanceReview = async (req, res) => {
     }
 
     request.financeStatus = "Under Review";
-    request.financeReviewedBy = req.body.reviewedBy || "Finance Officer";
+    request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
     request.financeReviewedAt = new Date();
 
     await request.save();
@@ -445,7 +445,7 @@ export const approveFinanceClearance = async (req, res) => {
     const comment = String(req.body.comment || req.body.remarks || '').trim();
     request.financeStatus = "Approved";
     request.financeRemarks = comment;
-    request.financeReviewedBy = req.body.reviewedBy || "Finance Officer";
+    request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
     request.financeReviewedAt = new Date();
     updateFinanceWorkflow(request, 'Completed', comment);
 
@@ -524,7 +524,7 @@ export const returnFinanceRequest = async (req, res) => {
     request.financeRemarks = comment;
     request.remarks = comment;
     request.returnReason = returnReason;
-    request.financeReviewedBy = req.body.reviewedBy || "Finance Officer";
+    request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
     request.financeReviewedAt = new Date();
     updateFinanceWorkflow(request, 'Returned', returnReason);
     const financeStep = request.workflow.find((step) => /finance/i.test(step.office || step.name || ''));

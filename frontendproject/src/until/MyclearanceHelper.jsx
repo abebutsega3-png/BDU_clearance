@@ -57,6 +57,9 @@ export const fetchClearances = async () => {
   try {
     const response = await axiosInstance.get('/my');
     const payload = response.data;
+    if (payload?.success === false) {
+      throw new Error(payload.message || 'Unable to load your clearance requests.');
+    }
     return Array.isArray(payload) ? payload : payload?.clearances || payload?.data || [];
   } catch (error) {
     handleNetworkError(error);
@@ -66,6 +69,9 @@ export const fetchClearances = async () => {
 export const createClearance = async (clearanceData) => {
   try {
     const response = await axiosInstance.post('/add', clearanceData);
+    if (response.data?.success === false) {
+      throw new Error(response.data.message || 'Unable to submit your clearance request.');
+    }
     return response.data;
   } catch (error) {
     handleNetworkError(error);

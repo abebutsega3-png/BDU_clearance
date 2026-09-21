@@ -19,6 +19,8 @@ const ClearanceRequests = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [reviewDecision, setReviewDecision] = useState('');
+  const [reviewStarted, setReviewStarted] = useState(false);
   const [showReturnForm, setShowReturnForm] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -53,11 +55,15 @@ const ClearanceRequests = () => {
     if (!requestId) return;
     setDecisionError('');
     setRemarks('');
+    setReviewDecision('');
+    setReviewStarted(request.initialHRStatus === 'Under Review');
     setShowReturnForm(false);
     setDetailLoading(true);
     try {
       const { data } = await axios.get(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}`);
-      setSelectedRequest(data?.clearance || request);
+      const loadedRequest = data?.clearance || request;
+      setSelectedRequest(loadedRequest);
+      setReviewStarted(loadedRequest.initialHRStatus === 'Under Review');
     } catch (requestError) {
       console.error('Unable to load clearance details:', requestError);
       setSelectedRequest(request);
@@ -66,27 +72,50 @@ const ClearanceRequests = () => {
     }
   };
 
-  const saveDecision = async (decision) => {
+  const startReview = async () => {
     const requestId = selectedRequest?.requestId || selectedRequest?._id;
     if (!requestId) return;
-    if (decision === 'Rejected' && !remarks.trim()) {
-      setDecisionError('Please enter a reason before rejecting this request.');
+    try {
+      setDecisionLoading(true);
+      setDecisionError('');
+      const { data } = await axios.patch(`http://localhost:3000/api/hr-final-clearance/initial-clearance/${requestId}/decision`, { decision: 'In Progress' }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+      });
+      setSelectedRequest(data.clearance);
+      setRequests((current) => current.map((request) => (request.requestId || request._id) === requestId ? { ...request, ...data.clearance } : request));
+      setReviewStarted(true);
+    } catch (requestError) {
+      setDecisionError(requestError.response?.data?.message || 'Unable to start HR review.');
+    } finally {
+      setDecisionLoading(false);
+    }
+  };
+
+  const saveDecision = async () => {
+    const requestId = selectedRequest?.requestId || selectedRequest?._id;
+    if (!requestId) return;
+    if (!reviewDecision) {
+      setDecisionError('Select Accept or Return before submitting the decision.');
+      return;
+    }
+    if (reviewDecision === 'Returned' && !remarks.trim()) {
+      setDecisionError('Return reason is required.');
       return;
     }
 
     try {
       setDecisionLoading(true);
       setDecisionError('');
-      const { data } = await axios.patch(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/decision`, {
-        decision,
+      const { data } = await axios.patch(`http://localhost:3000/api/hr-final-clearance/initial-clearance/${requestId}/decision`, {
+        decision: reviewDecision,
         remarks,
-        checklistCompleted: decision === 'Completed',
-      });
+      }, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } });
       setRequests((current) => current.map((request) => (
-        (request.requestId || request._id) === requestId ? { ...request, ...data.clearance, status: decision } : request
+        (request.requestId || request._id) === requestId ? { ...request, ...data.clearance } : request
       )));
       setSelectedRequest(null);
       setShowReturnForm(false);
+      setReviewDecision('');
     } catch (decisionRequestError) {
       setDecisionError(decisionRequestError.response?.data?.message || 'Unable to save the decision.');
     } finally {
@@ -136,32 +165,39 @@ const ClearanceRequests = () => {
                   <Detail label="Current Status" value={statusOf(selectedRequest)} />
                 </div>
 
-                <div className="rounded-lg border border-slate-200">
-                  <h3 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-800">Office Clearance Status</h3>
-                  <div className="divide-y divide-slate-100">
-                    {(selectedRequest.departmentClearances?.length ? selectedRequest.departmentClearances : [{ name: 'All required offices', status: 'Pending' }]).map((office, index) => {
-                      const cleared = ['approved', 'completed', 'cleared'].includes(String(office.status || '').toLowerCase());
-                      return <div key={`${office.name || office.department}-${index}`} className="flex items-center justify-between px-4 py-3 text-xs"><span>{office.name || office.department || 'Office'}</span><span className={`rounded-full px-2 py-1 font-semibold ${cleared ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{office.status || 'Pending'}</span></div>;
-                    })}
-                  </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <h3 className="mb-3 text-xs font-bold text-slate-800">Supporting Documents</h3>
+                  {selectedRequest.supportingDocument || selectedRequest.documentUrl || selectedRequest.attachment ? (
+                    <a
+                      href={selectedRequest.supportingDocument || selectedRequest.documentUrl || selectedRequest.attachment}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-semibold text-blue-700 underline"
+                    >
+                      View attached document
+                    </a>
+                  ) : <p className="text-xs text-slate-500">No supporting documents attached.</p>}
                 </div>
 
                 {routePrefix === '/hr-office' && !['Completed', 'Rejected', 'Returned'].includes(statusOf(selectedRequest)) && (
                   <div className="border-t border-slate-200 pt-4">
-                    {showReturnForm && <>
-                      <label className="block text-xs font-semibold text-slate-700" htmlFor="hr-decision-remarks">Reason for Return <span className="text-red-600">*</span></label>
-                      <textarea id="hr-decision-remarks" value={remarks} onChange={(event) => setRemarks(event.target.value)} rows="3" placeholder="Please complete missing information..." className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-500" />
+                    <h3 className="text-sm font-bold text-slate-900">HR Initial Review</h3>
+                    <p className="mt-1 text-xs text-slate-500">Review Status: {selectedRequest.initialHRStatus || 'Pending'}</p>
+                    {!reviewStarted ? <button type="button" disabled={decisionLoading} onClick={startReview} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{decisionLoading ? 'Starting...' : 'Start Review'}</button> : <>
+                      <div className="mt-4 space-y-2">
+                        <p className="text-xs font-semibold text-slate-700">Verification Result</p>
+                        <label className="flex items-center gap-2 text-xs text-slate-700"><input type="radio" name="hr-review-decision" value="Approved" checked={reviewDecision === 'Approved'} onChange={(event) => setReviewDecision(event.target.value)} />Accept</label>
+                        <label className="flex items-center gap-2 text-xs text-slate-700"><input type="radio" name="hr-review-decision" value="Returned" checked={reviewDecision === 'Returned'} onChange={(event) => setReviewDecision(event.target.value)} />Return</label>
+                      </div>
+                      <label className="mt-4 block text-xs font-semibold text-slate-700" htmlFor="hr-review-remarks">HR Comment / Remark</label>
+                      <textarea id="hr-review-remarks" value={remarks} onChange={(event) => setRemarks(event.target.value)} rows="3" placeholder="Add HR review remarks..." className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-500" />
+                      {reviewDecision === 'Returned' && <>
+                        <label className="mt-3 block text-xs font-semibold text-slate-700" htmlFor="hr-return-reason">Return Reason <span className="text-red-600">*</span></label>
+                        <textarea id="hr-return-reason" value={remarks} onChange={(event) => setRemarks(event.target.value)} rows="3" placeholder="Explain what the employee must correct..." className="mt-2 w-full rounded-lg border border-red-200 px-3 py-2 text-xs outline-none focus:border-red-500" />
+                      </>}
                     </>}
                     {decisionError && <p className="mt-2 text-xs text-red-600">{decisionError}</p>}
-                    <div className="mt-4 flex justify-end gap-2">
-                      {showReturnForm ? <>
-                        <button type="button" disabled={decisionLoading} onClick={() => setShowReturnForm(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-                        <button type="button" disabled={decisionLoading} onClick={() => saveDecision('Returned')} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"><XCircle className="h-4 w-4" />Confirm Return</button>
-                      </> : <>
-                        <button type="button" disabled={decisionLoading} onClick={() => setShowReturnForm(true)} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"><XCircle className="h-4 w-4" />Return Request</button>
-                        <button type="button" disabled={decisionLoading} onClick={() => saveDecision('Approved')} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"><CheckCircle className="h-4 w-4" />Approve</button>
-                      </>}
-                    </div>
+                    {reviewStarted && <div className="mt-4 flex justify-end gap-2"><button type="button" disabled={decisionLoading} onClick={() => setSelectedRequest(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><button type="button" disabled={decisionLoading} onClick={saveDecision} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{decisionLoading ? 'Submitting...' : 'Submit Decision'}</button></div>}
                   </div>
                 )}
               </div>

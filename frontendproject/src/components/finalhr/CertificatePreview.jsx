@@ -3,7 +3,7 @@ import { useState } from 'react';
 import axios from 'axios';
 import html2canvas from 'html2canvas';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Download, Printer, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Download, Eye, Printer, X } from 'lucide-react';
 import universityLogo from '../../assets/image.png';
 
 const formatDate = (value, fallback = '—') => {
@@ -17,12 +17,12 @@ const displayValue = (value, fallback = '—') => value || fallback;
 
 const getOfficeSummary = (clearance) => {
   const offices = [
-    { name: 'HR Office', status: 'APPROVED' },
+    { name: 'HR Office', status: 'APPROVED', approvedBy: clearance?.initialHRReviewedBy || clearance?.finalHROfficer || clearance?.hrManagerName, approvalDate: clearance?.initialHRReviewedAt || clearance?.finalHRApprovalDate },
     { name: 'Library', status: 'CLEARED' },
-    { name: 'Finance', status: 'CLEARED' },
-    { name: 'Property Management', status: 'CLEARED' },
-    { name: 'ICT Center', status: 'CLEARED' },
-    { name: 'Department', status: 'CLEARED' },
+    { name: 'Finance', status: 'CLEARED', approvedBy: clearance?.financeReviewedBy, approvalDate: clearance?.financeReviewedAt },
+    { name: 'Property Management', status: 'CLEARED', approvedBy: clearance?.propertyReviewedBy, approvalDate: clearance?.propertyReviewedAt },
+    { name: 'ICT Center', status: 'CLEARED', approvedBy: clearance?.ictReviewedBy, approvalDate: clearance?.ictReviewedAt },
+    { name: 'Department', status: 'CLEARED', approvedBy: clearance?.departmentReviewedBy, approvalDate: clearance?.departmentReviewedAt },
   ];
 
   const departmentClearances = Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : [];
@@ -36,19 +36,27 @@ const getOfficeSummary = (clearance) => {
 
       return {
         ...office,
-        status: match ? String(match.status || '').toUpperCase() : office.status,
+        status: match && ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(match.status || '').toUpperCase()) ? 'APPROVED' : office.status,
+        approvedBy: office.approvedBy || match?.clearedBy || match?.approvedBy || match?.reviewedBy || match?.performedBy || match?.officerName || '—',
+        approvalDate: office.approvalDate || match?.clearedDate || match?.completedAt || match?.reviewedAt || match?.timestamp || match?.updatedAt || '',
       };
     });
   }
 
-  return offices;
+  return offices.map((office) => ({
+    ...office,
+    status: ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(office.status || '').toUpperCase()) ? 'APPROVED' : String(office.status || '').toUpperCase(),
+    approvedBy: office.approvedBy || '—',
+    approvalDate: office.approvalDate || '',
+  }));
 };
 
 export default function CertificatePreview() {
   const location = useLocation();
   const navigate = useNavigate();
-  const clearance = location.state?.clearance || {};
+  const [clearance, setClearance] = useState(() => location.state?.clearance || {});
   const [saving, setSaving] = useState(false);
+  const [issuing, setIssuing] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [certificateImage, setCertificateImage] = useState('');
 
@@ -102,7 +110,8 @@ export default function CertificatePreview() {
       return;
     }
     if (clearance.certificate?.number) {
-      navigate('/hr-office/certificates');
+      setSaveError('');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -115,12 +124,43 @@ export default function CertificatePreview() {
     try {
       setSaving(true);
       setSaveError('');
-      await axios.post(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`);
-      navigate('/hr-office/certificates');
+      const { data } = await axios.post(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`);
+      const generatedCertificate = data?.certificate;
+      if (generatedCertificate) {
+        setClearance((current) => ({
+          ...current,
+          certificate: generatedCertificate,
+          completedDate: generatedCertificate.generatedAt || current.completedDate,
+          status: 'Completed',
+          finalHRApproval: true,
+        }));
+        navigate('/hr-office/certificates', {
+          replace: true,
+          state: { generatedCertificateNo: generatedCertificate.number },
+        });
+      }
     } catch (error) {
       setSaveError(error.response?.data?.message || 'Unable to save certificate.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleIssueCertificate = async () => {
+    const certificateId = clearance.requestId || clearance._id;
+    if (!certificateId || !clearance.certificate?.number) return;
+
+    try {
+      setIssuing(true);
+      setSaveError('');
+      const { data } = await axios.patch(`http://localhost:3000/api/hr-final-clearance/certificate/${certificateId}/issue`);
+      if (data?.certificate) {
+        setClearance((current) => ({ ...current, certificate: data.certificate }));
+      }
+    } catch (error) {
+      setSaveError(error.response?.data?.message || 'Unable to issue certificate to employee.');
+    } finally {
+      setIssuing(false);
     }
   };
 
@@ -190,13 +230,17 @@ export default function CertificatePreview() {
             </div>
 
             <div className="mt-8 border border-slate-300 bg-slate-50">
-              <div className="grid grid-cols-2 border-b border-slate-300 bg-slate-100 text-[12px] font-bold text-slate-700">
+              <div className="grid grid-cols-[1.4fr_1fr_0.9fr_1fr] border-b border-slate-300 bg-slate-100 text-[12px] font-bold text-slate-700">
                 <div className="px-3 py-2">Office / Department</div>
+                <div className="px-3 py-2">Approved By</div>
+                <div className="px-3 py-2">Approval Date</div>
                 <div className="px-3 py-2 text-right">Clearance Status</div>
               </div>
               {officeSummary.map((office, index) => (
-                <div key={`${office.name}-${index}`} className="grid grid-cols-2 border-b border-slate-200 last:border-b-0 text-[12px] text-slate-700">
+                <div key={`${office.name}-${index}`} className="grid grid-cols-[1.4fr_1fr_0.9fr_1fr] border-b border-slate-200 last:border-b-0 text-[12px] text-slate-700">
                   <div className="px-3 py-2 font-medium">{index + 1}. {office.name}</div>
+                  <div className="px-3 py-2">{displayValue(office.approvedBy)}</div>
+                  <div className="px-3 py-2">{formatDate(office.approvalDate)}</div>
                   <div className="px-3 py-2 text-right">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 font-bold ${office.status === 'APPROVED' || office.status === 'CLEARED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                       {office.status === 'APPROVED' || office.status === 'CLEARED' ? <CheckCircle2 size={12} /> : null}
@@ -239,10 +283,23 @@ export default function CertificatePreview() {
             <Printer size={14} />
             Preview PDF
           </button>
-          <button onClick={handleGenerateCertificate} disabled={saving || !finalApproved} className="inline-flex items-center gap-2 rounded-lg bg-[#1AAE6F] px-4 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-[#15995d] disabled:cursor-not-allowed disabled:opacity-60">
-            <Download size={14} />
-            {saving ? 'Saving Certificate...' : 'Confirm & Generate Certificate'}
-          </button>
+          {clearance.certificate?.number ? (
+            <>
+              <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-[12px] font-semibold text-slate-700 hover:bg-slate-100">
+                <Eye size={14} /> View Certificate
+              </button>
+              {!clearance.certificate?.issuedAt && (
+                <button type="button" onClick={handleIssueCertificate} disabled={issuing} className="inline-flex items-center gap-2 rounded-lg bg-[#1AAE6F] px-4 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-[#15995d] disabled:cursor-not-allowed disabled:opacity-60">
+                  <Download size={14} /> {issuing ? 'Issuing...' : 'Issue to Employee'}
+                </button>
+              )}
+            </>
+          ) : (
+            <button onClick={handleGenerateCertificate} disabled={saving || !finalApproved} className="inline-flex items-center gap-2 rounded-lg bg-[#1AAE6F] px-4 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-[#15995d] disabled:cursor-not-allowed disabled:opacity-60">
+              <Download size={14} />
+              {saving ? 'Saving Certificate...' : 'Confirm & Generate Certificate'}
+            </button>
+          )}
         </div>
       </main>
     </div>

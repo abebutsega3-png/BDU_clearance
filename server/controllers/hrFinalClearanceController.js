@@ -6,6 +6,116 @@ import User from '../models/User.js';
 import mongoose from 'mongoose';
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
 
+const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
+  const department = typeof clearance.department === 'object'
+    ? clearance.department?.name || clearance.department?.departmentName
+    : clearance.department;
+  const escapedDepartment = String(department || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const heads = await User.find({
+    role: { $regex: '^department[ _]?head$', $options: 'i' },
+    ...(escapedDepartment ? { department: { $regex: `^${escapedDepartment}$`, $options: 'i' } } : {}),
+  }).select('_id name');
+  if (!heads.length) return;
+  await Notification.insertMany(heads.map((head) => ({
+    recipientId: head._id,
+    targetName: head.name || 'Department Head',
+    title: 'Clearance Request Ready for Department Review',
+    message: `${clearance.employeeName || 'An employee'}'s request passed Initial HR Review and is ready for Department Head review.`,
+    type: 'NEW_CLEARANCE_REQUEST',
+    actionText: 'Review Request',
+    actionLink: '/department-head/clearance-requests',
+    relatedRequestId: clearance.requestId,
+    clearanceRequestId: clearance.requestId,
+    isRead: false,
+  })));
+};
+
+export const updateInitialHRDecision = async (req, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+    if (!['hr', 'hr officer', 'human resources'].includes(role)) {
+      return res.status(403).json({ success: false, message: 'Only an HR Officer can complete Initial HR Review.' });
+    }
+    const { id } = req.params;
+    const { decision, remarks = '' } = req.body || {};
+    const normalizedDecision = String(decision || '').trim().toLowerCase();
+    if (!['in progress', 'approved', 'returned'].includes(normalizedDecision)) {
+      return res.status(400).json({ success: false, message: 'Initial HR decision must be Start Review, Approved, or Returned.' });
+    }
+    if (normalizedDecision === 'returned' && !String(remarks).trim()) {
+      return res.status(400).json({ success: false, message: 'Return reason is required.' });
+    }
+
+    const clearanceFilter = {
+      $or: [{ requestId: id }, { _id: mongoose.Types.ObjectId.isValid(id) ? id : null }],
+    };
+    const current = await Clearance.findOne(clearanceFilter);
+    if (!current) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
+    if (current.initialHRStatus === 'Approved') {
+      if (normalizedDecision === 'approved') return res.json({ success: true, clearance: current, message: 'Initial HR decision already saved.' });
+      return res.status(400).json({ success: false, message: 'This request has already passed Initial HR Review.' });
+    }
+
+    if (normalizedDecision === 'in progress') {
+      current.initialHRStatus = 'Under Review';
+      current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
+      current.initialHRReviewedAt = new Date();
+      current.currentStep = 'Initial HR Review';
+      current.status = 'Pending';
+      await current.save();
+      return res.json({ success: true, clearance: current });
+    }
+    if (current.initialHRStatus !== 'Under Review') {
+      return res.status(400).json({ success: false, message: 'Start Initial HR Review before submitting a decision.' });
+    }
+
+    const approved = normalizedDecision === 'approved';
+    current.initialHRStatus = approved ? 'Approved' : 'Returned';
+    current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
+    current.initialHRReviewedAt = new Date();
+    current.initialHRRemarks = String(remarks).trim();
+    current.returnReason = approved ? '' : String(remarks).trim();
+    current.officerComment = String(remarks).trim();
+    current.status = approved ? 'In Progress' : 'Returned';
+    current.overallStatus = approved ? 'In Progress' : 'Returned';
+    current.currentStep = approved ? 'Department Head' : 'Employee';
+    current.workflow = (Array.isArray(current.workflow) ? current.workflow : []).map((step) => {
+      if (/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))) {
+        return { ...step, office: 'Initial HR Review', status: approved ? 'Completed' : 'Rejected', reviewedBy: current.initialHRReviewedBy, reviewedAt: current.initialHRReviewedAt, updatedAt: current.initialHRReviewedAt, remarks: String(remarks).trim() };
+      }
+      if (/department/i.test(String(step.office || step.name || ''))) {
+        return { ...step, status: 'Pending', updatedAt: new Date() };
+      }
+      return step;
+    });
+    await current.save();
+
+    const employeeUser = await findEmployeeUser(current);
+    await Notification.create({
+      recipientId: employeeUser?._id || null,
+      employeeId: current.employeeId || employeeUser?.employeeId || '',
+      targetName: current.employeeName || 'Employee',
+      title: approved ? 'Clearance Accepted by HR' : 'Clearance Returned by HR',
+      message: approved
+        ? 'Your clearance request passed Initial HR Review and was sent to your Department Head.'
+        : `Please correct your clearance information and resubmit it. Reason: ${String(remarks).trim()}`,
+      type: approved ? 'INITIAL_HR_APPROVED' : 'CLEARANCE_REQUEST_RETURNED',
+      actionText: approved ? 'View Clearance' : 'Correct and Resubmit',
+      actionLink: '/employee/My%20Clearance',
+      relatedRequestId: current.requestId,
+      clearanceRequestId: current.requestId,
+      isRead: false,
+    });
+    if (approved) {
+      await notifyDepartmentHeadsAfterInitialHR(current);
+    }
+    return res.json({ success: true, clearance: current });
+  } catch (error) {
+    console.error('Error updating initial HR decision:', error);
+    return res.status(500).json({ success: false, message: 'Unable to save Initial HR decision.' });
+  }
+};
+
 const CORE_OFFICES = ['Department Head', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Library'];
 const approvedStatuses = ['approved', 'completed', 'cleared'];
 
@@ -84,14 +194,26 @@ const getOfficeProgress = (clearance) => {
       : fieldStatus && !['pending', ''].includes(fieldStatus.toLowerCase())
       ? fieldStatus
       : workflowStatus || fieldStatus || 'Pending';
-    const officeReviewer = office === 'Property / Asset Office' ? clearance.propertyReviewedBy : '';
-    const officeDate = office === 'Property / Asset Office' ? clearance.propertyReviewedAt : null;
+    const officeReviewer = {
+      'Finance Office': clearance.financeReviewedBy,
+      'ICT Office': clearance.ictReviewedBy || clearance.ictClearance?.reviewedBy,
+      'Property / Asset Office': clearance.propertyReviewedBy,
+      'Department Head': clearance.departmentReviewedBy || clearance.departmentClearance?.reviewedBy,
+      Library: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
+    }[office] || '';
+    const officeDate = {
+      'Finance Office': clearance.financeReviewedAt,
+      'ICT Office': clearance.ictReviewedAt,
+      'Property / Asset Office': clearance.propertyReviewedAt,
+      'Department Head': clearance.departmentReviewedAt,
+      Library: clearance.libraryReviewedAt,
+    }[office] || null;
     const officeRemarks = office === 'Property / Asset Office' ? clearance.officerComment : '';
     return {
       office,
       status,
-      clearedBy: step.clearedBy || step.approvedBy || step.reviewedBy || officeReviewer || '-',
-      clearedDate: step.clearedDate || step.completedAt || step.updatedAt || officeDate || '-',
+      clearedBy: officeReviewer || step.clearedBy || step.approvedBy || step.reviewedBy || step.performedBy || step.officerName || '-',
+      clearedDate: officeDate || step.clearedDate || step.completedAt || step.reviewedAt || step.timestamp || step.updatedAt || '-',
       remarks: step.remarks || step.comment || step.returnReason || officeRemarks || '',
     };
   });
@@ -101,6 +223,44 @@ const getOfficeCounts = (clearance) => {
   const offices = getOfficeProgress(clearance);
   const approvedCount = offices.filter((office) => approvedStatuses.includes(String(office.status).toLowerCase())).length;
   return { offices, approvedCount, totalOffices: CORE_OFFICES.length };
+};
+
+const resolveOfficeReviewers = async (offices) => {
+  const reviewerIds = offices
+    .map((office) => office.clearedBy)
+    .filter((value) => mongoose.Types.ObjectId.isValid(String(value || '')));
+  const users = reviewerIds.length
+    ? await User.find({ _id: { $in: reviewerIds } }).select('_id name fullName').lean()
+    : [];
+  const names = new Map(users.map((user) => [String(user._id), user.name || user.fullName || '—']));
+  const rolePatterns = {
+    'Department Head': /department\s*head/i,
+    Library: /library/i,
+    'Finance Office': /finance/i,
+    'Property / Asset Office': /property|asset/i,
+    'ICT Office': /ict/i,
+  };
+  const roleUsers = await Promise.all(Object.entries(rolePatterns).map(async ([office, role]) => [
+    office,
+    await User.findOne({ role }).select('name fullName').sort({ createdAt: 1 }).lean(),
+  ]));
+  const fallbackNames = new Map(roleUsers.map(([office, user]) => [office, user?.name || user?.fullName || '—']));
+  const storedNameCounts = new Map();
+  offices.forEach((office) => {
+    const storedName = names.get(String(office.clearedBy)) || office.clearedBy;
+    if (storedName) storedNameCounts.set(String(storedName).trim().toLowerCase(), (storedNameCounts.get(String(storedName).trim().toLowerCase()) || 0) + 1);
+  });
+
+  return offices.map((office) => {
+    const storedName = names.get(String(office.clearedBy)) || office.clearedBy;
+    const isRoleLabel = !storedName || storedName === '-' || storedName === '—'
+      || Object.values(rolePatterns).some((pattern) => pattern.test(String(storedName).trim()))
+      || (storedNameCounts.get(String(storedName).trim().toLowerCase()) || 0) > 1;
+    return {
+      ...office,
+      clearedBy: isRoleLabel ? (fallbackNames.get(office.office) || '—') : storedName,
+    };
+  });
 };
 
 // GET HR Final Clearance Details
@@ -138,7 +298,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
     }
 
     // Calculate progress
-    const { offices: departmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(clearance);
+    const { offices: rawDepartmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(clearance);
+    const departmentClearances = await resolveOfficeReviewers(rawDepartmentClearances);
+    const initialHRReviewer = await resolveOfficeReviewers([{ clearedBy: clearance.initialHRReviewedBy || 'HR Officer' }]);
     const progress = Math.round((approvedCount / totalDepartments) * 100);
 
     // Outstanding items
@@ -153,6 +315,8 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         _id: clearance._id,
         requestId: clearance.requestId,
         status: clearance.status,
+        initialHRStatus: clearance.initialHRStatus || 'Pending',
+        initialHRRemarks: clearance.initialHRRemarks || '',
         
         // Employee Information
         employeeId: clearance.employeeId,
@@ -190,6 +354,19 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         submissionDate: clearanceRequest?.submittedDate || clearance.requestDate,
         lastWorkingDate: clearance.lastWorkingDate,
         expectedLastWorkingDate: clearanceRequest?.expectedLastWorkingDate,
+        initialHRReviewedBy: initialHRReviewer[0].clearedBy,
+        initialHRReviewedAt: clearance.initialHRReviewedAt,
+        financeReviewedBy: clearance.financeReviewedBy,
+        financeReviewedAt: clearance.financeReviewedAt,
+        libraryReviewedBy: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
+        libraryReviewedAt: clearance.libraryReviewedAt,
+        propertyReviewedBy: clearance.propertyReviewedBy,
+        propertyReviewedAt: clearance.propertyReviewedAt,
+        ictReviewedBy: clearance.ictReviewedBy || clearance.ictClearance?.reviewedBy,
+        ictReviewedAt: clearance.ictReviewedAt,
+        departmentReviewedBy: clearance.departmentReviewedBy || clearance.departmentClearance?.reviewedBy,
+        departmentReviewedAt: clearance.departmentReviewedAt,
+        supportingDocument: clearance.supportingDocument || clearance.documentUrl || clearance.attachment || '',
 
         // Department Clearances
         departmentClearances: departmentClearances.map(d => ({
@@ -277,11 +454,14 @@ export const updateHRFinalDecision = async (req, res) => {
     if (!currentClearance) {
       return res.status(404).json({ success: false, message: 'Clearance request not found' });
     }
+    if (currentClearance.initialHRStatus !== 'Approved' || currentClearance.departmentStatus !== 'Approved') {
+      return res.status(400).json({ success: false, message: 'Final HR review is available only after Initial HR and Department Head approval.' });
+    }
     const currentCounts = getOfficeCounts(currentClearance);
     if (currentCounts.approvedCount < 1) {
       return res.status(400).json({ success: false, message: 'Final HR review becomes available after at least one office is approved.' });
     }
-    if (decision === 'Completed' && currentCounts.approvedCount !== currentCounts.totalOffices) {
+    if (currentCounts.approvedCount !== currentCounts.totalOffices) {
       return res.status(400).json({ success: false, message: `Final HR approval requires all ${currentCounts.totalOffices} offices to be approved. Current progress: ${currentCounts.approvedCount}/${currentCounts.totalOffices}.` });
     }
 
@@ -403,7 +583,7 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
     const { status, page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
-    const query = {};
+    const query = { initialHRStatus: 'Approved', departmentStatus: 'Approved' };
     if (status) {
       query.status = status;
     }
@@ -570,9 +750,10 @@ export const getGeneratedCertificates = async (req, res) => {
       .sort({ 'certificate.generatedAt': -1 })
       .lean();
 
-    const certificates = clearances.map((clearance) => ({
+    const certificates = await Promise.all(clearances.map(async (clearance) => ({
       _id: clearance._id,
       certificateNo: clearance.certificate.number,
+      requestId: clearance.requestId || clearance._id,
       employee: clearance.employeeName || clearance.certificate.employeeName || '—',
       employeeId: clearance.employeeId || clearance.certificate.employeeId || '—',
       department: typeof clearance.department === 'string' ? clearance.department : clearance.department?.name || '—',
@@ -581,10 +762,12 @@ export const getGeneratedCertificates = async (req, res) => {
       status: clearance.certificate.issuedAt ? 'Issued' : 'Generated',
       issuedAt: clearance.certificate.issuedAt || null,
       certificate: clearance.certificate,
+      initialHRReviewedBy: clearance.initialHRReviewedBy || clearance.certificate.generatedBy || 'HR Officer',
+      initialHRReviewedAt: clearance.initialHRReviewedAt || clearance.certificate.generatedAt || null,
       finalHRApproval: clearance.finalHRApproval === true && clearance.status === 'Completed',
       clearanceId: clearance.requestId || clearance._id,
-      clearanceSummary: clearance.departmentClearances || [],
-    }));
+      clearanceSummary: await resolveOfficeReviewers(getOfficeProgress(clearance)),
+    })));
 
     res.json({ success: true, data: certificates });
   } catch (error) {
@@ -666,33 +849,89 @@ export const getEmployeeCertificates = async (req, res) => {
   try {
     const { employeeId } = req.params;
     let resolvedEmployeeId = employeeId;
+    let employeeUser = null;
     if (mongoose.Types.ObjectId.isValid(employeeId)) {
-      const employeeUser = await User.findById(employeeId).select('employeeId').lean();
+      employeeUser = await User.findById(employeeId).select('employeeId name email').lean();
       resolvedEmployeeId = employeeUser?.employeeId || employeeId;
     }
+    const identityQueries = [
+      { employeeId: resolvedEmployeeId },
+      { 'certificate.employeeId': resolvedEmployeeId },
+    ];
+    if (employeeUser?.name) identityQueries.push({ employeeName: employeeUser.name });
+    if (employeeUser?.email) identityQueries.push({ 'employee.email': employeeUser.email });
     const clearances = await Clearance.find({
-      $or: [{ employeeId: resolvedEmployeeId }, { 'certificate.employeeId': resolvedEmployeeId }],
+      $or: identityQueries,
       'certificate.number': { $exists: true },
       'certificate.issuedAt': { $exists: true },
     }).sort({ 'certificate.generatedAt': -1 }).lean();
 
-    const certificates = clearances.map((clearance) => ({
+    const certificates = await Promise.all(clearances.map(async (clearance) => {
+      const { offices } = getOfficeCounts(clearance);
+      const departmentClearances = await resolveOfficeReviewers(offices);
+      const employee = clearance.employee || {};
+      return ({
       certificateNo: clearance.certificate.number,
+      certificate: clearance.certificate,
       clearanceType: clearance.clearanceType || 'Resignation Clearance',
       completedDate: clearance.certificate.issuedAt || clearance.certificate.generatedAt,
       status: 'Issued',
       hrManagerName: clearance.certificate.generatedBy || 'HR Officer',
-      position: clearance.employee?.position || clearance.position || '—',
+      position: employee.position || clearance.position || '—',
+      campus: employee.campus || clearance.campus || '—',
+      collegeInstitute: employee.collegeInstitute || clearance.collegeInstitute || clearance.college || clearance.institute || '—',
+      employmentType: employee.employmentType || clearance.employmentType || '—',
+      requestId: clearance.requestId || clearance._id,
+      requestDate: clearance.requestDate || clearance.submissionDate || null,
+      lastWorkingDate: clearance.lastWorkingDate || clearance.expectedLastWorkingDate || employee.lastWorkingDate || null,
+      issuedAt: clearance.certificate.issuedAt || null,
+      issuedBy: clearance.certificate.generatedBy || 'HR Officer',
       clearanceId: clearance.requestId || clearance._id,
       employeeId: clearance.employeeId,
       employeeName: clearance.employeeName,
       department: typeof clearance.department === 'string' ? clearance.department : clearance.department?.name || '—',
-      departmentClearances: clearance.departmentClearances || [],
+      departmentClearances: [
+        ...departmentClearances,
+        {
+          office: 'Final HR Clearance',
+          status: 'Approved',
+          clearedBy: clearance.certificate.generatedBy || 'HR Officer',
+          clearedDate: clearance.certificate.issuedAt || clearance.certificate.generatedAt,
+        },
+      ],
+      });
     }));
 
     res.json({ success: true, data: certificates });
   } catch (error) {
     console.error('Error fetching employee certificates:', error);
     res.status(500).json({ success: false, message: 'Unable to fetch employee certificates', error: error.message });
+  }
+};
+
+export const verifyCertificate = async (req, res) => {
+  try {
+    const certificateNo = String(req.params.certificateNo || '').trim();
+    const clearance = await Clearance.findOne({
+      'certificate.number': certificateNo,
+      'certificate.issuedAt': { $exists: true },
+    }).lean();
+
+    if (!clearance) return res.status(404).json({ success: false, valid: false, message: 'Certificate not found or not issued.' });
+    res.json({
+      success: true,
+      valid: true,
+      certificate: {
+        certificateNo,
+        employeeName: clearance.employeeName,
+        employeeId: clearance.employeeId,
+        department: typeof clearance.department === 'string' ? clearance.department : clearance.department?.name || '—',
+        issuedAt: clearance.certificate.issuedAt,
+        issuedBy: clearance.certificate.generatedBy || 'HR Officer',
+        status: 'ISSUED',
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, valid: false, message: 'Unable to verify certificate.' });
   }
 };
