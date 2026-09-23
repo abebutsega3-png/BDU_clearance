@@ -16,6 +16,7 @@ import settingsRouter from './routes/settingsRoutes.js';
 import auditLogRouter from './routes/auditlog.js';
 import notificationRouter from './routes/notification.js';
 import reportRouter from './routes/reportRoutes.js';
+import publicHomeRouter from './routes/publicHomeRoutes.js';
 
 // Clearance Routers
 import clearanceRouter from './routes/clearance.js';
@@ -76,6 +77,7 @@ app.use('/api/audit-logs', auditLogRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/department-head/settings', departmentSettingsRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/public/home', publicHomeRouter);
 
 // 2. Clearance Routes
 app.use('/api/clearance', clearanceRouter);
