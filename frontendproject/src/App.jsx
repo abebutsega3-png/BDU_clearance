@@ -94,6 +94,7 @@ import ICTNotifications from './components/ICT Officer/ICTNotifications';
 import ICTProfile from './components/ICT Officer/ICTProfile';
 import ICTSettings from './components/ICT Officer/ICTSettings';
 import DepartmentNotifications from './components/departmentheaddashboared/departmentnotification';
+import EmployeeClearanceChatbot from './components/EmployeeClearanceChatbot';
 
 
 function AdminLayout({ children }) {
@@ -118,6 +119,8 @@ function MainLayout() {
   const isLibraryRoute = location.pathname.startsWith('/library-office');
   const isPropertyRoute = location.pathname.startsWith('/property');
   const isICTRoute = location.pathname.startsWith('/ict-office');
+	const assistantRoutePrefixes = ['/admin', '/hr-office', '/employee', '/department-head', '/finance-office', '/library-office', '/property', '/ict-office', '/other-office'];
+	const showAssistant = location.pathname === '/contact' || assistantRoutePrefixes.some((prefix) => location.pathname.startsWith(prefix));
   const allowedPathsForFooter = ['/', '/home', '/services', '/about', '/instruction', '/contact'];
   const showFooter = allowedPathsForFooter.includes(location.pathname);
 
@@ -607,6 +610,7 @@ function MainLayout() {
             }
           />
         </Routes>
+				{showAssistant && <EmployeeClearanceChatbot />}
       </div>
 
 	{!isAdminRoute && !isFinanceRoute && !isLibraryRoute && !isPropertyRoute && showFooter && <Footer />}

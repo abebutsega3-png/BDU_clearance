@@ -54,6 +54,7 @@ import financeProfileRouter from './routes/financeProfileRoutes.js';
 import financeNotificationRouter from './routes/financenotificationRoutes.js';
 import financeSettingsRouter from './routes/financeSettingsRoutes.js';
 import departmentSettingsRouter from './routes/departmentSettingsRoutes.js';
+import aiRouter from './routes/aiRoutes.js';
 
 const app = express();
 
@@ -76,6 +77,7 @@ app.use('/api/audit-logs', auditLogRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/department-head/settings', departmentSettingsRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/ai', aiRouter);
 
 // 2. Clearance Routes
 app.use('/api/clearance', clearanceRouter);
