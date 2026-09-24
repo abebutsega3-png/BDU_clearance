@@ -497,6 +497,7 @@ export const returnFinanceRequest = async (req, res) => {
     const { id } = req.params;
     const returnReason = String(req.body.returnReason || '').trim();
     const comment = String(req.body.comment || req.body.remarks || '').trim();
+    const affectedField = String(req.body.affectedField || '').trim();
 
     if (!returnReason) {
       return res
@@ -526,6 +527,12 @@ export const returnFinanceRequest = async (req, res) => {
     request.returnReason = returnReason;
     request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
     request.financeReviewedAt = new Date();
+    request.returnedBy = request.financeReviewedBy;
+    request.returnedOffice = 'Finance Office';
+    request.returnedAt = request.financeReviewedAt;
+    request.returnedReason = returnReason;
+    request.returnedRemark = comment;
+    request.affectedField = affectedField || 'Finance Clearance';
     updateFinanceWorkflow(request, 'Returned', returnReason);
     const financeStep = request.workflow.find((step) => /finance/i.test(step.office || step.name || ''));
     if (financeStep) {

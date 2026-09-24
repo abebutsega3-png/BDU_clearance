@@ -299,7 +299,7 @@ const getIctClearanceRequests = async (req, res) => {
 const processIctClearanceRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, remarks, returnReason, assetsIssued, accountDeactivation, ictChecklist } = req.body;
+    const { status, remarks, returnReason, affectedField = '', assetsIssued, accountDeactivation, ictChecklist } = req.body;
     const finalStatus = normalizeIctStatus(status);
 
     if (finalStatus === "Returned" && (!remarks || remarks.trim() === "")) {
@@ -367,6 +367,7 @@ const processIctClearanceRequest = async (req, res) => {
       status: finalStatus,
       remarks: request.remarks,
       returnReason: request.returnReason,
+      affectedField,
     };
     const existingIctStep = Array.isArray(clearance.workflow)
       ? clearance.workflow.findIndex((step) => /ict/i.test(step.office || step.name || ''))
@@ -384,6 +385,14 @@ const processIctClearanceRequest = async (req, res) => {
           ictReturnReason: request.returnReason,
           ictReviewedBy: request.processedBy.officerName,
           ictReviewedAt: request.processedBy.processedAt,
+          ...(finalStatus === 'Returned' ? {
+            returnedBy: request.processedBy.officerName,
+            returnedOffice: 'ICT Office',
+            returnedAt: request.processedBy.processedAt,
+            returnedReason: request.returnReason,
+            returnedRemark: request.remarks,
+            affectedField: affectedField || 'ICT Clearance',
+          } : {}),
           ictAssets: request.assetsIssued,
           ictChecklist: request.ictChecklist,
           ictClearance: {

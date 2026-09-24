@@ -42,6 +42,12 @@ const ClearanceRequestSchema = new mongoose.Schema(
     },
     officerComment: { type: String, default: '' },
     returnReason: { type: String, default: '' },
+    returnedBy: { type: String, default: '' },
+    returnedOffice: { type: String, default: '' },
+    returnedAt: { type: Date },
+    returnedReason: { type: String, default: '' },
+    returnedRemark: { type: String, default: '' },
+    affectedField: { type: String, default: '' },
     reviewedAt: { type: Date },
     ictClearance: {
       status: {

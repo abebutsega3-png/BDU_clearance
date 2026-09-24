@@ -37,7 +37,7 @@ export const updateInitialHRDecision = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only an HR Officer can complete Initial HR Review.' });
     }
     const { id } = req.params;
-    const { decision, remarks = '' } = req.body || {};
+    const { decision, remarks = '', reason = '', affectedField = '' } = req.body || {};
     const normalizedDecision = String(decision || '').trim().toLowerCase();
     if (!['in progress', 'approved', 'returned'].includes(normalizedDecision)) {
       return res.status(400).json({ success: false, message: 'Initial HR decision must be Start Review, Approved, or Returned.' });
@@ -73,15 +73,25 @@ export const updateInitialHRDecision = async (req, res) => {
     current.initialHRStatus = approved ? 'Approved' : 'Returned';
     current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
     current.initialHRReviewedAt = new Date();
-    current.initialHRRemarks = String(remarks).trim();
-    current.returnReason = approved ? '' : String(remarks).trim();
-    current.officerComment = String(remarks).trim();
+    const reviewerName = req.user?.fullName || req.user?.name || 'HR Officer';
+    const returnReason = String(reason || remarks).trim();
+    const returnRemark = String(remarks).trim();
+    current.initialHRRemarks = returnRemark;
+    current.initialHRReviewedBy = reviewerName;
+    current.returnReason = approved ? '' : returnReason;
+    current.officerComment = returnRemark;
+    current.returnedBy = approved ? '' : reviewerName;
+    current.returnedOffice = approved ? '' : 'HR Officer';
+    current.returnedAt = approved ? null : current.initialHRReviewedAt;
+    current.returnedReason = approved ? '' : returnReason;
+    current.returnedRemark = approved ? '' : returnRemark;
+    current.affectedField = approved ? '' : String(affectedField).trim();
     current.status = approved ? 'In Progress' : 'Returned';
     current.overallStatus = approved ? 'In Progress' : 'Returned';
     current.currentStep = approved ? 'Department Head' : 'Employee';
     current.workflow = (Array.isArray(current.workflow) ? current.workflow : []).map((step) => {
       if (/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))) {
-        return { ...step, office: 'Initial HR Review', status: approved ? 'Completed' : 'Rejected', reviewedBy: current.initialHRReviewedBy, reviewedAt: current.initialHRReviewedAt, updatedAt: current.initialHRReviewedAt, remarks: String(remarks).trim() };
+        return { ...step, office: 'Initial HR Review', status: approved ? 'Completed' : 'Rejected', reviewedBy: reviewerName, reviewedAt: current.initialHRReviewedAt, updatedAt: current.initialHRReviewedAt, remarks: returnRemark, returnReason: approved ? '' : returnReason, affectedField: approved ? '' : String(affectedField).trim() };
       }
       if (/department/i.test(String(step.office || step.name || ''))) {
         return { ...step, status: 'Pending', updatedAt: new Date() };
@@ -89,6 +99,25 @@ export const updateInitialHRDecision = async (req, res) => {
       return step;
     });
     await current.save();
+
+    await ClearanceRequest.updateOne(
+      { requestId: current.requestId },
+      {
+        $set: {
+          status: approved ? 'In Progress' : 'Returned',
+          overallStatus: approved ? 'In Progress' : 'Returned',
+          officerComment: approved ? '' : returnRemark,
+          returnReason: approved ? '' : returnReason,
+          returnedBy: approved ? '' : reviewerName,
+          returnedOffice: approved ? '' : 'HR Officer',
+          returnedAt: approved ? null : current.initialHRReviewedAt,
+          returnedReason: approved ? '' : returnReason,
+          returnedRemark: approved ? '' : returnRemark,
+          affectedField: approved ? '' : String(affectedField).trim(),
+          updatedAt: new Date(),
+        },
+      },
+    );
 
     const employeeUser = await findEmployeeUser(current);
     await Notification.create({
@@ -374,6 +403,12 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         expectedLastWorkingDate: clearanceRequest?.expectedLastWorkingDate,
         initialHRReviewedBy: initialHRReviewer[0].clearedBy,
         initialHRReviewedAt: clearance.initialHRReviewedAt,
+        returnedBy: clearance.returnedBy || (clearance.initialHRStatus === 'Returned' ? clearance.initialHRReviewedBy : ''),
+        returnedOffice: clearance.returnedOffice || (clearance.initialHRStatus === 'Returned' ? 'HR Officer' : ''),
+        returnedAt: clearance.returnedAt || (clearance.initialHRStatus === 'Returned' ? clearance.initialHRReviewedAt : null),
+        returnedReason: clearance.returnedReason || clearance.returnReason || clearance.initialHRRemarks || '',
+        returnedRemark: clearance.returnedRemark || clearance.initialHRRemarks || clearance.officerComment || '',
+        affectedField: clearance.affectedField || '',
         financeReviewedBy: clearance.financeReviewedBy,
         financeReviewedAt: clearance.financeReviewedAt,
         libraryReviewedBy: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
@@ -435,7 +470,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
 export const updateHRFinalDecision = async (req, res) => {
   try {
     const { id } = req.params;
-    const { decision: requestedDecision, status, action, remarks, checklistCompleted } = req.body;
+    const { decision: requestedDecision, status, action, remarks, reason, affectedField, checklistCompleted } = req.body;
     const rawDecision = requestedDecision || status || action;
 
     // Validate decision
@@ -461,6 +496,9 @@ export const updateHRFinalDecision = async (req, res) => {
         message: 'Invalid decision status'
       });
     }
+    const finalReviewer = req.user?.fullName || req.user?.name || 'HR Officer';
+    const finalReturnReason = String(reason || remarks || '').trim();
+    const finalReturnRemark = String(remarks || '').trim();
 
     const clearanceFilter = {
       $or: [
@@ -490,9 +528,15 @@ export const updateHRFinalDecision = async (req, res) => {
         $set: {
           status: decision,
             overallStatus: decision,
-            returnReason: decision === 'Returned' || decision === 'Rejected' ? (remarks || '') : '',
+            returnReason: decision === 'Returned' || decision === 'Rejected' ? finalReturnReason : '',
             officerComment: remarks || '',
             reviewedAt: new Date(),
+            returnedBy: decision === 'Returned' || decision === 'Rejected' ? finalReviewer : '',
+            returnedOffice: decision === 'Returned' || decision === 'Rejected' ? 'HR Officer' : '',
+            returnedAt: decision === 'Returned' || decision === 'Rejected' ? new Date() : null,
+            returnedReason: decision === 'Returned' || decision === 'Rejected' ? finalReturnReason : '',
+            returnedRemark: decision === 'Returned' || decision === 'Rejected' ? finalReturnRemark : '',
+            affectedField: decision === 'Returned' || decision === 'Rejected' ? String(affectedField || 'Final HR Clearance') : '',
           finalHRApproval: decision === 'Completed',
           hrRemarks: remarks || '',
           checklistCompleted: Boolean(checklistCompleted),
@@ -526,6 +570,14 @@ export const updateHRFinalDecision = async (req, res) => {
           $set: {
             status: decision,
             overallStatus: decision,
+            ...(decision === 'Returned' || decision === 'Rejected' ? {
+              returnedBy: finalReviewer,
+              returnedOffice: 'HR Officer',
+              returnedAt: new Date(),
+              returnedReason: finalReturnReason,
+              returnedRemark: finalReturnRemark,
+              affectedField: String(affectedField || 'Final HR Clearance'),
+            } : {}),
             updatedAt: new Date()
           }
         }

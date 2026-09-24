@@ -43,13 +43,42 @@ const apiGetHistoryReport = async (filters) => {
   return res.data;
 };
 
+const getDateInputValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getPeriodRange = (period) => {
+  const today = new Date();
+  const start = new Date(today);
+  const end = new Date(today);
+
+  if (period === "weekly") {
+    const daysFromMonday = (today.getDay() + 6) % 7;
+    start.setDate(today.getDate() - daysFromMonday);
+    end.setDate(start.getDate() + 6);
+  } else if (period === "monthly") {
+    start.setDate(1);
+    end.setMonth(today.getMonth() + 1, 0);
+  } else if (period === "yearly") {
+    start.setMonth(0, 1);
+    end.setMonth(11, 31);
+  }
+
+  return { startDate: getDateInputValue(start), endDate: getDateInputValue(end) };
+};
+
+const defaultPeriodRange = getPeriodRange("monthly");
+
 // =========================================================
 // 2. MAIN COMPONENT
 // =========================================================
 const FinanceReportsPage = () => {
   const [filters, setFilters] = useState({
-    startDate: "",
-    endDate: "",
+    period: "monthly",
+    ...defaultPeriodRange,
     campus: "",
     department: "",
     clearanceReason: "",
@@ -90,7 +119,14 @@ const FinanceReportsPage = () => {
   }, []);
 
   const handleFilterChange = (e) => {
-    setFilters({ ...filters, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFilters((current) => {
+      if (name === "period" && value !== "custom") {
+        return { ...current, period: value, ...getPeriodRange(value) };
+      }
+      if (name === "period") return { ...current, period: value, startDate: "", endDate: "" };
+      return { ...current, [name]: value };
+    });
   };
 
   const handleGenerateReport = (e) => {
@@ -141,6 +177,17 @@ const FinanceReportsPage = () => {
           <Filter size={18} />
           <span>Report Filters</span>
         </div>
+        <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-800">Report Period</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly'], ['custom', 'Custom Date Range']].map(([value, label]) => (
+              <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                <input type="radio" name="period" value={value} checked={filters.period === value} onChange={handleFilterChange} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
         <form onSubmit={handleGenerateReport} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
@@ -149,6 +196,7 @@ const FinanceReportsPage = () => {
               name="startDate"
               value={filters.startDate}
               onChange={handleFilterChange}
+              disabled={filters.period !== "custom"}
               className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
@@ -160,6 +208,7 @@ const FinanceReportsPage = () => {
               name="endDate"
               value={filters.endDate}
               onChange={handleFilterChange}
+              disabled={filters.period !== "custom"}
               className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>

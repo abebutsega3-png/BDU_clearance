@@ -13,17 +13,44 @@ const toStatusList = (status) => {
   return [status];
 };
 
-const buildFilterQuery = (query = {}) => {
-  const { startDate, endDate, campus, department, clearanceReason, status } = query;
+const getPeriodDates = ({ period, startDate, endDate }) => {
+  if (period === "custom") return { startDate, endDate };
+
+  const today = new Date();
+  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  let start = new Date(end);
+
+  if (period === "weekly") {
+    const dayOfWeek = end.getUTCDay();
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    start.setUTCDate(start.getUTCDate() - daysFromMonday);
+    end.setUTCDate(start.getUTCDate() + 6);
+  } else if (period === "monthly") {
+    start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+    end.setUTCMonth(end.getUTCMonth() + 1, 0);
+  } else if (period === "yearly") {
+    start = new Date(Date.UTC(end.getUTCFullYear(), 0, 1));
+    end.setUTCMonth(11, 31);
+  } else {
+    return { startDate, endDate };
+  }
+
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+};
+
+const buildFilterQuery = (query = {}, dateField = "createdAt") => {
+  const { campus, department, clearanceReason, status } = query;
+  const { startDate, endDate } = getPeriodDates(query);
   const filter = {};
 
   if (startDate || endDate) {
-    filter.createdAt = {};
-    if (startDate) filter.createdAt.$gte = new Date(startDate);
+    filter[dateField] = {};
+    if (startDate) filter[dateField].$gte = new Date(`${startDate}T00:00:00.000Z`);
     if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      filter.createdAt.$lte = end;
+      filter[dateField].$lte = new Date(`${endDate}T23:59:59.999Z`);
     }
   }
 
@@ -38,7 +65,7 @@ const buildFilterQuery = (query = {}) => {
       { status: { $in: statuses } },
       { overallStatus: { $in: statuses } },
     ];
-    filter.$or = statusOr;
+    filter.$and = [{ $or: statusOr }];
   }
 
   return filter;
@@ -168,7 +195,7 @@ export const getPendingClearancesReport = async (req, res) => {
 
 export const getFinanceHistoryReport = async (req, res) => {
   try {
-    const filter = buildFilterQuery(req.query);
+    const filter = buildFilterQuery(req.query, "financeReviewedAt");
     const history = await ClearanceRequest.find({
       ...filter,
       $or: [

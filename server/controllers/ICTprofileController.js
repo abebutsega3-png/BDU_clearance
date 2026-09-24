@@ -15,7 +15,7 @@ export const getProfile = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const { name, phoneNumber, email } = req.body;
+    const { name, phoneNumber, alternativePhone, email, profileImage } = req.body;
 
     const user = await User.findById(req.user._id);
     if (!user) {
@@ -24,7 +24,9 @@ export const updateProfile = async (req, res) => {
 
     if (name !== undefined) user.name = name;
     if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+    if (alternativePhone !== undefined) user.alternativePhone = alternativePhone;
     if (email !== undefined) user.email = email;
+    if (profileImage !== undefined) user.profileImage = profileImage;
 
     user.updatedAt = new Date();
     await user.save();
@@ -64,6 +66,7 @@ export const changePassword = async (req, res) => {
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
+    user.passwordChangedAt = new Date();
     user.updatedAt = new Date();
     await user.save();
 

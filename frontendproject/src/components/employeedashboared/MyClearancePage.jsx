@@ -37,6 +37,7 @@ const statusStyles = {
 };
 
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
+const formatReturnedDate = (value) => value ? new Date(value).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '-';
 
 export default function MyClearancePage() {
   const { user } = useAuth();
@@ -468,19 +469,23 @@ export default function MyClearancePage() {
                   <div className="mt-4 space-y-4 text-[12px] text-slate-700">
                     <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2">
                       <span className="font-medium text-slate-500">Returned By</span>
-                      <span className="font-semibold text-slate-800">{returnedStep?.office || currentRequest?.returnedOffice || '-'}</span>
+                      <span className="font-semibold text-slate-800">{currentRequest?.returnedBy || currentRequest?.financeReviewedBy ? `${currentRequest.returnedOffice || 'Returning Officer'}: ${currentRequest.returnedBy || currentRequest.financeReviewedBy}` : (returnedStep?.clearedBy || returnedStep?.office || '-')}</span>
                     </div>
                     <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2">
                       <span className="font-medium text-slate-500">Returned Date</span>
-                      <span className="font-semibold text-slate-800">{returnedStep?.updatedAt ? formatDate(returnedStep.updatedAt) : currentRequest?.returnedAt ? formatDate(currentRequest.returnedAt) : '-'}</span>
+                      <span className="font-semibold text-slate-800">{formatReturnedDate(currentRequest?.returnedAt || returnedStep?.updatedAt)}</span>
                     </div>
                     <div className="space-y-1">
                       <p className="font-medium text-slate-500">Reason</p>
-                      <p className="rounded-md border border-red-200 bg-red-50 p-2 text-red-700">{progressInfo.returnReason || returnedStep?.returnReason || returnedStep?.comment || currentRequest?.returnReason || currentRequest?.financeRemarks || 'No return reason provided.'}</p>
+                      <p className="rounded-md border border-red-200 bg-red-50 p-2 text-red-700">{currentRequest?.returnedReason || progressInfo.returnReason || returnedStep?.returnReason || returnedStep?.comment || currentRequest?.returnReason || currentRequest?.financeRemarks || 'No return reason provided.'}</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="font-medium text-slate-500">Remark</p>
-                      <p className="text-slate-600">{currentRequest?.remarks || '-'}</p>
+                      <p className="font-medium text-slate-500">HR Remark</p>
+                      <p className="text-slate-600">{currentRequest?.returnedRemark || currentRequest?.initialHRRemarks || currentRequest?.officerComment || '-'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-medium text-slate-500">Affected Field</p>
+                      <p className="text-slate-600">{currentRequest?.affectedField || '-'}</p>
                     </div>
                   </div>
 

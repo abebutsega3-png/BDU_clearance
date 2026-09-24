@@ -33,7 +33,13 @@ const libraryClearanceSchema = new mongoose.Schema(
     },
     verificationResult: { type: String, enum: ['Clear', 'Not Clear', ''], default: '' },
     comment: { type: String, default: '' },
-    returnReason: { type: String, default: '' }
+    returnReason: { type: String, default: '' },
+    returnedBy: { type: String, default: '' },
+    returnedOffice: { type: String, default: '' },
+    returnedAt: { type: Date },
+    returnedReason: { type: String, default: '' },
+    returnedRemark: { type: String, default: '' },
+    affectedField: { type: String, default: '' }
   },
   { timestamps: true }
 );

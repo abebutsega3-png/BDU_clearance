@@ -76,10 +76,16 @@ const updatePropertyWorkflow = (request, status) => {
   }
 };
 
-const updatePropertyReturnDetails = (request, returnReason, officerComment) => {
+const updatePropertyReturnDetails = (request, returnReason, officerComment, affectedField = '') => {
   request.propertyReturnReason = returnReason;
   request.returnReason = returnReason;
   request.officerComment = officerComment || returnReason;
+  request.returnedBy = request.propertyReviewedBy || '';
+  request.returnedOffice = 'Property / Asset Office';
+  request.returnedAt = request.propertyReviewedAt;
+  request.returnedReason = returnReason;
+  request.returnedRemark = officerComment || returnReason;
+  request.affectedField = affectedField || 'Property / Asset Clearance';
   if (Array.isArray(request.workflow)) {
     const propertyStep = request.workflow.find((step) => String(step.office || '').toLowerCase().includes('property'));
     if (propertyStep) {
@@ -238,7 +244,7 @@ export const approveClearance = async (req, res) => {
 
 export const returnRequest = async (req, res) => {
   try {
-    const { returnReason, officerComment } = req.body;
+    const { returnReason, officerComment, affectedField = '' } = req.body;
     if (!returnReason) {
       return res.status(400).json({ message: 'Return reason is required' });
     }
@@ -247,7 +253,12 @@ export const returnRequest = async (req, res) => {
     if (!request) return res.status(400).json({ message: 'Request cannot be returned' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
     updatePropertyWorkflow(request, 'Returned');
-    updatePropertyReturnDetails(request, returnReason, officerComment);
+    const reviewer = req.user?._id
+      ? await User.findById(req.user._id).select('name fullName').lean()
+      : null;
+    request.propertyReviewedBy = reviewer?.fullName || reviewer?.name || req.user?.fullName || req.user?.name || 'Property Officer';
+    request.propertyReviewedAt = new Date();
+    updatePropertyReturnDetails(request, returnReason, officerComment, affectedField);
     request.status = 'Returned';
     request.overallStatus = 'Returned';
     request.currentStep = resolveNextStepAfterDecision('Property / Asset Office', 'Returned');

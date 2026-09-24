@@ -19,6 +19,8 @@ const ClearanceRequests = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionError, setDecisionError] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [returnReason, setReturnReason] = useState('');
+  const [affectedField, setAffectedField] = useState('');
   const [reviewDecision, setReviewDecision] = useState('');
   const [reviewStarted, setReviewStarted] = useState(false);
   const [showReturnForm, setShowReturnForm] = useState(false);
@@ -55,6 +57,8 @@ const ClearanceRequests = () => {
     if (!requestId) return;
     setDecisionError('');
     setRemarks('');
+    setReturnReason('');
+    setAffectedField('');
     setReviewDecision('');
     setReviewStarted(request.initialHRStatus === 'Under Review');
     setShowReturnForm(false);
@@ -98,7 +102,7 @@ const ClearanceRequests = () => {
       setDecisionError('Select Accept or Return before submitting the decision.');
       return;
     }
-    if (reviewDecision === 'Returned' && !remarks.trim()) {
+    if (reviewDecision === 'Returned' && !returnReason.trim()) {
       setDecisionError('Return reason is required.');
       return;
     }
@@ -109,6 +113,8 @@ const ClearanceRequests = () => {
       const { data } = await axios.patch(`http://localhost:3000/api/hr-final-clearance/initial-clearance/${requestId}/decision`, {
         decision: reviewDecision,
         remarks,
+        reason: returnReason,
+        affectedField,
       }, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } });
       setRequests((current) => current.map((request) => (
         (request.requestId || request._id) === requestId ? { ...request, ...data.clearance } : request
@@ -193,7 +199,9 @@ const ClearanceRequests = () => {
                       <textarea id="hr-review-remarks" value={remarks} onChange={(event) => setRemarks(event.target.value)} rows="3" placeholder="Add HR review remarks..." className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-500" />
                       {reviewDecision === 'Returned' && <>
                         <label className="mt-3 block text-xs font-semibold text-slate-700" htmlFor="hr-return-reason">Return Reason <span className="text-red-600">*</span></label>
-                        <textarea id="hr-return-reason" value={remarks} onChange={(event) => setRemarks(event.target.value)} rows="3" placeholder="Explain what the employee must correct..." className="mt-2 w-full rounded-lg border border-red-200 px-3 py-2 text-xs outline-none focus:border-red-500" />
+                        <textarea id="hr-return-reason" value={returnReason} onChange={(event) => setReturnReason(event.target.value)} rows="2" placeholder="Explain what the employee must correct..." className="mt-2 w-full rounded-lg border border-red-200 px-3 py-2 text-xs outline-none focus:border-red-500" />
+                        <label className="mt-3 block text-xs font-semibold text-slate-700" htmlFor="hr-affected-field">Affected Field</label>
+                        <input id="hr-affected-field" value={affectedField} onChange={(event) => setAffectedField(event.target.value)} placeholder="Example: Last Working Date" className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-500" />
                       </>}
                     </>}
                     {decisionError && <p className="mt-2 text-xs text-red-600">{decisionError}</p>}

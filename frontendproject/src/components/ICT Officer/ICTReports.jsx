@@ -16,9 +16,38 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const API_URL = 'http://localhost:3000/api/ict/reports';
+
+const getDateInputValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getPeriodRange = (period) => {
+  const today = new Date();
+  const start = new Date(today);
+  const end = new Date(today);
+
+  if (period === 'weekly') {
+    const daysFromMonday = (today.getDay() + 6) % 7;
+    start.setDate(today.getDate() - daysFromMonday);
+    end.setDate(start.getDate() + 6);
+  } else if (period === 'monthly') {
+    start.setDate(1);
+    end.setMonth(today.getMonth() + 1, 0);
+  } else if (period === 'yearly') {
+    start.setMonth(0, 1);
+    end.setMonth(11, 31);
+  }
+
+  return { startDate: getDateInputValue(start), endDate: getDateInputValue(end) };
+};
+
+const defaultPeriodRange = getPeriodRange('monthly');
 const initialFilters = {
-  startDate: '',
-  endDate: '',
+  period: 'monthly',
+  ...defaultPeriodRange,
   campus: 'All',
   department: 'All',
   status: 'All',
@@ -93,7 +122,14 @@ export default function ICTReports() {
     return { background: `conic-gradient(${stops.join(', ') || '#e2e8f0 0 100%'})` };
   }, [counts, chartTotal]);
 
-  const updateFilter = (event) => setFilters((current) => ({ ...current, [event.target.name]: event.target.value }));
+  const updateFilter = (event) => {
+    const { name, value } = event.target;
+    setFilters((current) => {
+      if (name === 'period' && value !== 'custom') return { ...current, period: value, ...getPeriodRange(value) };
+      if (name === 'period') return { ...current, period: value, startDate: '', endDate: '' };
+      return { ...current, [name]: value };
+    });
+  };
   const resetFilters = () => {
     setFilters(initialFilters);
     fetchReports(undefined, initialFilters);
@@ -141,8 +177,19 @@ export default function ICTReports() {
 
         <form onSubmit={fetchReports} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
           <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800"><Filter size={16} className="text-blue-600" /> Report Filters</div>
+          <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-800">Report Period</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly'], ['custom', 'Custom Date Range']].map(([value, label]) => (
+                <label key={value} className="flex cursor-pointer items-center gap-2 text-sm font-normal text-slate-700">
+                  <input type="radio" name="period" value={value} checked={filters.period === value} onChange={updateFilter} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            {['startDate', 'endDate'].map((name) => <label key={name} className="text-[11px] font-semibold text-slate-600">{name === 'startDate' ? 'From Date' : 'To Date'}<input type="date" name={name} value={filters[name]} onChange={updateFilter} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs" /></label>)}
+            {['startDate', 'endDate'].map((name) => <label key={name} className="text-[11px] font-semibold text-slate-600">{name === 'startDate' ? 'From Date' : 'To Date'}<input type="date" name={name} value={filters[name]} onChange={updateFilter} disabled={filters.period !== 'custom'} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs disabled:bg-slate-100 disabled:text-slate-400" /></label>)}
             <label className="text-[11px] font-semibold text-slate-600">Campus<select name="campus" value={filters.campus} onChange={updateFilter} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"><option>All</option><option>Main Campus</option><option>Tibebe Ghion Campus</option><option>Felege Hiwot Campus</option></select></label>
             <label className="text-[11px] font-semibold text-slate-600">Department<select name="department" value={filters.department} onChange={updateFilter} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"><option>All</option><option>Information Technology</option><option>Computer Science</option><option>Finance</option><option>Human Resource</option></select></label>
             <label className="text-[11px] font-semibold text-slate-600">Status<select name="status" value={filters.status} onChange={updateFilter} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"><option>All</option>{statuses.map((status) => <option key={status.name}>{status.name}</option>)}<option>Completed</option></select></label>

@@ -421,18 +421,34 @@ const getMyClearances = async (req, res) => {
 		}
 		const filter = filterParts.length ? { $or: filterParts } : { _id: null };
 		const clearances = await Clearance.find(filter).sort({ createdAt: -1 }).lean();
-		const normalizedClearances = clearances.map((clearance) => {
+		const normalizedClearances = await Promise.all(clearances.map(async (clearance) => {
 			const ictStep = Array.isArray(clearance.workflow)
 				? clearance.workflow.find((step) => /ict/i.test(step.office || step.name || ''))
 				: null;
 			const ictDecision = clearance.ictClearance || {};
+			const returnedOffice = clearance.returnedOffice || (clearance.initialHRStatus === 'Returned' ? 'HR Officer' : '');
+			const returnedBy = clearance.returnedBy
+				|| (returnedOffice === 'Finance Office' ? clearance.financeReviewedBy : '')
+				|| (clearance.initialHRStatus === 'Returned' ? clearance.initialHRReviewedBy : '');
+			const returnedAt = clearance.returnedAt || (clearance.initialHRStatus === 'Returned' ? clearance.initialHRReviewedAt : null);
+			const returnedReason = clearance.returnedReason || clearance.returnReason || clearance.initialHRRemarks || '';
+			const returnedRemark = clearance.returnedRemark || clearance.initialHRRemarks || clearance.officerComment || '';
+			const propertyOfficer = returnedOffice === 'Property / Asset Office' && returnedBy === 'Property Officer'
+				? await User.findOne({ role: { $regex: '^property( / asset)? officer$', $options: 'i' } }).select('name fullName').sort({ createdAt: 1 }).lean()
+				: null;
 			return {
 				...clearance,
+				returnedBy: propertyOfficer?.fullName || propertyOfficer?.name || returnedBy,
+				returnedOffice,
+				returnedAt,
+				returnedReason,
+				returnedRemark,
+				affectedField: clearance.affectedField || '',
 				ictStatus: clearance.ictStatus || ictDecision.status || ictStep?.status || 'Pending',
 				ictRemarks: clearance.ictRemarks || ictDecision.comment || ictStep?.remarks || '',
 				ictReturnReason: clearance.ictReturnReason || ictDecision.returnReason || ictStep?.returnReason || '',
 			};
-		});
+		}));
 		return res.status(200).json({ success: true, clearances: normalizedClearances });
 	} catch (error) {
 		console.error('Error in getMyClearances:', error);
@@ -673,6 +689,7 @@ const updateClearance = async (req, res) => {
 				return res.status(400).json({ success: false, message: 'Return reason is required.' });
 			}
 			const reviewedAt = new Date();
+			const departmentReviewer = req.user?.fullName || req.user?.name || '';
 			requestUpdates.departmentStatus = departmentStatus;
 			if (departmentStatus === 'Approved') {
 				requestUpdates.status = 'In Progress';
@@ -682,9 +699,14 @@ const updateClearance = async (req, res) => {
 				requestUpdates.status = 'Returned';
 				requestUpdates.overallStatus = 'Returned';
 				requestUpdates.returnReason = departmentDecision.returnReason.trim();
+				requestUpdates.returnedBy = departmentReviewer;
+				requestUpdates.returnedOffice = 'Department Head';
+				requestUpdates.returnedAt = reviewedAt;
+				requestUpdates.returnedReason = departmentDecision.returnReason.trim();
+				requestUpdates.returnedRemark = departmentDecision.comment || requestUpdates.remarks || '';
+				requestUpdates.affectedField = requestUpdates.affectedField || departmentDecision.affectedField || 'Department Head Review';
 			}
 			requestUpdates.departmentReturnReason = departmentDecision.returnReason || '';
-			const departmentReviewer = req.user?.fullName || req.user?.name || '';
 			requestUpdates.departmentReviewedBy = departmentReviewer;
 			requestUpdates.departmentReviewedById = req.user?._id || null;
 			requestUpdates.departmentReviewedAt = reviewedAt;
@@ -720,6 +742,12 @@ const updateClearance = async (req, res) => {
 				requestUpdates.status = 'Returned';
 				requestUpdates.overallStatus = 'Returned';
 				requestUpdates.returnReason = returnReason;
+				requestUpdates.returnedBy = requestUpdates.libraryReviewedBy;
+				requestUpdates.returnedOffice = 'Library Office';
+				requestUpdates.returnedAt = requestUpdates.libraryReviewedAt;
+				requestUpdates.returnedReason = returnReason;
+				requestUpdates.returnedRemark = comment;
+				requestUpdates.affectedField = requestUpdates.affectedField || libraryDecision.affectedField || 'Library Clearance';
 			}
 		}
 		if (Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length) {

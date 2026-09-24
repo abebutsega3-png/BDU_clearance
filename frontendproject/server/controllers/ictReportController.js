@@ -41,18 +41,42 @@ const getStatusSummary = (records = []) => {
   return summary;
 };
 
+const getPeriodDates = ({ period, startDate, endDate }) => {
+  if (period === 'custom') return { startDate, endDate };
+
+  const today = new Date();
+  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  let start = new Date(end);
+
+  if (period === 'weekly') {
+    const dayOfWeek = end.getUTCDay();
+    const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    start.setUTCDate(start.getUTCDate() - daysFromMonday);
+    end.setUTCDate(start.getUTCDate() + 6);
+  } else if (period === 'monthly') {
+    start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+    end.setUTCMonth(end.getUTCMonth() + 1, 0);
+  } else if (period === 'yearly') {
+    start = new Date(Date.UTC(end.getUTCFullYear(), 0, 1));
+    end.setUTCMonth(11, 31);
+  } else {
+    return { startDate, endDate };
+  }
+
+  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
+};
+
 export const getICTReports = async (req, res) => {
   try {
-    const { startDate, endDate, campus, department, status, reason } = req.query;
+    const { campus, department, status, reason } = req.query;
+    const { startDate, endDate } = getPeriodDates(req.query);
 
     const query = {};
     if (startDate || endDate) {
       query.requestDate = {};
-      if (startDate) query.requestDate.$gte = new Date(startDate);
+      if (startDate) query.requestDate.$gte = new Date(`${startDate}T00:00:00.000Z`);
       if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.requestDate.$lte = end;
+        query.requestDate.$lte = new Date(`${endDate}T23:59:59.999Z`);
       }
     }
     if (campus && campus !== 'All') query['employee.campus'] = campus;

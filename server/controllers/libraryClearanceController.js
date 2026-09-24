@@ -49,7 +49,7 @@ exports.approveClearance = async (req, res) => {
 // 4. Return Request (Under Review -> Returned)
 exports.returnClearance = async (req, res) => {
   try {
-    const { returnReason } = req.body;
+    const { returnReason, affectedField = '' } = req.body;
     if (!returnReason) {
       return res.status(400).json({ message: 'Return reason is required' });
     }
@@ -59,7 +59,13 @@ exports.returnClearance = async (req, res) => {
       {
         status: 'Returned',
         verificationResult: 'Not Clear',
-        returnReason
+        returnReason,
+        returnedBy: req.user?.fullName || req.user?.name || 'Library Officer',
+        returnedOffice: 'Library Office',
+        returnedAt: new Date(),
+        returnedReason: returnReason,
+        returnedRemark: req.body.comment || req.body.remarks || returnReason,
+        affectedField: affectedField || 'Library Clearance'
       },
       { returnDocument: 'after' }
     );
