@@ -100,7 +100,6 @@ export default function AddEmployee() {
     if (form.alternativePhone.trim() && normalizePhoneNumber(form.phone.trim()) === normalizePhoneNumber(form.alternativePhone.trim())) { setError('Phone Number and Alternative Phone must be different numbers.'); return; }
     if (!namePattern.test(form.fullName.trim())) { setError('Full Name must contain letters only, with spaces, hyphens, or apostrophes allowed.'); return; }
       if (!form.employmentDate || form.employmentDate > maxEmploymentDate) { setError('Employment Date cannot be in the future.'); return; }
-    <Field label="Employment Date" name="employmentDate" form={form} update={update} required type="date" max={maxEmploymentDate} title="Employment Date cannot be in the future." />
     for (const field of addressNameFields) {
       if (form[field].trim() && !namePattern.test(form[field].trim())) { setError(`${field} must contain letters only, with spaces, hyphens, or apostrophes allowed.`); return; }
     }
@@ -120,7 +119,6 @@ export default function AddEmployee() {
       roomNumber: form.houseNumber,
       tinNumber: form.tin,
       emergencyContact: form.emergencyContactName,
-      emergencyPhone: form.emergencyContactPhone,
       relationship: form.emergencyContactRelationship,
       address: [form.region, form.city, form.subCity, form.woreda, form.kebele, form.houseNumber].filter(Boolean).join(', '),
     };

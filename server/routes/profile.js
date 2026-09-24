@@ -1,6 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import User from '../models/User.js';
+import Employee from '../models/employee.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
 
@@ -8,9 +9,17 @@ const router = express.Router();
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     if (String(req.user._id) !== String(req.params.id)) return res.status(403).json({ message: 'You can only view your own profile.' });
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json({ success: true, data: user });
+    const employee = user.employeeId ? await Employee.findOne({ employeeId: user.employeeId }).lean() : null;
+    const userData = user.toObject();
+    const data = { ...employee, ...userData };
+    if (!userData.position) data.position = employee?.position || '';
+    if (!userData.department) data.department = employee?.department || '';
+    if (!userData.campus) data.campus = employee?.campus || '';
+    if (!userData.phoneNumber) data.phoneNumber = employee?.phone || '';
+    if (!userData.email) data.email = employee?.email || '';
+    res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -38,6 +47,7 @@ router.patch('/:id/password', authMiddleware, async (req, res) => {
     if (!currentPassword || !newPassword || newPassword.length < 6) return res.status(400).json({ message: 'A current password and a new password of at least 6 characters are required.' });
     if (!(await bcrypt.compare(currentPassword, user.password))) return res.status(400).json({ message: 'Current password is incorrect.' });
     user.password = await bcrypt.hash(newPassword, 10);
+    user.passwordChangedAt = new Date();
     await user.save();
     res.json({ success: true, message: 'Password changed successfully.' });
   } catch (error) {

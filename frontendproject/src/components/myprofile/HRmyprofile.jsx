@@ -6,7 +6,7 @@ import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
 import { 
   User, Briefcase, ShieldCheck, Lock, Clock, Edit, 
-  Upload, Bell, ChevronRight, CheckCircle2 
+  Upload, Bell
 } from 'lucide-react';
 
 export default function UserProfile() {
@@ -137,17 +137,20 @@ export default function UserProfile() {
       </header>}
 
       {/* NAVIGATION TABS */}
-      <div className="bg-white border-b border-slate-200 px-6 flex space-x-8 text-slate-600">
+      <div className={`${isEmployeeProfile ? 'lg:ml-72' : ''} overflow-x-auto bg-white border-b border-slate-200 px-6`}>
+        <div className="flex min-w-max gap-6 text-slate-600">
         <TabButton icon={<User size={14} />} label="Personal Information" active={activeTab === 'personal'} onClick={() => setActiveTab('personal')} />
         <TabButton icon={<Briefcase size={14} />} label="Employment Information" active={activeTab === 'employment'} onClick={() => setActiveTab('employment')} />
         <TabButton icon={<ShieldCheck size={14} />} label="Account Information" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
         <TabButton icon={<Lock size={14} />} label="Change Password" active={activeTab === 'password'} onClick={() => setActiveTab('password')} />
         <TabButton icon={<Clock size={14} />} label="Activity" active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} />
+        </div>
       </div>
+      {message && <div className={`${isEmployeeProfile ? 'lg:ml-72' : ''} mx-6 mt-4 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800`}>{message}</div>}
 
-      {activeTab === 'account' && <div className="mx-6 mt-5 rounded-lg border border-slate-200 bg-white p-5 text-[11px] shadow-sm"><h2 className="mb-3 font-bold text-slate-800">Account Information</h2><div className="grid grid-cols-2 gap-3"><InfoRow label="Username" value={userData.email} /><InfoRow label="Role" value={userData.role} /><InfoRow label="Status" value={userData.accountStatus} /><InfoRow label="Account Created" value={userData.accountCreated} /></div></div>}
-      {activeTab === 'password' && <PasswordPanel />}
-      {activeTab === 'activity' && <div className="mx-6 mt-5 rounded-lg border border-slate-200 bg-white p-5 text-[11px] shadow-sm"><h2 className="mb-3 font-bold text-slate-800">Activity History</h2><p className="text-slate-600">Recent profile and account activity is shown in the Recent Activity panel.</p></div>}
+      {activeTab === 'account' && <div className={`${isEmployeeProfile ? 'lg:ml-72' : ''} mx-6 mt-5 rounded-lg border border-slate-200 bg-white p-5 text-[11px] shadow-sm`}><h2 className="mb-3 font-bold text-slate-800">Account Information</h2><div className="grid grid-cols-2 gap-3"><InfoRow label="Username" value={userData.email} /><InfoRow label="Role" value={userData.role} /><InfoRow label="Status" value={userData.accountStatus} /><InfoRow label="Account Created" value={userData.accountCreated} /></div></div>}
+      {activeTab === 'password' && <PasswordPanel isEmployeeProfile={isEmployeeProfile} />}
+      {activeTab === 'activity' && <div className={`${isEmployeeProfile ? 'lg:ml-72' : ''} mx-6 mt-5 rounded-lg border border-slate-200 bg-white p-5 text-[11px] shadow-sm`}><h2 className="mb-3 font-bold text-slate-800">Activity History</h2><p className="text-slate-600">Recent profile and account activity is shown in the Recent Activity panel.</p></div>}
 
       {/* MAIN CONTENT */}
       <div className={`grid grid-cols-12 gap-6 p-6 ${isEmployeeProfile ? 'lg:ml-72' : ''}`}>
@@ -292,7 +295,8 @@ function TabButton({ icon, label, active, onClick }) {
   return (
     <button 
       onClick={onClick}
-      className={`py-3 flex items-center gap-2 border-b-2 font-medium transition-colors ${
+      type="button"
+      className={`whitespace-nowrap py-3 flex items-center gap-2 border-b-2 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
         active 
           ? 'border-blue-600 text-blue-600' 
           : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -333,7 +337,7 @@ function ProfileField({ label, value, editing, onChange }) {
   );
 }
 
-function PasswordPanel() {
+function PasswordPanel({ isEmployeeProfile = false }) {
   const { user } = useAuth();
   const [values, setValues] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [message, setMessage] = useState('');
@@ -350,5 +354,5 @@ function PasswordPanel() {
       setMessage(error.response?.data?.message || 'Unable to change password.');
     } finally { setSaving(false); }
   };
-  return <form onSubmit={submit} className="mx-6 mt-5 max-w-xl rounded-lg border border-slate-200 bg-white p-5 text-[11px] shadow-sm"><h2 className="mb-4 font-bold text-slate-800">Change Password</h2><div className="space-y-3">{[['currentPassword', 'Current Password'], ['newPassword', 'New Password'], ['confirmPassword', 'Confirm New Password']].map(([name, label]) => <label key={name} className="block"><span className="mb-1 block text-slate-500">{label}</span><input required minLength={name === 'currentPassword' ? undefined : 6} type="password" value={values[name]} onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))} className="w-full rounded border border-slate-300 px-2 py-1.5 outline-none focus:border-blue-500" /></label>)}</div><button type="submit" disabled={saving || !user?._id} className="mt-4 rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">{saving ? 'Changing...' : 'Change Password'}</button>{message && <p className="mt-2 text-slate-600">{message}</p>}</form>;
+  return <form onSubmit={submit} className={`${isEmployeeProfile ? 'lg:ml-72' : ''} mx-6 mt-5 max-w-xl rounded-lg border border-slate-200 bg-white p-5 text-[11px] shadow-sm`}><h2 className="mb-4 font-bold text-slate-800">Change Password</h2><div className="space-y-3">{[['currentPassword', 'Current Password'], ['newPassword', 'New Password'], ['confirmPassword', 'Confirm New Password']].map(([name, label]) => <label key={name} className="block"><span className="mb-1 block text-slate-500">{label}</span><input required minLength={name === 'currentPassword' ? undefined : 6} type="password" value={values[name]} onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))} className="w-full rounded border border-slate-300 px-2 py-1.5 outline-none focus:border-blue-500" /></label>)}</div><button type="submit" disabled={saving || !user?._id} className="mt-4 rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">{saving ? 'Changing...' : 'Change Password'}</button>{message && <p className="mt-2 text-slate-600">{message}</p>}</form>;
 }

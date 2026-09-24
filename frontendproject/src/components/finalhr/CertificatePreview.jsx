@@ -14,15 +14,29 @@ const formatDate = (value, fallback = '—') => {
 };
 
 const displayValue = (value, fallback = '—') => value || fallback;
+const isGenericApprover = (value, officeName) => {
+  const normalizedValue = String(value || '').trim().toLowerCase();
+  const normalizedOffice = String(officeName || '').trim().toLowerCase();
+  if (!normalizedValue || normalizedValue === '-' || normalizedValue === '—') return true;
+  if (!normalizedValue.includes('officer') && !normalizedValue.includes('head')) return false;
+  return normalizedOffice.includes('finance') && normalizedValue.includes('finance')
+    || normalizedOffice.includes('property') && (normalizedValue.includes('property') || normalizedValue.includes('asset'))
+    || normalizedOffice.includes('ict') && normalizedValue.includes('ict')
+    || normalizedOffice.includes('library') && normalizedValue.includes('library')
+    || normalizedOffice.includes('department') && normalizedValue.includes('department');
+};
 
 const getOfficeSummary = (clearance) => {
+  const departmentWorkflowApproval = Array.isArray(clearance?.workflow)
+    ? clearance.workflow.find((step) => /department/i.test(step?.office || step?.name || '') && ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(step?.status || '').toUpperCase()))
+    : null;
   const offices = [
     { name: 'HR Office', status: 'APPROVED', approvedBy: clearance?.initialHRReviewedBy || clearance?.finalHROfficer || clearance?.hrManagerName, approvalDate: clearance?.initialHRReviewedAt || clearance?.finalHRApprovalDate },
-    { name: 'Library', status: 'CLEARED' },
+    { name: 'Library', status: 'CLEARED', approvedBy: clearance?.libraryReviewedBy, approvalDate: clearance?.libraryReviewedAt },
     { name: 'Finance', status: 'CLEARED', approvedBy: clearance?.financeReviewedBy, approvalDate: clearance?.financeReviewedAt },
     { name: 'Property Management', status: 'CLEARED', approvedBy: clearance?.propertyReviewedBy, approvalDate: clearance?.propertyReviewedAt },
     { name: 'ICT Center', status: 'CLEARED', approvedBy: clearance?.ictReviewedBy, approvalDate: clearance?.ictReviewedAt },
-    { name: 'Department', status: 'CLEARED', approvedBy: clearance?.departmentReviewedBy, approvalDate: clearance?.departmentReviewedAt },
+    { name: 'Department', status: 'CLEARED', approvedBy: clearance?.departmentReviewedBy || clearance?.departmentClearance?.reviewedBy || departmentWorkflowApproval?.reviewedBy || departmentWorkflowApproval?.approvedBy, approvalDate: clearance?.departmentReviewedAt || clearance?.departmentClearance?.reviewedAt || departmentWorkflowApproval?.reviewedAt || departmentWorkflowApproval?.approvedAt },
   ];
 
   const departmentClearances = Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : [];
@@ -34,11 +48,13 @@ const getOfficeSummary = (clearance) => {
         return name.includes(office.name.toLowerCase().split(' ')[0]) || office.name.toLowerCase().includes(name);
       });
 
+      const matchedApprover = match?.approvedBy || match?.reviewedBy || match?.performedBy || match?.officerName || match?.clearedBy;
+      const directApprover = isGenericApprover(office.approvedBy, office.name) ? '' : office.approvedBy;
       return {
         ...office,
         status: match && ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(match.status || '').toUpperCase()) ? 'APPROVED' : office.status,
-        approvedBy: office.approvedBy || match?.clearedBy || match?.approvedBy || match?.reviewedBy || match?.performedBy || match?.officerName || '—',
-        approvalDate: office.approvalDate || match?.clearedDate || match?.completedAt || match?.reviewedAt || match?.timestamp || match?.updatedAt || '',
+        approvedBy: directApprover || matchedApprover || '—',
+        approvalDate: office.approvalDate || match?.approvedAt || match?.completedAt || match?.reviewedAt || match?.timestamp || match?.updatedAt || '',
       };
     });
   }
@@ -59,6 +75,7 @@ export default function CertificatePreview() {
   const [issuing, setIssuing] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [certificateImage, setCertificateImage] = useState('');
+  const requestId = clearance.requestId || clearance._id;
 
   const officeSummary = useMemo(() => getOfficeSummary(clearance), [clearance]);
   const employee = clearance.employee || {};
@@ -75,6 +92,19 @@ export default function CertificatePreview() {
   const finalOfficer = displayValue(clearance.hrManagerName || clearance.finalHROfficer, 'Final HR Officer');
   const finalApproved = clearance?.status === 'Completed' && clearance?.finalHRApproval === true;
   const finalStatus = finalApproved ? 'CLEARED' : 'READY FOR CERTIFICATE';
+
+  useEffect(() => {
+    if (!requestId) return undefined;
+    let active = true;
+    axios.get(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+    }).then(({ data }) => {
+      if (active && data?.clearance) setClearance((current) => ({ ...current, ...data.clearance }));
+    }).catch(() => {
+      // Keep the request data passed by the previous screen as a fallback.
+    });
+    return () => { active = false; };
+  }, [requestId]);
 
   useEffect(() => {
     const certificateElement = document.getElementById('certificate-image-source');
@@ -115,7 +145,6 @@ export default function CertificatePreview() {
       return;
     }
 
-    const requestId = clearance.requestId || clearance._id;
     if (!requestId) {
       setSaveError('This clearance request has no valid ID.');
       return;

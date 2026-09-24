@@ -3,6 +3,7 @@ import Employee from '../models/employee.js';
 import AuditLog from '../models/AuditLog.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
+import Asset from '../models/propertyAsset.js';
 import { propertyOfficeWorkflowFilter, resolveNextStepAfterDecision } from '../utils/clearanceWorkflow.js';
 
 const recordPropertyAction = async (req, action, requestId, description, oldValues, newValues) => {
@@ -174,6 +175,14 @@ export const approveClearance = async (req, res) => {
     const request = await ClearanceRequest.findOne({ requestId: req.params.requestId }).lean();
     if (!request) return res.status(400).json({ message: 'Request cannot be approved' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
+    const officer = await User.findById(req.user?._id).select('propertySettings').lean();
+    const checklist = officer?.propertySettings?.clearanceChecklist || [];
+    const assets = await Asset.find({ employeeId: request.employeeId }).select('status').lean();
+    const outstandingCount = assets.filter((asset) => String(asset.status).toLowerCase() === 'outstanding').length;
+    const requiresNoOutstanding = checklist.some((item) => item.enabled && ['assetsReturned', 'noOutstandingProperty', 'propertyResponsibilityCleared'].includes(item.key));
+    if (requiresNoOutstanding && outstandingCount > 0) {
+      return res.status(400).json({ message: `Clearance cannot be approved while ${outstandingCount} outstanding asset(s) remain.` });
+    }
     const workflow = Array.isArray(request.workflow) ? [...request.workflow] : [];
     const propertyStepIndex = workflow.findIndex((step) => String(step.office || '').toLowerCase().includes('property'));
     const approvedBy = req.user?.fullName || req.user?.name || 'Property Officer';
@@ -192,6 +201,7 @@ export const approveClearance = async (req, res) => {
         propertyReviewedBy: approvedBy,
         reviewedAt: new Date(),
         officerComment: officerComment || 'All assets verified and returned.',
+        checklistCompleted: true,
         currentStep: resolveNextStepAfterDecision('Property / Asset Office', 'Approved'),
         workflow
       } },

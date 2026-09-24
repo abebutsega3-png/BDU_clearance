@@ -70,6 +70,18 @@ const notificationTypeEnum = [
   'Outstanding Library Material',
   'Outstanding Library Fine',
   'Library Action Required'
+  ,'SYSTEM_USER_CREATED'
+  ,'SYSTEM_DEPARTMENT_ADDED'
+  ,'SYSTEM_DEPARTMENT_UPDATED'
+  ,'SYSTEM_POSITION_CREATED'
+  ,'SYSTEM_POSITION_UPDATED'
+  ,'SYSTEM_POSITION_DELETED'
+  ,'SYSTEM_SETTINGS_UPDATED'
+  ,'SYSTEM_PASSWORD_RESET'
+  ,'SYSTEM_ACCOUNT_DISABLED'
+  ,'SYSTEM_SECURITY_EVENT'
+  ,'SYSTEM_ERROR'
+  ,'SYSTEM_AUDIT_EVENT'
 ];
 
 const NotificationSchema = new mongoose.Schema({

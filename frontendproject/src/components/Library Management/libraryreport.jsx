@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { BarChart3, FileSpreadsheet, FileText, Printer, Search, X } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const apiUrl = 'http://localhost:3000/api/library/reports';
 const requestHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token') || ''}` });
 
 const reportTypes = [
-  ['summary', 'Clearance Summary'],
-  ['all', 'All Clearance Requests'],
-  ['approved', 'Approved Clearances'],
-  ['returned', 'Returned Requests'],
-  ['pending', 'Pending Requests'],
-  ['completed', 'Completed Clearances'],
+  ['clearance', 'Library Clearance Report'],
+  ['responsibility', 'Outstanding Library Materials'],
+  ['history', 'Clearance History Report'],
 ];
 
 const getStatus = (request) => request.libraryReportStatus || request.libraryStatus || request.status || 'Pending';
@@ -23,7 +23,6 @@ const formatDate = (value) => {
 };
 
 const displayStatus = (status) => ({
-  Completed: 'Approved',
   Approved: 'Approved',
   Rejected: 'Returned',
   Returned: 'Returned',
@@ -34,21 +33,27 @@ const displayStatus = (status) => ({
 
 export default function LibraryReport() {
   const [requests, setRequests] = useState([]);
-  const [reportType, setReportType] = useState('summary');
+  const [reportType, setReportType] = useState('clearance');
+  const [reportPeriod, setReportPeriod] = useState('Custom Date Range');
+  const [periodValue, setPeriodValue] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [status, setStatus] = useState('');
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [department, setDepartment] = useState('');
+  const [campus, setCampus] = useState('');
+  const [clearanceType, setClearanceType] = useState('');
   const [preview, setPreview] = useState(null);
   const [reportSummary, setReportSummary] = useState(null);
   const [error, setError] = useState('');
+  const [responsibility, setResponsibility] = useState(null);
 
   useEffect(() => {
     axios.get(apiUrl, { headers: requestHeaders() })
       .then(({ data }) => {
         setRequests(data?.rows || []);
         setReportSummary(data);
+        setResponsibility(data?.responsibility || null);
       })
       .catch((requestError) => setError(requestError.response?.data?.message || 'Unable to load library clearance requests.'));
   }, []);
@@ -91,10 +96,11 @@ export default function LibraryReport() {
     try {
       const { data } = await axios.get(apiUrl, {
         headers: requestHeaders(),
-        params: { reportType, fromDate, toDate, status, employee: employeeSearch, department },
+        params: { reportType, reportPeriod, periodValue, fromDate, toDate, status, employee: employeeSearch, department, campus, clearanceType },
       });
       setRequests(data?.rows || []);
       setReportSummary(data);
+      setResponsibility(data?.responsibility || null);
       setPreview({ rows: data?.rows || [], sentToHR: false });
       setError('');
     } catch (requestError) {
@@ -103,12 +109,16 @@ export default function LibraryReport() {
   };
 
   const reset = () => {
-    setReportType('summary');
+    setReportType('clearance');
+    setReportPeriod('Custom Date Range');
+    setPeriodValue('');
     setFromDate('');
     setToDate('');
     setStatus('');
     setEmployeeSearch('');
     setDepartment('');
+    setCampus('');
+    setClearanceType('');
     setPreview(null);
     setReportSummary(null);
     setError('');
@@ -117,27 +127,32 @@ export default function LibraryReport() {
   const exportExcel = () => {
     if (!preview) return;
 
-    const rows = [
-      ['Request ID', 'Employee', 'Department', 'Date', 'Status'],
-      ...preview.rows.map((request) => [
-        request.requestId || '',
-        request.employeeName || request.employee?.fullName || request.employeeId || '',
-        request.department?.name || request.department || '',
-        formatDate(getDate(request)),
-        displayStatus(getStatus(request)),
-      ]),
-    ];
+    const exportRows = preview.rows.map((request) => ({
+      'Request ID': request.requestId || '',
+      Employee: request.employeeName || request.employee?.fullName || request.employeeId || '',
+      'Employee ID': request.employeeId || '',
+      Department: request.department?.name || request.department || '',
+      'Request Date': formatDate(getDate(request)),
+      Status: displayStatus(getStatus(request)),
+      'Approved By': request.approvedBy || '',
+      'Return Reason': request.returnReason || ''
+    }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(exportRows), 'Library Report');
+    XLSX.writeFile(workbook, 'library-clearance-report.xlsx');
+  };
 
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
-      .join('\n');
-
-    const link = document.createElement('a');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    link.href = URL.createObjectURL(blob);
-    link.download = 'employee-library-clearance-report.csv';
-    link.click();
-    URL.revokeObjectURL(link.href);
+  const exportPdf = () => {
+    if (!rows.length) return;
+    const pdf = new jsPDF({ orientation: 'landscape' });
+    pdf.text('Bahir Dar University - Library Report', 14, 15);
+    autoTable(pdf, {
+      head: [['Request ID', 'Employee', 'Employee ID', 'Department', 'Request Date', 'Status', 'Approved By', 'Return Reason']],
+      body: rows.map((request) => [request.requestId || '', request.employeeName || '', request.employeeId || '', request.department || '', formatDate(getDate(request)), displayStatus(getStatus(request)), request.approvedBy || '-', request.returnReason || '-']),
+      startY: 22,
+      styles: { fontSize: 8 }
+    });
+    pdf.save('library-clearance-report.pdf');
   };
 
   const sendToHR = async () => {
@@ -212,16 +227,21 @@ export default function LibraryReport() {
         </div>
         <div className="flex gap-2 print:hidden">
           <button type="button" onClick={exportExcel} className="action-button"><FileSpreadsheet size={13} /> Export Excel</button>
-          <button type="button" onClick={() => window.print()} className="action-button"><FileText size={13} /> Export PDF</button>
+          <button type="button" onClick={exportPdf} className="action-button"><FileText size={13} /> Export PDF</button>
           <button type="button" onClick={() => window.print()} className="action-button"><Printer size={13} /> Print</button>
         </div>
       </div>
 
       <form onSubmit={generateReport} className="mb-4 rounded-md border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <Field label="Report Type *">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <Field label="Report Period">
+            <select value={reportPeriod} onChange={(event) => { setReportPeriod(event.target.value); setPeriodValue(''); }} className={controlClass}><option>Weekly</option><option>Monthly</option><option>Yearly</option><option>Custom Date Range</option></select>
+          </Field>
+          {reportPeriod === 'Weekly' && <Field label="Select Week"><input type="week" required value={periodValue} onChange={(event) => setPeriodValue(event.target.value)} className={controlClass} /></Field>}
+          {reportPeriod === 'Monthly' && <Field label="Select Month"><input type="month" required value={periodValue} onChange={(event) => setPeriodValue(event.target.value)} className={controlClass} /></Field>}
+          {reportPeriod === 'Yearly' && <Field label="Select Year"><input type="number" min="2000" max="2100" required value={periodValue} onChange={(event) => setPeriodValue(event.target.value)} className={controlClass} /></Field>}
+          <Field label="Report Type">
             <select value={reportType} onChange={(event) => setReportType(event.target.value)} className={controlClass}>
-              <option value="">Select Report Type</option>
               {reportTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
@@ -241,6 +261,7 @@ export default function LibraryReport() {
               <option value="Returned">Returned</option>
               <option value="Pending">Pending</option>
               <option value="Under Review">Under Review</option>
+              <option value="Completed">Completed</option>
             </select>
           </Field>
 
@@ -262,6 +283,8 @@ export default function LibraryReport() {
               {departments.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </Field>
+          <Field label="Campus"><select value={campus} onChange={(event) => setCampus(event.target.value)} className={controlClass}><option value="">All Campuses</option><option>Main Campus</option><option>BIT Campus</option></select></Field>
+          <Field label="Clearance Type"><select value={clearanceType} onChange={(event) => setClearanceType(event.target.value)} className={controlClass}><option value="">All Types</option><option>Resignation</option><option>Graduation</option><option>Transfer</option><option>Retirement</option></select></Field>
         </div>
 
         <div className="mt-3 flex justify-end gap-2">
@@ -275,6 +298,9 @@ export default function LibraryReport() {
       </form>
 
       {error && <p className="mb-3 text-xs font-semibold text-rose-600">{error}</p>}
+      <LibrarySummaryCards counts={counts} />
+      <LibraryClearanceTable rows={rows} />
+      <ResponsibilityPanel data={responsibility} />
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.15fr_1.35fr]">
         <ChartPanel title="Requests by Status"><StatusChart counts={counts} /></ChartPanel>
         <ChartPanel title="Requests by Department"><DepartmentChart values={departmentCounts} total={counts.total} /></ChartPanel>
@@ -284,6 +310,22 @@ export default function LibraryReport() {
       <RecentRequests rows={rows.slice(0, 8)} onSendToHR={sendToHR} sentToHR={Boolean(preview?.sentToHR)} />
     </main>
   );
+}
+
+function LibrarySummaryCards({ counts }) {
+  return <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">{[
+    ['Total Requests', counts.total, 'text-slate-900'], ['Pending', counts.pending, 'text-amber-700'], ['Under Review', counts.underReview, 'text-blue-700'],
+    ['Approved', counts.approved, 'text-emerald-700'], ['Returned', counts.returned, 'text-rose-700'], ['Completed', counts.completed, 'text-violet-700']
+  ].map(([label, value, tone]) => <div key={label} className="rounded-md border border-slate-200 bg-white p-3 shadow-sm"><p className="text-[10px] text-slate-500">{label}</p><p className={`mt-1 text-xl font-bold ${tone}`}>{value || 0}</p></div>)}</div>;
+}
+
+function LibraryClearanceTable({ rows }) {
+  return <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-3 py-3"><h2 className="text-xs font-bold text-slate-900">Library Clearance Report</h2></div><div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-[10px]"><thead className="bg-slate-50 text-[9px] uppercase tracking-wide text-slate-500"><tr>{['Employee', 'Employee ID', 'Department', 'Request Date', 'Library Status', 'Approved By', 'Decision Date', 'Return Reason'].map((heading) => <th key={heading} className="px-3 py-2">{heading}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{rows.length ? rows.map((request, index) => <tr key={request._id || request.requestId || index}><td className="px-3 py-2 font-semibold text-slate-800">{request.employeeName || '-'}</td><td className="px-3 py-2">{request.employeeId || '-'}</td><td className="px-3 py-2">{request.department || '-'}</td><td className="px-3 py-2">{formatDate(getDate(request))}</td><td className="px-3 py-2"><span className={`rounded-full px-2 py-1 font-semibold ${getStatusBadgeClass(getStatus(request))}`}>{displayStatus(getStatus(request))}</span></td><td className="px-3 py-2">{request.approvedBy || '-'}</td><td className="px-3 py-2">{formatDate(request.libraryDecisionDate)}</td><td className="max-w-48 truncate px-3 py-2">{request.returnReason || '-'}</td></tr>) : <tr><td colSpan="8" className="px-3 py-8 text-center text-slate-400">No library clearance records match the selected filters.</td></tr>}</tbody></table></div></section>;
+}
+
+function ResponsibilityPanel({ data }) {
+  const metrics = [['Total Checked', data?.totalChecked], ['No Outstanding', data?.noOutstanding], ['Outstanding Books', data?.outstandingBooks], ['Lost / Damaged', data?.lostDamaged], ['Returned Materials', data?.returnedMaterials]];
+  return <section className="mt-4 rounded-md border border-slate-200 bg-white p-3 shadow-sm"><div className="mb-3 flex items-center justify-between"><div><h2 className="text-xs font-bold text-slate-900">Library Responsibility Report</h2><p className="mt-1 text-[10px] text-slate-500">Borrowed, outstanding, lost/damaged, and returned library materials.</p></div><strong className="text-[10px] text-teal-700">Borrowed: {data?.borrowedBooks || 0}</strong></div><div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{metrics.map(([label, value]) => <div key={label} className="rounded border border-slate-100 bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{label}</p><strong className="mt-1 block text-lg text-slate-800">{value || 0}</strong></div>)}</div></section>;
 }
 
 function ChartPanel({ title, children }) {

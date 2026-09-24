@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { fetchNotifications, markAllNotificationsAsRead, markNotificationAsRead } from '../../until/NotificationHelper';
+import { useAuth } from '../../context/authContext';
+import { deleteNotification as deleteNotificationRequest, fetchNotifications, markAllNotificationsAsRead, markNotificationAsRead } from '../../until/NotificationHelper';
 import { 
   Bell, Check, ChevronRight, FilePlus, CheckCircle2, Clock, 
-  RotateCcw, Users, User, UserX, ShieldCheck, Menu
-  , Trash2
+  RotateCcw, Users, User, UserX, ShieldCheck, Menu, UserPlus,
+  Building2, Settings2, ShieldAlert, ClipboardCheck,
+  Trash2
 } from 'lucide-react';
 import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
@@ -40,12 +41,18 @@ const HR_CLEARANCE_NOTIFICATION_TYPES = new Set([
 export default function NotificationsPage() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { user } = useAuth();
   const isEmployeeRoute = pathname.startsWith('/employee/');
+  const isAdminRoute = pathname.startsWith('/admin/');
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [activeTab, setActiveTab] = useState('All');
+  const displayName = user?.fullName || user?.name || (isAdminRoute ? 'System Admin' : 'User');
+  const displayRole = typeof user?.role === 'object' ? user.role.name : user?.role;
+  const displayEmail = user?.email || '';
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'US';
 
   useEffect(() => {
     let active = true;
@@ -53,7 +60,7 @@ export default function NotificationsPage() {
       .then((items) => {
         if (!active) return;
         const notificationItems = Array.isArray(items) ? items : [];
-        const visibleItems = isEmployeeRoute
+        const visibleItems = isEmployeeRoute || isAdminRoute
           ? notificationItems
           : notificationItems.filter((item) => HR_CLEARANCE_NOTIFICATION_TYPES.has(item.type));
         setNotifications(visibleItems.map((item) => ({
@@ -75,7 +82,7 @@ export default function NotificationsPage() {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [isEmployeeRoute]);
+  }, [isAdminRoute, isEmployeeRoute]);
 
   const markAllAsRead = async () => {
     try {
@@ -88,6 +95,7 @@ export default function NotificationsPage() {
 
   const actionFor = (item) => {
     if (isEmployeeRoute) return '/employee/my-clearance';
+    if (isAdminRoute) return item.actionLink && item.actionLink !== '#' ? item.actionLink : '/admin';
     if (item.requestId) return `/hr-office/clearance-requests?requestId=${encodeURIComponent(item.requestId)}`;
     if (item.actionLink && item.actionLink !== '#') return item.actionLink;
     if (['ready_review', 'final_completed', 'certificate_available', 'CERTIFICATE_ISSUED'].includes(item.type)) return item.type === 'certificate_available' || item.type === 'CERTIFICATE_ISSUED' ? '/hr-office/certificates' : '/hr-office/final-hr-clearance';
@@ -114,9 +122,7 @@ export default function NotificationsPage() {
     }
     try {
       setLoadError('');
-      await axios.delete(`${API_BASE_URL}/api/notifications/${item.id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
-      });
+      await deleteNotificationRequest(item.id);
       setNotifications((current) => current.filter((notification) => notification.id !== item.id));
     } catch (error) {
       setLoadError(error.response?.data?.message || 'Unable to delete notification.');
@@ -206,11 +212,11 @@ export default function NotificationsPage() {
           </div>
           <div className="flex items-center space-x-2">
             <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-xs">
-              HR
+              {initials}
             </div>
             <div className="text-left leading-tight">
-              <p className="font-semibold text-xs text-slate-800">HR Officer</p>
-              <p className="text-[10px] text-slate-400">hr.officer@bdu.edu.et</p>
+              <p className="font-semibold text-xs text-slate-800">{displayName}</p>
+              <p className="text-[10px] text-slate-400">{displayRole || displayEmail}</p>
             </div>
           </div>
         </div>
@@ -307,11 +313,19 @@ export default function NotificationsPage() {
             <h3 className="font-bold text-slate-800 text-sm mb-2">Unread Summary</h3>
             
             <div className="space-y-2 text-xs">
-              <SummaryRow icon={<FilePlus size={14} className="text-blue-600" />} label="New Requests" count={countByType('new_request')} color="bg-blue-50 text-blue-600" />
-              <SummaryRow icon={<CheckCircle2 size={14} className="text-emerald-600" />} label="Department Completed" count={countByType('dept_completed')} color="bg-emerald-50 text-emerald-600" />
-              <SummaryRow icon={<Clock size={14} className="text-amber-600" />} label="Pending" count={countByType('pending')} color="bg-amber-50 text-amber-600" />
-              <SummaryRow icon={<RotateCcw size={14} className="text-red-500" />} label="Returned" count={countByType('returned')} color="bg-red-50 text-red-600" />
-              <SummaryRow icon={<Users size={14} className="text-purple-600" />} label="Ready for Final Review" count={countByType('ready_review')} color="bg-purple-50 text-purple-600" />
+              {isAdminRoute ? <>
+                <SummaryRow icon={<UserPlus size={14} className="text-blue-600" />} label="User & Account Events" count={unreadNotifications.filter((item) => item.type === 'SYSTEM_USER_CREATED' || item.type === 'SYSTEM_ACCOUNT_DISABLED').length} color="bg-blue-50 text-blue-600" />
+                <SummaryRow icon={<Building2 size={14} className="text-emerald-600" />} label="Organization Changes" count={unreadNotifications.filter((item) => item.type.includes('DEPARTMENT')).length} color="bg-emerald-50 text-emerald-600" />
+                <SummaryRow icon={<Settings2 size={14} className="text-amber-600" />} label="Settings & Office Configuration" count={unreadNotifications.filter((item) => item.type.includes('SETTINGS') || item.type.includes('POSITION')).length} color="bg-amber-50 text-amber-600" />
+                <SummaryRow icon={<ShieldAlert size={14} className="text-red-500" />} label="Security Events" count={unreadNotifications.filter((item) => item.type.includes('PASSWORD') || item.type.includes('SECURITY') || item.type.includes('ERROR')).length} color="bg-red-50 text-red-600" />
+                <SummaryRow icon={<ClipboardCheck size={14} className="text-purple-600" />} label="Audit Events" count={countByType('SYSTEM_AUDIT_EVENT')} color="bg-purple-50 text-purple-600" />
+              </> : <>
+                <SummaryRow icon={<FilePlus size={14} className="text-blue-600" />} label="New Requests" count={countByType('new_request')} color="bg-blue-50 text-blue-600" />
+                <SummaryRow icon={<CheckCircle2 size={14} className="text-emerald-600" />} label="Department Completed" count={countByType('dept_completed')} color="bg-emerald-50 text-emerald-600" />
+                <SummaryRow icon={<Clock size={14} className="text-amber-600" />} label="Pending" count={countByType('pending')} color="bg-amber-50 text-amber-600" />
+                <SummaryRow icon={<RotateCcw size={14} className="text-red-500" />} label="Returned" count={countByType('returned')} color="bg-red-50 text-red-600" />
+                <SummaryRow icon={<Users size={14} className="text-purple-600" />} label="Ready for Final Review" count={countByType('ready_review')} color="bg-purple-50 text-purple-600" />
+              </>}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-800">
@@ -325,26 +339,17 @@ export default function NotificationsPage() {
             <h3 className="font-bold text-slate-800 text-sm mb-2">Quick Actions</h3>
             
             <div className="space-y-1">
-              <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance' : '/hr-office/clearance-requests'}
-                icon={<FilePlus size={16} className="text-blue-600" />} 
-                title="Clearance Requests" 
-                sub="View all clearance requests" 
-              />
-              <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#status' : '/hr-office/clearance-requests?status=In%20Progress'}
-                icon={<Clock size={16} className="text-blue-600" />} 
-                title="Pending Follow Ups" 
-                sub="Follow up pending clearances" 
-              />
-              <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#history' : '/hr-office/reports'}
-                icon={<Users size={16} className="text-blue-600" />} 
-                title="Reports" 
-                sub="View clearance reports" 
-              />
-              <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#request' : '/hr-office/add-clearance'}
-                icon={<CheckCircle2 size={16} className="text-blue-600" />} 
-                title={isEmployeeRoute ? 'Create Clearance Request' : 'Create Clearance Request'} 
-                sub={isEmployeeRoute ? 'Submit your clearance request' : 'Create request for an employee'} 
-              />
+              {isAdminRoute ? <>
+                <QuickActionItem to="/admin/users" icon={<UserPlus size={16} className="text-blue-600" />} title="Manage Users" sub="View system accounts" />
+                <QuickActionItem to="/admin/departments" icon={<Building2 size={16} className="text-blue-600" />} title="Departments" sub="Manage organization units" />
+                <QuickActionItem to="/admin/system-settings" icon={<Settings2 size={16} className="text-blue-600" />} title="System Settings" sub="Review configuration" />
+                <QuickActionItem to="/admin/audit-logs" icon={<ClipboardCheck size={16} className="text-blue-600" />} title="Audit Logs" sub="Review system activity" />
+              </> : <>
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance' : '/hr-office/clearance-requests'} icon={<FilePlus size={16} className="text-blue-600" />} title="Clearance Requests" sub="View all clearance requests" />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#status' : '/hr-office/clearance-requests?status=In%20Progress'} icon={<Clock size={16} className="text-blue-600" />} title="Pending Follow Ups" sub="Follow up pending clearances" />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#history' : '/hr-office/reports'} icon={<Users size={16} className="text-blue-600" />} title="Reports" sub="View clearance reports" />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#request' : '/hr-office/add-clearance'} icon={<CheckCircle2 size={16} className="text-blue-600" />} title="Create Clearance Request" sub={isEmployeeRoute ? 'Submit your clearance request' : 'Create request for an employee'} />
+              </>}
             </div>
           </div>
 

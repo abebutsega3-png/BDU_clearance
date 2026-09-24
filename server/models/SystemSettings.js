@@ -41,7 +41,22 @@ const SystemSettingsSchema = new mongoose.Schema({
     passwordStrength: { type: String, default: 'Strong' },
     minimumPasswordLength: { type: Number, default: 8 },
     auditLogging: { type: Boolean, default: true },
-    encryptSensitiveData: { type: Boolean, default: true }
+    encryptSensitiveData: { type: Boolean, default: true },
+    requireUppercase: { type: Boolean, default: true },
+    requireNumber: { type: Boolean, default: true },
+    requireSpecial: { type: Boolean, default: true },
+    passwordChangeOnFirstLogin: { type: Boolean, default: true },
+    maxFailedAttempts: { type: Number, default: 5 },
+    accountLockDuration: { type: String, default: '30 Minutes' },
+    sessionTimeout: { type: String, default: '30 Minutes' }
+  },
+  certificate: {
+    template: { type: String, default: 'BDU Standard Certificate' },
+    authorizedSignatory: { type: String, default: 'Registrar Office' },
+    certificatePrefix: { type: String, default: 'BDU-CLR' },
+    certificateNumberFormat: { type: String, default: 'BDU-CLR-0001' },
+    qrVerification: { type: Boolean, default: true },
+    autoGenerate: { type: Boolean, default: true }
   },
   backupAndMaintenance: {
     automaticBackup: { type: Boolean, default: true },

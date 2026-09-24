@@ -57,19 +57,6 @@ const AdminSidebar = () => {
           </NavLink>
         ))}
       </nav>
-
-      <div className="border-t border-slate-800 px-4 py-3">
-        <button
-          onClick={() => {
-            localStorage.removeItem('token');
-            window.location.href = '/login';
-          }}
-          className="flex w-full items-center space-x-3 rounded-md px-3 py-2.5 text-left text-slate-300 transition duration-150 hover:bg-red-600/20 hover:text-red-400"
-        >
-          <FaSignOutAlt className="text-base" />
-          <span>Logout</span>
-        </button>
-      </div>
     </aside>
   );
 };

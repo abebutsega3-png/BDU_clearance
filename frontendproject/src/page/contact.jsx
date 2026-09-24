@@ -68,7 +68,7 @@ export default function Contact() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           {/* Contact Information (Left Column - 5 spans) */}
-          <div className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <address className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6 not-italic">
             <h3 className="font-bold text-slate-900 text-lg border-b border-slate-100 pb-3">Contact Information</h3>
             
             <div className="space-y-5 text-xs text-slate-700">
@@ -84,7 +84,15 @@ export default function Contact() {
                 <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-base shrink-0 mt-0.5">📍</div>
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">Location</h4>
-                  <p className="text-slate-500">Bahir Dar, Ethiopia</p>
+                  <a
+                    href="https://www.google.com/maps/search/?api=1&query=Bahir+Dar+University%2C+Bahir+Dar%2C+Ethiopia"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-slate-500 hover:text-blue-700"
+                    aria-label="Open Bahir Dar University in Google Maps"
+                  >
+                    Bahir Dar, Ethiopia
+                  </a>
                 </div>
               </div>
 
@@ -92,7 +100,9 @@ export default function Contact() {
                 <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-base shrink-0 mt-0.5">✉️</div>
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">Email</h4>
-                  <a href="mailto:clearance@bdu.edu.et" className="text-slate-500 hover:text-blue-700">clearance@bdu.edu.et</a>
+                  <a href="mailto:clearance@bdu.edu.et" className="text-slate-500 hover:text-blue-700" aria-label="Email clearance support">
+                    clearance@bdu.edu.et
+                  </a>
                 </div>
               </div>
 
@@ -100,7 +110,9 @@ export default function Contact() {
                 <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-base shrink-0 mt-0.5">📞</div>
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">Phone</h4>
-                  <a href="tel:+251582201010" className="text-slate-500 hover:text-blue-700">+251 58 220 1010</a>
+                  <a href="tel:+251582201010" className="text-slate-500 hover:text-blue-700" aria-label="Call clearance support">
+                    +251 58 220 1010
+                  </a>
                 </div>
               </div>
 
@@ -108,11 +120,13 @@ export default function Contact() {
                 <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-base shrink-0 mt-0.5">⏰</div>
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">Working Hours</h4>
-                  <p className="text-slate-500">Monday – Friday<br />8:00 AM – 4:30 PM (GMT+3)</p>
+                  <p className="text-slate-500" aria-label="Monday to Friday, 8 AM to 4:30 PM GMT plus 3">
+                    Monday – Friday<br />8:00 AM – 4:30 PM (GMT+3)
+                  </p>
                 </div>
               </div>
             </div>
-          </div>
+          </address>
 
           {/* Contact Support Form (Right Column - 7 spans) */}
           <div className="lg:col-span-7 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">

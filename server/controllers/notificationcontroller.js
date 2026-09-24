@@ -51,6 +51,21 @@ const departmentNotificationTypes = [
   'FINAL_HR_CLEARANCE_UPDATE',
 ];
 
+export const systemAdminNotificationTypes = [
+  'SYSTEM_USER_CREATED',
+  'SYSTEM_DEPARTMENT_ADDED',
+  'SYSTEM_DEPARTMENT_UPDATED',
+  'SYSTEM_POSITION_CREATED',
+  'SYSTEM_POSITION_UPDATED',
+  'SYSTEM_POSITION_DELETED',
+  'SYSTEM_SETTINGS_UPDATED',
+  'SYSTEM_PASSWORD_RESET',
+  'SYSTEM_ACCOUNT_DISABLED',
+  'SYSTEM_SECURITY_EVENT',
+  'SYSTEM_ERROR',
+  'SYSTEM_AUDIT_EVENT',
+];
+
 const departmentPreferenceForType = (type) => ({
   NEW_CLEARANCE_REQUEST: ['newClearanceRequest', 'inSystemNewRequest'],
   REQUEST_ASSIGNED: ['newClearanceRequest', 'inSystemNewRequest'],
@@ -230,7 +245,10 @@ export const getAllNotifications = async (req, res) => {
       ? { $or: [{ recipientId: req.user._id }, ...(req.user.employeeId ? [{ employeeId: req.user.employeeId }] : [])] }
       : {};
     const role = String(req.user?.role || '').trim();
-    if (/^property(?:\s*\/\s*asset)? officer$/i.test(role) && req.user?._id) {
+    if (/^(?:admin|administrator|system admin|system administrator)$/i.test(role) && req.user?._id) {
+      filter.$or = [{ recipientId: req.user._id }];
+      filter.type = { $in: systemAdminNotificationTypes };
+    } else if (/^property(?:\s*\/\s*asset)? officer$/i.test(role) && req.user?._id) {
       await ensurePropertyNewRequestNotifications(req.user._id);
       await ensurePropertyPendingNotifications(req.user._id);
       filter.type = { $in: propertyNotificationTypes };

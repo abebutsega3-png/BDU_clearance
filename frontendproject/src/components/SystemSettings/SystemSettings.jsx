@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Settings, Users, Shield, Bell, Lock, Building, FileCheck, Database, Save, BellRing, CheckCircle, Edit, Trash2, Plus } from 'lucide-react';
+import AdminNotificationBell from '../admindashboared/AdminNotificationBell';
 
 const api = 'http://localhost:3000/api/settings';
 const defaults = {
   general: { systemName: 'Bahir Dar University Employee Clearance System', universityName: 'Bahir Dar University', systemEmail: 'admin@bdu.edu.et', dateFormat: 'DD/MM/YYYY', timeZone: 'Africa/Addis_Ababa', language: 'English' },
   usersAndAccounts: { allowUserRegistration: false, requireEmailVerification: true, passwordExpiration: true, passwordExpiryDays: 90, maximumLoginAttempts: 5, sessionTimeout: '30 minutes', accountLockoutDuration: '30 minutes', forcePasswordChangeOnFirstLogin: true },
   notifications: { emailNotifications: true, systemNotifications: true, notifyWhen: { newUserCreated: true, newEmployeeAdded: true, passwordResetRequested: true, securityAlert: true, userAccountDeactivated: true, employeeClearanceCompleted: true, systemErrorOccurred: true, backupCompleted: false } },
-  security: { twoFactorAuth: true, accountLockout: true, failedLoginAlert: true, passwordStrength: 'Strong', minimumPasswordLength: 8, auditLogging: true, encryptSensitiveData: true },
+  security: { twoFactorAuth: true, accountLockout: true, failedLoginAlert: true, passwordStrength: 'Strong', minimumPasswordLength: 8, auditLogging: true, encryptSensitiveData: true, requireUppercase: true, requireNumber: true, requireSpecial: true, passwordChangeOnFirstLogin: true, maxFailedAttempts: 5, accountLockDuration: '30 Minutes', sessionTimeout: '30 Minutes' },
+  certificate: { template: 'BDU Standard Certificate', authorizedSignatory: 'Registrar Office', certificatePrefix: 'BDU-CLR', certificateNumberFormat: 'BDU-CLR-0001', qrVerification: true, autoGenerate: true },
   backupAndMaintenance: { automaticBackup: true, backupFrequency: 'Daily', lastBackup: '', nextBackup: '', maintenanceMode: false },
 };
 
@@ -19,6 +21,7 @@ const mergeSettings = (current, incoming = {}) => ({
   usersAndAccounts: { ...current.usersAndAccounts, ...incoming.usersAndAccounts },
   notifications: { ...current.notifications, ...incoming.notifications, notifyWhen: { ...current.notifications.notifyWhen, ...incoming.notifications?.notifyWhen } },
   security: { ...current.security, ...incoming.security },
+  certificate: { ...current.certificate, ...incoming.certificate },
   backupAndMaintenance: { ...current.backupAndMaintenance, ...incoming.backupAndMaintenance },
 });
 
@@ -89,6 +92,11 @@ export default function SystemSettings() {
     axios.get(api, { headers: headers() })
       .then(({ data }) => {
         setSettings((current) => mergeSettings(current, data.settings));
+        setSettingForms((current) => ({
+          ...current,
+          certificate: { ...current.certificate, ...data.settings?.certificate },
+          security: { ...current.security, ...data.settings?.security },
+        }));
       })
       .catch(() => setMessage('Unable to load settings. Please sign in again.'))
       .finally(() => setLoading(false));
@@ -99,8 +107,10 @@ export default function SystemSettings() {
       const response = await axios.put(`${api}/${section}`, data, { headers: headers() });
       setSettings((current) => mergeSettings(current, response.data.settings));
       setMessage(`${section} settings saved successfully.`);
+      return true;
     } catch (error) {
       setMessage(error.response?.data?.message || 'Unable to save settings.');
+      return false;
     }
   };
 
@@ -167,11 +177,10 @@ export default function SystemSettings() {
     }));
   };
 
-  const saveSelectedSetting = () => {
+  const saveSelectedSetting = async () => {
     if (!selectedSetting) return;
-    const label = selectedSetting.charAt(0).toUpperCase() + selectedSetting.slice(1);
-    setMessage(`${label} settings saved successfully.`);
-    setSelectedSetting(null);
+    const saved = await saveSection(selectedSetting, settingForms[selectedSetting]);
+    if (saved) setSelectedSetting(null);
   };
 
   const renderDetailForm = () => {
@@ -401,10 +410,7 @@ export default function SystemSettings() {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <BellRing size={18} className="text-slate-600" />
-            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">8</span>
-          </div>
+          <AdminNotificationBell />
 
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-white">SA</div>

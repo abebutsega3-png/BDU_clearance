@@ -36,9 +36,14 @@ const downloadCertificate = (certificate) => {
   pdf.text(`Employee ID: ${certificate.employeeId || '—'}`, 25, 100);
   pdf.text(`Department: ${certificate.department || '—'}`, 25, 108);
   pdf.text(`Position: ${certificate.position || '—'}`, 25, 116);
+  pdf.text(`Last Working Date: ${formatDate(certificate.lastWorkingDate || certificate.expectedLastWorkingDate)}`, 25, 124);
   pdf.text('Clearance Summary', 25, 134);
   (certificate.departmentClearances || []).forEach((item, index) => {
-    pdf.text(`${item.name || item.office || item.department || 'Office'}: ${item.status || 'Cleared'}`, 32, 143 + (index * 8));
+    const y = 143 + (index * 14);
+    pdf.text(`${item.name || item.office || item.department || 'Office'}: ${item.status || 'Cleared'}`, 32, y);
+    pdf.setFontSize(8);
+    pdf.text(`Approved By: ${item.clearedBy || item.approvedBy || '—'} | Approval Date: ${formatDate(item.clearedDate || item.approvedAt)}`, 38, y + 6);
+    pdf.setFontSize(11);
   });
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(22, 139, 83);
@@ -128,6 +133,7 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                   <span className="text-slate-500">Employee ID:</span><strong>{selectedCertificate.employeeId || '—'}</strong>
                   <span className="text-slate-500">Department:</span><strong>{selectedCertificate.department || '—'}</strong>
                   <span className="text-slate-500">Position:</span><strong>{selectedCertificate.position || '—'}</strong>
+                  <span className="text-slate-500">Last Working Date:</span><strong>{formatDate(selectedCertificate.lastWorkingDate || selectedCertificate.expectedLastWorkingDate)}</strong>
                   <span className="text-slate-500">Issue Date:</span><strong>{formatDate(selectedCertificate.issuedAt || selectedCertificate.completedDate)}</strong>
                   <span className="text-slate-500">Issued By:</span><strong>{selectedCertificate.issuedBy || selectedCertificate.hrManagerName || 'HR Officer'}</strong>
                   <span className="text-slate-500">Status:</span><strong className="text-emerald-700">ISSUED</strong>
@@ -136,7 +142,7 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                 <h3 className="mb-3 mt-7 text-sm font-bold text-slate-800">Clearance Summary</h3>
                 <div className="space-y-2">
                   {(selectedCertificate.departmentClearances || []).map((item, index) => (
-                    <div key={`${item.name || item.office || item.department}-${index}`} className="flex justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"><span>✓ {item.name || item.office || item.department || 'Office'}</span><strong className="text-emerald-700">{item.status || 'Cleared'}</strong></div>
+                    <div key={`${item.name || item.office || item.department}-${index}`} className="grid grid-cols-[1.25fr_1fr_0.9fr_auto] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px]"><span>✓ {item.name || item.office || item.department || 'Office'}</span><span className="text-slate-500">{item.clearedBy || item.approvedBy || '—'}</span><span className="text-slate-500">{formatDate(item.clearedDate || item.approvedAt)}</span><strong className="text-right text-emerald-700">{item.status || 'Cleared'}</strong></div>
                   ))}
                 </div>
               </div>
@@ -181,8 +187,8 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
                     </div>
 
                     <div className="mt-4 border border-slate-300 bg-slate-50 p-2 text-left text-[9px] text-slate-700">
-                      <div className="mb-1 grid grid-cols-2 border-b border-slate-300 pb-1 font-bold"><span>Office / Department</span><span className="text-right">Clearance Status</span></div>
-                      {(selectedCertificate.departmentClearances || []).map((item, index) => <div key={`preview-${index}`} className="grid grid-cols-2 border-b border-slate-200 py-1 last:border-0"><span>{index + 1}. {item.name || item.office || item.department || 'Office'}</span><strong className="text-right text-emerald-700">{item.status || 'Cleared'}</strong></div>)}
+                      <div className="mb-1 grid grid-cols-[1.2fr_1fr_0.9fr_0.8fr] border-b border-slate-300 pb-1 font-bold"><span>Office / Department</span><span>Approved By</span><span>Approval Date</span><span className="text-right">Status</span></div>
+                      {(selectedCertificate.departmentClearances || []).map((item, index) => <div key={`preview-${index}`} className="grid grid-cols-[1.2fr_1fr_0.9fr_0.8fr] border-b border-slate-200 py-1 last:border-0"><span>{index + 1}. {item.name || item.office || item.department || 'Office'}</span><span>{item.clearedBy || item.approvedBy || '—'}</span><span>{formatDate(item.clearedDate || item.approvedAt)}</span><strong className="text-right text-emerald-700">{item.status || 'Cleared'}</strong></div>)}
                     </div>
 
                     <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-2 py-2 text-center text-emerald-700">

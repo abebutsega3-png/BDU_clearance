@@ -151,6 +151,18 @@ function MainLayout() {
               </PrivateRoutes>
             } 
           />
+					<Route
+						path="/admin/notifications"
+						element={
+							<PrivateRoutes>
+								<RoleBasedRoutes requiredRole={["admin"]}>
+									<AdminLayout>
+										<NotificationsPage />
+									</AdminLayout>
+								</RoleBasedRoutes>
+							</PrivateRoutes>
+						}
+					/>
           <Route
             path="/hr-office"
             element={

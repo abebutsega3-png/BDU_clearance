@@ -6,12 +6,12 @@ import {
   Briefcase,
   Phone,
   Lock,
-  Camera,
   Save,
   CheckCircle,
   AlertCircle,
   Loader2,
-  ShieldAlert
+  ShieldAlert,
+  Upload
 } from 'lucide-react';
 
 const formatDate = (value) => {
@@ -21,6 +21,12 @@ const formatDate = (value) => {
   return date.toLocaleDateString('en-GB');
 };
 
+const formatDateTime = (value) => {
+  if (!value) return 'Not provided';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not provided' : date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+};
+
 export default function LibraryProfile() {
   const { user } = useAuth();
   const userId = user?._id || user?.id || localStorage.getItem('userId') || '';
@@ -28,7 +34,10 @@ export default function LibraryProfile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [changingPass, setChangingPass] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState({ type: '', message: '' });
+  const [loadError, setLoadError] = useState('');
 
   // Read-only + Editable State
   const [profile, setProfile] = useState({
@@ -44,7 +53,14 @@ export default function LibraryProfile() {
     email: user?.email || '',
     phoneNumber: '',
     alternativePhone: '',
-    profilePhoto: ''
+    profilePhoto: '',
+    username: user?.username || user?.email || '',
+    role: 'Library Officer',
+    accountStatus: 'Active',
+    accountCreated: '',
+    lastLogin: '',
+    passwordChangedAt: '',
+    twoFactorEnabled: false
   });
 
   // Security (Password Change) State
@@ -64,7 +80,7 @@ export default function LibraryProfile() {
 
       try {
         setLoading(true);
-        const res = await axios.get(`http://localhost:3000/api/profile/${userId}`, {
+        const res = await axios.get(`/api/profile/${userId}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
         });
         const userData = res.data?.data || res.data || {};
@@ -83,10 +99,17 @@ export default function LibraryProfile() {
           email: userData.email || prev.email,
           phoneNumber: userData.phoneNumber || prev.phoneNumber,
           alternativePhone: userData.alternativePhone || prev.alternativePhone,
-          profilePhoto: userData.profileImage || userData.profilePhoto || prev.profilePhoto
+          profilePhoto: userData.profileImage || userData.profilePhoto || prev.profilePhoto,
+          username: userData.username || userData.email || prev.username,
+          role: 'Library Officer',
+          accountStatus: userData.status || prev.accountStatus,
+          accountCreated: userData.createdAt || userData.dateJoined || prev.accountCreated,
+          lastLogin: userData.lastLogin || prev.lastLogin,
+          passwordChangedAt: userData.passwordChangedAt || prev.passwordChangedAt,
+          twoFactorEnabled: Boolean(userData.twoFactorEnabled)
         }));
       } catch (err) {
-        console.error('Error loading profile:', err);
+        setLoadError(err.response?.data?.message || 'Unable to load your profile.');
       } finally {
         setLoading(false);
       }
@@ -103,13 +126,34 @@ export default function LibraryProfile() {
   // Image Upload Handler
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfile((prev) => ({ ...prev, profilePhoto: reader.result }));
-      };
-      reader.readAsDataURL(file);
+    const input = e.target;
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('error', 'Please select a valid image file.');
+      return;
     }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('error', 'Profile photo must be smaller than 2 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        setUploadingPhoto(true);
+        const response = await axios.put(`/api/profile/${userId}`, { profileImage: reader.result }, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+        });
+        const updated = response.data?.data || {};
+        setProfile((prev) => ({ ...prev, profilePhoto: updated.profileImage || reader.result }));
+        showToast('success', 'Profile photo uploaded successfully.');
+      } catch (err) {
+        showToast('error', err.response?.data?.message || 'Unable to upload profile photo.');
+      } finally {
+        setUploadingPhoto(false);
+        input.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Profile Form Save
@@ -128,10 +172,11 @@ export default function LibraryProfile() {
         campus: profile.campus
       };
 
-      await axios.put(`http://localhost:3000/api/profile/${userId}`, payload, {
+      await axios.put(`/api/profile/${userId}`, payload, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
       });
       showToast('success', 'Profile information updated successfully!');
+      setEditing(false);
     } catch (err) {
       showToast('error', err.response?.data?.message || err.response?.data?.error || 'Failed to update profile.');
     } finally {
@@ -149,10 +194,11 @@ export default function LibraryProfile() {
 
     try {
       setChangingPass(true);
-      await axios.patch(`http://localhost:3000/api/profile/${userId}/password`, passwords, {
+      await axios.patch(`/api/profile/${userId}/password`, passwords, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
       });
       showToast('success', 'Password updated successfully!');
+      setProfile((prev) => ({ ...prev, passwordChangedAt: new Date().toISOString() }));
       setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
       showToast('error', err.response?.data?.message || 'Failed to change password.');
@@ -168,6 +214,10 @@ export default function LibraryProfile() {
         <span>Loading Profile...</span>
       </div>
     );
+  }
+
+  if (loadError) {
+    return <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6"><div className="max-w-md rounded-xl border border-rose-200 bg-white p-6 text-center shadow-sm"><AlertCircle className="mx-auto mb-3 text-rose-600" size={24} /><p className="font-semibold text-rose-800">{loadError}</p><button type="button" onClick={() => window.location.reload()} className="mt-4 rounded bg-teal-700 px-4 py-2 font-semibold text-white hover:bg-teal-800">Retry</button></div></div>;
   }
 
   return (
@@ -190,24 +240,29 @@ export default function LibraryProfile() {
 
         {/* 📷 Profile Photo Header Card */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
-          <div className="relative">
-            <div className="w-24 h-24 rounded-full bg-slate-100 border-2 border-teal-600 flex items-center justify-center overflow-hidden shadow-inner">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-32 w-32 rounded-full bg-slate-100 border-2 border-teal-600 flex items-center justify-center overflow-hidden shadow-inner">
               {profile.profilePhoto ? (
                 <img src={profile.profilePhoto} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <User size={40} className="text-slate-400" />
               )}
             </div>
-            <label className="absolute bottom-0 right-0 p-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-full cursor-pointer shadow-md transition-colors">
-              <Camera size={14} />
-              <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+            <label className={`inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-sm transition-colors ${uploadingPhoto ? 'cursor-wait opacity-60' : 'cursor-pointer hover:border-teal-500 hover:bg-teal-50 hover:text-teal-700'}`}>
+              {uploadingPhoto ? <Loader2 className="animate-spin" size={15} /> : <Upload size={15} />}
+              <span>{uploadingPhoto ? 'Uploading...' : 'Change Photo'}</span>
+              <input type="file" accept="image/*" className="hidden" disabled={uploadingPhoto} onChange={handlePhotoUpload} />
             </label>
           </div>
 
           <div className="text-center sm:text-left space-y-1">
             <h1 className="text-lg font-bold text-slate-900">{profile.fullName}</h1>
-            <p className="text-xs font-semibold text-teal-700">{profile.position}</p>
+            <p className="text-xs font-semibold text-teal-700">Library Officer</p>
+            <p className="text-[11px] text-slate-500">Employee ID: {profile.employeeId} · Status: {profile.accountStatus}</p>
             <p className="text-[11px] text-slate-500">{profile.department} • {profile.campus}</p>
+          </div>
+          <div className="ml-auto flex flex-wrap justify-center gap-2 sm:justify-end">
+            <button type="button" onClick={() => setEditing((value) => !value)} className="rounded bg-teal-700 px-3 py-2 font-semibold text-white hover:bg-teal-800">{editing ? 'Cancel' : 'Edit Profile'}</button>
           </div>
         </div>
 
@@ -220,7 +275,7 @@ export default function LibraryProfile() {
           <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-slate-500 font-medium mb-1">Full Name</label>
-              <input type="text" value={profile.fullName} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
+              <input type="text" value={profile.fullName} onChange={(e) => setProfile({ ...profile, fullName: e.target.value })} disabled={!editing} className={`w-full border rounded-lg p-2 font-medium ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`} />
             </div>
             <div>
               <label className="block text-slate-500 font-medium mb-1">Employee ID</label>
@@ -287,7 +342,8 @@ export default function LibraryProfile() {
                 type="text"
                 value={profile.phoneNumber}
                 onChange={(e) => setProfile({ ...profile, phoneNumber: e.target.value })}
-                className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none"
+                disabled={!editing}
+                className={`w-full border rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`}
               />
             </div>
             <div>
@@ -296,7 +352,8 @@ export default function LibraryProfile() {
                 type="email"
                 value={profile.email}
                 onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none"
+                disabled={!editing}
+                className={`w-full border rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`}
               />
             </div>
             <div>
@@ -305,7 +362,8 @@ export default function LibraryProfile() {
                 type="text"
                 value={profile.alternativePhone}
                 onChange={(e) => setProfile({ ...profile, alternativePhone: e.target.value })}
-                className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none"
+                disabled={!editing}
+                className={`w-full border rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`}
               />
             </div>
           </div>
@@ -313,11 +371,24 @@ export default function LibraryProfile() {
             <button
               onClick={handleSaveProfile}
               disabled={saving}
+              hidden={!editing}
               className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg font-semibold flex items-center space-x-2 transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-              <span>Save Contact Changes</span>
+              <span>Save Changes</span>
             </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center space-x-2"><Briefcase size={16} className="text-teal-700" /><h2 className="font-bold text-slate-900">Account Information</h2></div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Info label="Username" value={profile.username} />
+            <Info label="Role" value="Library Officer" />
+            <Info label="Department" value="Library" />
+            <Info label="Campus" value={profile.campus} />
+            <Info label="Account Status" value={profile.accountStatus} tone="text-emerald-700" />
+            <Info label="Account Created" value={formatDate(profile.accountCreated)} />
           </div>
         </div>
 
@@ -326,6 +397,11 @@ export default function LibraryProfile() {
           <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center space-x-2">
             <Lock size={16} className="text-teal-700" />
             <h2 className="font-bold text-slate-900">Security - Change Password</h2>
+          </div>
+          <div className="grid grid-cols-1 gap-4 border-b border-slate-100 px-5 py-4 sm:grid-cols-3">
+            <Info label="Last Login" value={formatDateTime(profile.lastLogin)} />
+            <Info label="Password Last Changed" value={formatDateTime(profile.passwordChangedAt)} />
+            <Info label="Two-Factor Authentication" value={profile.twoFactorEnabled ? 'Enabled' : 'Not enabled'} />
           </div>
           <form onSubmit={handleChangePassword} className="p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -376,4 +452,8 @@ export default function LibraryProfile() {
       </div>
     </div>
   );
+}
+
+function Info({ label, value, tone = 'text-slate-800' }) {
+  return <div><label className="block text-[10px] font-semibold text-slate-500 mb-1">{label}</label><p className={`font-semibold ${tone}`}>{value || 'Not provided'}</p></div>;
 }

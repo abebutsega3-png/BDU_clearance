@@ -5,7 +5,8 @@ import Notification from '../models/Notification.js';
 
 const normalizeStatus = (request) => {
   const propertyStatus = String(request.propertyStatus || '').trim().toLowerCase();
-  if (['approved', 'completed', 'cleared', 'clear'].includes(propertyStatus)) return 'Approved';
+  if (propertyStatus === 'completed') return 'Completed';
+  if (['approved', 'cleared', 'clear'].includes(propertyStatus)) return 'Approved';
   if (['returned', 'rejected', 'not clear'].includes(propertyStatus)) return 'Returned';
   if (['under review', 'in progress', 'review'].includes(propertyStatus)) return 'Under Review';
 
@@ -13,11 +14,13 @@ const normalizeStatus = (request) => {
     ? request.workflow.find((step) => String(step.office || '').toLowerCase().includes('property'))
     : null;
   const workflowStatus = String(propertyStep?.status || '').trim().toLowerCase();
-  if (['completed', 'approved', 'cleared', 'clear'].includes(workflowStatus)) return 'Approved';
+  if (workflowStatus === 'completed') return 'Completed';
+  if (['approved', 'cleared', 'clear'].includes(workflowStatus)) return 'Approved';
   if (['rejected', 'returned', 'not clear'].includes(workflowStatus)) return 'Returned';
   if (['in progress', 'under review', 'review'].includes(workflowStatus)) return 'Under Review';
   const fallbackStatus = String(request.propertyStatus || request.status || request.overallStatus || 'Pending').trim().toLowerCase();
-  if (['approved', 'completed', 'cleared', 'clear'].includes(fallbackStatus)) return 'Approved';
+  if (fallbackStatus === 'completed') return 'Completed';
+  if (['approved', 'cleared', 'clear'].includes(fallbackStatus)) return 'Approved';
   if (['rejected', 'returned', 'not clear'].includes(fallbackStatus)) return 'Returned';
   if (['in progress', 'under review', 'review'].includes(fallbackStatus)) return 'Under Review';
   return 'Pending';
@@ -32,6 +35,36 @@ const inDateRange = (value, fromDate, toDate) => {
   return true;
 };
 
+const getPeriodDates = (reportPeriod, periodValue, fromDate, toDate) => {
+  const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  if (reportPeriod === 'Monthly' && /^\d{4}-\d{2}$/.test(periodValue || '')) {
+    const [year, month] = periodValue.split('-').map(Number);
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 0);
+    return { fromDate: formatDate(start), toDate: formatDate(end) };
+  }
+
+  if (reportPeriod === 'Yearly' && /^\d{4}$/.test(periodValue || '')) {
+    return { fromDate: `${periodValue}-01-01`, toDate: `${periodValue}-12-31` };
+  }
+
+  if (reportPeriod === 'Weekly' && /^(\d{4})-W(\d{2})$/.test(periodValue || '')) {
+    const [, yearText, weekText] = periodValue.match(/^(\d{4})-W(\d{2})$/);
+    const year = Number(yearText);
+    const week = Number(weekText);
+    const januaryFourth = new Date(year, 0, 4);
+    const mondayOfFirstWeek = new Date(januaryFourth);
+    mondayOfFirstWeek.setDate(januaryFourth.getDate() - ((januaryFourth.getDay() + 6) % 7));
+    const start = new Date(mondayOfFirstWeek);
+    start.setDate(mondayOfFirstWeek.getDate() + ((week - 1) * 7));
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { fromDate: formatDate(start), toDate: formatDate(end) };
+  }
+
+  return { fromDate, toDate };
+};
+
 const matchesEmployee = (employee, department, campus, employeeSearch) => {
   if (department && department !== 'All' && employee?.department !== department) return false;
   if (campus && campus !== 'All' && employee?.campus !== campus) return false;
@@ -44,7 +77,9 @@ const matchesEmployee = (employee, department, campus, employeeSearch) => {
 
 export const getPropertyClearanceReport = async (req, res) => {
   try {
-    const { reportType = 'Property Clearance Summary', fromDate, toDate, status = 'All', department = 'All', campus = 'All' } = req.query;
+    const { reportType = 'Property Clearance Summary', reportPeriod = 'Custom Date Range', periodValue = '', fromDate: requestedFromDate, toDate: requestedToDate, status = 'All', department = 'All', campus = 'All' } = req.query;
+    const period = getPeriodDates(reportPeriod, periodValue, requestedFromDate, requestedToDate);
+    const { fromDate, toDate } = period;
     const [requests, assets, employees] = await Promise.all([
       ClearanceRequest.find({}).sort({ createdAt: -1 }).lean(),
       Asset.find({}).lean(),
@@ -61,7 +96,7 @@ export const getPropertyClearanceReport = async (req, res) => {
 
     if (reportType === 'Outstanding Property Report') {
       const data = assets
-        .filter((asset) => asset.status === 'Outstanding')
+        .filter((asset) => asset.status === 'Outstanding' && inDateRange(asset.assignedDate || asset.createdAt, fromDate, toDate))
         .map((asset) => {
           const employee = employeeById.get(asset.employeeId);
           const request = requests.find((item) => item.requestId === asset.clearanceRequestId);
@@ -78,7 +113,7 @@ export const getPropertyClearanceReport = async (req, res) => {
           };
         })
         .filter((asset) => matchesEmployee(asset, department, campus, ''));
-      return res.json({ success: true, reportType, period: { fromDate, toDate }, data });
+      return res.json({ success: true, reportType, reportPeriod, periodValue, period, data });
     }
 
     const data = filteredRequests.map((request) => {
@@ -106,7 +141,9 @@ export const getPropertyClearanceReport = async (req, res) => {
     return res.json({
       success: true,
       reportType,
-      period: { fromDate, toDate },
+      reportPeriod,
+      periodValue,
+      period,
       summary: {
         totalRequests: data.length,
         approved: data.filter((item) => item.propertyStatus === 'Approved').length,

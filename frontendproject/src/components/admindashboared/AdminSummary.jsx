@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import AdminNotificationBell from './AdminNotificationBell';
 import {
   Users, UserCheck, UserX, FileText, Clock, CheckCircle2,
   XCircle, Shield, Building2, GraduationCap, GitFork, Briefcase,
@@ -70,10 +71,7 @@ export default function AdminDashboard() {
             <span>{new Date().toLocaleDateString()}</span>
             <ChevronDown size={14} />
           </div>
-          <div className="relative cursor-pointer">
-            <Bell size={18} className="text-slate-600" />
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold">1</span>
-          </div>
+          <AdminNotificationBell />
           <div className="flex items-center space-x-2">
             <div className="w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center font-bold text-[10px]">SA</div>
             <div>

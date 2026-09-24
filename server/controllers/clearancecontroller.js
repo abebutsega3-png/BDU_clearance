@@ -271,7 +271,26 @@ const getClearances = async (_req, res) => {
 
 const getLibraryReport = async (req, res) => {
 	try {
-		const { reportType = 'summary', fromDate, toDate, status, employee, department } = req.query;
+		const { reportType = 'summary', reportPeriod = 'Custom Date Range', periodValue = '', fromDate: requestedFromDate, toDate: requestedToDate, status, employee, department, campus, clearanceType } = req.query;
+		const resolvePeriod = () => {
+			const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+			if (reportPeriod === 'Monthly' && /^\d{4}-\d{2}$/.test(periodValue)) {
+				const [year, month] = periodValue.split('-').map(Number);
+				return { fromDate: `${periodValue}-01`, toDate: formatDate(new Date(year, month, 0)) };
+			}
+			if (reportPeriod === 'Yearly' && /^\d{4}$/.test(periodValue)) return { fromDate: `${periodValue}-01-01`, toDate: `${periodValue}-12-31` };
+			if (reportPeriod === 'Weekly' && /^(\d{4})-W(\d{2})$/.test(periodValue)) {
+				const [, yearText, weekText] = periodValue.match(/^(\d{4})-W(\d{2})$/);
+				const januaryFourth = new Date(Number(yearText), 0, 4);
+				const monday = new Date(januaryFourth);
+				monday.setDate(januaryFourth.getDate() - ((januaryFourth.getDay() + 6) % 7) + ((Number(weekText) - 1) * 7));
+				const sunday = new Date(monday);
+				sunday.setDate(monday.getDate() + 6);
+				return { fromDate: formatDate(monday), toDate: formatDate(sunday) };
+			}
+			return { fromDate: requestedFromDate, toDate: requestedToDate };
+		};
+		const { fromDate, toDate } = resolvePeriod();
 		const filter = { $and: [{
 			$or: [
 				{ requiredOffices: { $regex: 'library', $options: 'i' } },
@@ -286,6 +305,7 @@ const getLibraryReport = async (req, res) => {
 			{ 'department.name': department },
 			{ department },
 		] });
+		if (clearanceType) filter.$and.push({ $or: [{ clearanceType }, { clearanceReason: clearanceType }, { reason: clearanceType }] });
 		if (employee) {
 			const escaped = String(employee).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 			filter.$and.push({ $or: [
@@ -302,13 +322,13 @@ const getLibraryReport = async (req, res) => {
 			completed: ['Completed'],
 		};
 		if (status) filter.$and.push({ libraryStatus: status === 'Under Review' ? { $in: ['In Progress', 'Under Review'] } : statusGroups[status.toLowerCase()] || status });
-		if (reportType && reportType !== 'summary' && reportType !== 'all') {
+		if (reportType && !['summary', 'all', 'clearance', 'responsibility', 'history'].includes(reportType)) {
 			filter.$and.push({ libraryStatus: { $in: statusGroups[reportType] || [reportType] } });
 		}
 
 		const clearances = await Clearance.find(filter).sort({ createdAt: -1 }).lean();
 		const employeeIds = clearances.map((item) => item.employeeId).filter(Boolean);
-		const employees = await Employee.find({ employeeId: { $in: employeeIds } }).select('employeeId fullName department').lean();
+		const employees = await Employee.find({ employeeId: { $in: employeeIds } }).select('employeeId fullName department campus').lean();
 		const employeeById = new Map(employees.map((item) => [item.employeeId, item]));
 		const rows = clearances.map((item) => {
 			const employeeRecord = employeeById.get(item.employeeId);
@@ -317,10 +337,15 @@ const getLibraryReport = async (req, res) => {
 				...item,
 				employeeName: item.employeeName || employeeRecord?.fullName || item.employee?.fullName || item.employeeId || '',
 				department: item.department?.name || item.department || employeeRecord?.department || '',
-				libraryReportStatus: rawStatus === 'In Progress' ? 'Under Review' : rawStatus === 'Completed' ? 'Approved' : rawStatus === 'Rejected' ? 'Returned' : rawStatus,
+				campus: item.campus || item.employee?.campus || employeeRecord?.campus || '',
+				libraryReportStatus: rawStatus === 'In Progress' ? 'Under Review' : rawStatus === 'Rejected' ? 'Returned' : rawStatus,
 				requestDate: item.createdAt || item.requestDate,
+				approvedBy: item.libraryReviewedBy || item.reviewedBy || item.approvedBy || '',
+				libraryDecisionDate: item.libraryReviewedAt || item.reviewedAt || item.approvedAt || '',
+				returnReason: item.libraryReturnReason || item.returnReason || item.libraryComment || '',
+				materials: Array.isArray(item.materials) ? item.materials : [],
 			};
-		});
+		}).filter((item) => !campus || String(item.campus || '') === campus);
 		const getReportStatus = (item) => item.libraryReportStatus;
 		const counts = {
 			total: rows.length,
@@ -328,25 +353,46 @@ const getLibraryReport = async (req, res) => {
 			underReview: rows.filter((item) => getReportStatus(item) === 'Under Review').length,
 			returned: rows.filter((item) => getReportStatus(item) === 'Returned').length,
 			approved: rows.filter((item) => getReportStatus(item) === 'Approved').length,
-			completed: rows.filter((item) => item.libraryStatus === 'Completed').length,
+			completed: rows.filter((item) => item.libraryReportStatus === 'Completed').length,
 		};
+		const responsibility = rows.reduce((result, item) => {
+			const materials = Array.isArray(item.materials) ? item.materials : [];
+			result.totalChecked += materials.length;
+			result.borrowedBooks += materials.filter((material) => ['Borrowed', 'Overdue'].includes(material.status)).length;
+			result.outstandingBooks += materials.filter((material) => ['Outstanding', 'Borrowed', 'Overdue'].includes(material.status)).length;
+			result.lostDamaged += materials.filter((material) => ['Lost', 'Damaged'].includes(material.status) || ['Lost', 'Damaged'].includes(material.condition)).length;
+			result.returnedMaterials += materials.filter((material) => material.status === 'Returned').length;
+			if (!materials.some((material) => ['Outstanding', 'Borrowed', 'Overdue'].includes(material.status))) result.noOutstanding += 1;
+			return result;
+		}, { totalChecked: 0, noOutstanding: 0, borrowedBooks: 0, outstandingBooks: 0, lostDamaged: 0, returnedMaterials: 0 });
 		const byDepartment = rows.reduce((result, item) => {
 			result[item.department || 'Other'] = (result[item.department || 'Other'] || 0) + 1;
 			return result;
 		}, {});
-		const trend = Array.from({ length: 7 }, (_, index) => {
-			const day = new Date();
-			day.setHours(0, 0, 0, 0);
-			day.setDate(day.getDate() - (6 - index));
-			const nextDay = new Date(day);
-			nextDay.setDate(nextDay.getDate() + 1);
-			return {
-				date: day.toISOString().slice(0, 10),
-				label: day.toLocaleDateString('en-US', { weekday: 'short' }),
-				count: rows.filter((item) => item.createdAt >= day && item.createdAt < nextDay).length,
-			};
-		});
-		return res.status(200).json({ success: true, rows, counts, byDepartment, trend });
+		const trendStart = fromDate ? new Date(`${fromDate}T00:00:00`) : new Date(new Date().setDate(new Date().getDate() - 6));
+		const trendEnd = toDate ? new Date(`${toDate}T23:59:59.999`) : new Date();
+		const dayDifference = Math.max(1, Math.ceil((trendEnd - trendStart) / 86400000));
+		const useMonthlyBuckets = reportPeriod === 'Yearly' || dayDifference > 31;
+		const trend = [];
+		if (useMonthlyBuckets) {
+			const cursor = new Date(trendStart.getFullYear(), trendStart.getMonth(), 1);
+			const endMonth = new Date(trendEnd.getFullYear(), trendEnd.getMonth(), 1);
+			while (cursor <= endMonth) {
+				const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+				trend.push({ date: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`, label: cursor.toLocaleDateString('en-US', { month: 'short' }), count: rows.filter((item) => { const date = new Date(item.requestDate || item.createdAt); return date >= cursor && date < nextMonth; }).length });
+				cursor.setMonth(cursor.getMonth() + 1);
+			}
+		} else {
+			const cursor = new Date(trendStart);
+			cursor.setHours(0, 0, 0, 0);
+			while (cursor <= trendEnd) {
+				const nextDay = new Date(cursor);
+				nextDay.setDate(nextDay.getDate() + 1);
+				trend.push({ date: cursor.toISOString().slice(0, 10), label: reportPeriod === 'Weekly' ? cursor.toLocaleDateString('en-US', { weekday: 'short' }) : cursor.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), count: rows.filter((item) => { const date = new Date(item.requestDate || item.createdAt); return date >= cursor && date < nextDay; }).length });
+				cursor.setDate(cursor.getDate() + 1);
+			}
+		}
+		return res.status(200).json({ success: true, rows, counts, byDepartment, trend, reportType, reportPeriod, periodValue, period: { fromDate, toDate }, responsibility });
 	} catch (error) {
 		console.error('Error in getLibraryReport:', error);
 		return res.status(500).json({ success: false, message: 'Unable to load the library report.' });
@@ -449,10 +495,9 @@ const deleteClearance = async (req, res) => {
 
 const addClearance = async (req, res) => {
 	try {
-		const minimumLastWorkingDate = '2027-01-01';
-		const lastWorkingDate = String(req.body?.lastWorkingDate || req.body?.expectedLastWorkingDate || '').slice(0, 10);
-		if (!lastWorkingDate || lastWorkingDate < minimumLastWorkingDate) {
-			return res.status(400).json({ success: false, message: 'Last working date must be January 1, 2027 or later.' });
+		const lastWorkingDate = String(req.body?.lastWorkingDate || '').slice(0, 10);
+		if (!lastWorkingDate) {
+			return res.status(400).json({ success: false, message: 'Last working date is required.' });
 		}
 		const employeeRecord = req.body?.employeeId
 			? await Employee.findOne({ employeeId: req.body.employeeId }).select('employeeId fullName department position campus phone email').lean()
@@ -497,6 +542,7 @@ const addClearance = async (req, res) => {
 
 		const payload = {
 			...(req.body || {}),
+			lastWorkingDate,
 			employeeId: employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId || '',
 			department: resolvedDepartment,
 			initialHRStatus: 'Pending',
@@ -565,6 +611,11 @@ const addClearance = async (req, res) => {
 const updateClearance = async (req, res) => {
 	try {
 		const { libraryDecision, ...requestUpdates } = req.body || {};
+		if (Object.prototype.hasOwnProperty.call(requestUpdates, 'lastWorkingDate')) {
+			const lastWorkingDate = String(requestUpdates.lastWorkingDate || '').slice(0, 10);
+			if (!lastWorkingDate) return res.status(400).json({ success: false, message: 'Last working date is required.' });
+			requestUpdates.lastWorkingDate = lastWorkingDate;
+		}
 		if (requestUpdates.cancelRequest) {
 			const cancellationReason = String(requestUpdates.cancellationReason || '').trim();
 			if (!cancellationReason) return res.status(400).json({ success: false, message: 'Cancellation reason is required.' });
@@ -635,12 +686,14 @@ const updateClearance = async (req, res) => {
 			requestUpdates.departmentReturnReason = departmentDecision.returnReason || '';
 			const departmentReviewer = req.user?.fullName || req.user?.name || '';
 			requestUpdates.departmentReviewedBy = departmentReviewer;
+			requestUpdates.departmentReviewedById = req.user?._id || null;
 			requestUpdates.departmentReviewedAt = reviewedAt;
 			requestUpdates.departmentComment = departmentDecision.comment || requestUpdates.remarks || '';
 			requestUpdates.departmentClearance = {
 				...departmentDecision,
 				status: departmentStatus,
-				 reviewedBy: departmentReviewer,
+				reviewedBy: departmentReviewer,
+				reviewedById: req.user?._id || null,
 				reviewedAt,
 				comment: departmentDecision.comment || requestUpdates.remarks || '',
 				returnReason: departmentDecision.returnReason || '',
@@ -649,6 +702,7 @@ const updateClearance = async (req, res) => {
 				...departmentDecision,
 				status: departmentStatus,
 				reviewedBy: departmentReviewer,
+				reviewedById: req.user?._id || null,
 				reviewedAt,
 			}];
 		}

@@ -10,9 +10,23 @@ const libraryOfficerSettingsSchema = new mongoose.Schema(
     },
     notificationPreferences: {
       newClearanceRequest: { type: Boolean, default: true },
-      returnedResubmitted: { type: Boolean, default: true },
-      clearanceStatusUpdate: { type: Boolean, default: true },
-      reportRequest: { type: Boolean, default: true }
+      resubmittedClearance: { type: Boolean, default: true },
+      verificationRequired: { type: Boolean, default: true },
+      clearanceApproved: { type: Boolean, default: true },
+      clearanceReturned: { type: Boolean, default: true },
+      employeeInformationUpdated: { type: Boolean, default: true },
+      systemNotifications: { type: Boolean, default: true }
+    },
+    clearanceChecklist: {
+      borrowedBooksChecked: { type: Boolean, default: true },
+      unreturnedBooksChecked: { type: Boolean, default: true },
+      outstandingMaterialsChecked: { type: Boolean, default: true },
+      lostDamagedMaterialsChecked: { type: Boolean, default: true },
+      libraryAccountChecked: { type: Boolean, default: true }
+    },
+    deliveryPreferences: {
+      inSystemNotifications: { type: Boolean, default: true },
+      emailNotifications: { type: Boolean, default: true }
     },
     displayPreferences: {
       itemsPerPage: { type: Number, default: 10 },

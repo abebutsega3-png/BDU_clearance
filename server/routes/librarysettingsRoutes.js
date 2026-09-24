@@ -1,10 +1,12 @@
 import express from 'express';
 import LibraryOfficerSettings from '../models/LibraryOfficerSettings.js';
+import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.get('/:userId', async (req, res) => {
+router.get('/:userId', authMiddleware, async (req, res) => {
   try {
+    if (String(req.user._id) !== String(req.params.userId)) return res.status(403).json({ message: 'You can only view your own settings.' });
     let settings = await LibraryOfficerSettings.findOne({ userId: req.params.userId });
 
     if (!settings) {
@@ -30,17 +32,18 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
-router.put('/:userId', async (req, res) => {
+router.put('/:userId', authMiddleware, async (req, res) => {
   try {
-    const { notificationPreferences, displayPreferences, language } = req.body;
+    if (String(req.user._id) !== String(req.params.userId)) return res.status(403).json({ message: 'You can only update your own settings.' });
+    const { notificationPreferences, clearanceChecklist, deliveryPreferences } = req.body;
 
     const updatedSettings = await LibraryOfficerSettings.findOneAndUpdate(
       { userId: req.params.userId },
       {
         $set: {
           notificationPreferences,
-          displayPreferences,
-          language
+          clearanceChecklist,
+          deliveryPreferences
         }
       },
       { returnDocument: 'after', upsert: true, runValidators: true }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 import { useLocation } from 'react-router-dom';
 import {
   CalendarDays,
@@ -36,7 +37,6 @@ const statusStyles = {
 };
 
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
-const minimumLastWorkingDate = '2027-01-01';
 
 export default function MyClearancePage() {
   const { user } = useAuth();
@@ -44,6 +44,7 @@ export default function MyClearancePage() {
   const isEmployeeRoute = pathname.startsWith('/employee/');
   const [menuOpen, setMenuOpen] = useState(false);
   const [requests, setRequests] = useState([]);
+  const [employeeProfile, setEmployeeProfile] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -64,14 +65,24 @@ export default function MyClearancePage() {
     confirmed: false,
   });
 
-  const employeeId = user?.employeeId || user?.employee?.employeeId || '';
-  const employeeName = user?.name || user?.fullName || '';
-  const department = user?.department?.name || user?.department || '';
-  const position = user?.position || user?.jobTitle || '';
-  const email = user?.email || '';
-  const phone = user?.phone || user?.phoneNumber || '';
-  const campus = user?.campus || '';
-  const college = user?.college || user?.institute || '';
+  const profile = employeeProfile || user || {};
+  const employeeId = profile.employeeId || profile.employee?.employeeId || '';
+  const employeeName = profile.fullName || profile.name || '';
+  const department = profile.department?.name || profile.department || '';
+  const position = profile.position || profile.jobTitle || '';
+  const email = profile.email || '';
+  const phone = profile.phone || profile.phoneNumber || '';
+  const campus = profile.campus || '';
+  const college = profile.college || profile.institute || profile.collegeInstitute || '';
+
+  useEffect(() => {
+    const profileId = user?._id || user?.id;
+    if (!profileId) return undefined;
+    axios.get(`/api/profile/${profileId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } })
+      .then((response) => setEmployeeProfile(response.data?.data || response.data || {}))
+      .catch(() => setEmployeeProfile(null));
+    return undefined;
+  }, [user?._id, user?.id]);
 
   useEffect(() => {
     if (!employeeId) {
@@ -126,8 +137,8 @@ export default function MyClearancePage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!formData.lastWorkingDate || formData.lastWorkingDate < minimumLastWorkingDate) {
-      setError('Last working date must be January 1, 2027 or later.');
+    if (!formData.lastWorkingDate) {
+      setError('Last working date is required.');
       return;
     }
     if (!formData.confirmed) {
@@ -147,7 +158,7 @@ export default function MyClearancePage() {
         clearanceReason: formData.clearanceReason,
         reason: formData.reason,
         requestDate: new Date().toISOString().slice(0, 10),
-        expectedLastWorkingDate: formData.lastWorkingDate,
+        lastWorkingDate: formData.lastWorkingDate,
         remarks: formData.remark,
       });
 
@@ -283,7 +294,7 @@ export default function MyClearancePage() {
                 <label className="mb-2 block text-[12px] font-semibold text-slate-700">Last Working Date <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input type="date" name="lastWorkingDate" value={formData.lastWorkingDate} min={minimumLastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
+                  <input type="date" name="lastWorkingDate" value={formData.lastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
                 </div>
               </div>
 

@@ -126,6 +126,27 @@ const employeeFilter = (employeeId) => ({
   ],
 });
 
+const getEmployeeProfile = async (employeeId) => {
+  if (!employeeId) return null;
+  const [employee, user] = await Promise.all([
+    Employee.findOne(employeeFilter(employeeId)).select('-password -createdBy').lean(),
+    User.findOne({ employeeId }).select('employeeId name email phoneNumber department position campus employmentType').lean(),
+  ]);
+  if (!employee && !user) return null;
+  return {
+    ...user,
+    ...employee,
+    fullName: employee?.fullName || user?.name || '',
+    employeeId: employee?.employeeId || user?.employeeId || employeeId,
+    position: employee?.position || user?.position || '',
+    department: employee?.department || user?.department || '',
+    campus: employee?.campus || user?.campus || '',
+    phone: employee?.phone || user?.phoneNumber || '',
+    email: employee?.email || user?.email || '',
+    employmentType: employee?.employmentType || user?.employmentType || '',
+  };
+};
+
 const officeAliases = {
   'department head': 'Department Head',
   department: 'Department Head',
@@ -284,10 +305,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
     }
 
     // Get employee details
-    let employeeData = null;
-    if (clearance.employeeId) {
-      employeeData = await Employee.findOne(employeeFilter(clearance.employeeId)).select('-password -createdBy').lean();
-    }
+    const employeeData = await getEmployeeProfile(clearance.employeeId);
 
     // Get clearance request details
     let clearanceRequest = null;
@@ -869,7 +887,7 @@ export const getEmployeeCertificates = async (req, res) => {
     const certificates = await Promise.all(clearances.map(async (clearance) => {
       const { offices } = getOfficeCounts(clearance);
       const departmentClearances = await resolveOfficeReviewers(offices);
-      const employee = clearance.employee || {};
+      const employee = await getEmployeeProfile(clearance.employeeId) || clearance.employee || {};
       return ({
       certificateNo: clearance.certificate.number,
       certificate: clearance.certificate,
