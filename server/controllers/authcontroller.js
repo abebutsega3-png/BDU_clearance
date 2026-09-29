@@ -3,8 +3,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 import { recordAuditLog } from './auditLogger.js';
-
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+import { sendNotificationEmail } from '../utils/emailService.js';
 
 const login = async (req, res) => {
   try {
@@ -15,40 +14,22 @@ const login = async (req, res) => {
       });
     }
 
-    const { identifier, email, password } = req.body;
-    const normalizedIdentifier = (identifier || email)?.trim();
-    if (!normalizedIdentifier || !password) {
-      return res.status(400).json({ success: false, message: 'Identifier and password are required' });
+    const { email, password } = req.body;
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    const users = await User.find({
-      $or: [
-        { email: normalizedIdentifier.toLowerCase() },
-        { username: { $regex: `^${escapeRegExp(normalizedIdentifier)}$`, $options: 'i' } },
-        { employeeId: { $regex: `^${escapeRegExp(normalizedIdentifier)}$`, $options: 'i' } },
-        { name: { $regex: `^${escapeRegExp(normalizedIdentifier)}$`, $options: 'i' } },
-      ],
-    });
-    if (!users.length) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    let user = null;
-    for (const candidate of users) {
-      if (await bcrypt.compare(password, candidate.password)) {
-        user = candidate;
-        break;
-      }
-    }
-    if (!user) {
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       await recordAuditLog({
         req,
-        user: users[0] || null,
+        user: user || null,
         action: 'FAILED_LOGIN',
         module: 'Authentication',
-        description: `Failed login attempt for ${normalizedIdentifier}.`,
+        description: `Failed login attempt for ${normalizedEmail}.`,
       });
-      return res.status(401).json({ success: false, message: 'Invalid password' });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
     const token = jwt.sign(
@@ -58,7 +39,8 @@ const login = async (req, res) => {
     );
 
     // Update lastLogin
-    user.lastLogin = new Date();
+    const loginTimestamp = new Date();
+    user.lastLogin = loginTimestamp;
     await user.save();
 
     await recordAuditLog({
@@ -68,6 +50,18 @@ const login = async (req, res) => {
       module: 'Authentication',
       description: `${user.name || user.username} logged in successfully.`,
     });
+
+    void sendNotificationEmail({
+      recipient: user,
+      title: 'New sign-in to your BDU account',
+      message: [
+        'A successful login was detected for your account.',
+        `Time: ${loginTimestamp.toISOString()}`,
+        `IP address: ${req.ip || req.socket?.remoteAddress || 'Unknown'}`,
+        `Browser/device: ${req.get('user-agent') || 'Unknown'}`,
+      ].join('\n'),
+      notificationKey: 'securityAlert',
+    }).catch((error) => console.error('Login notification failed:', error.message));
 
     return res.status(200).json({
       success: true,

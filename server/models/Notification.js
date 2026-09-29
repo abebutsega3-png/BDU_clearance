@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { dispatchNotificationEmails } from '../utils/notificationEmailDispatcher.js';
 
 const notificationTypeEnum = [
   'NEW_CLEARANCE_REQUEST',
@@ -107,6 +108,14 @@ NotificationSchema.pre('validate', function() {
   if (!this.relatedRequestId && this.clearanceRequestId) {
     this.relatedRequestId = this.clearanceRequestId;
   }
+});
+
+NotificationSchema.post('save', function(notification) {
+  void dispatchNotificationEmails(notification);
+});
+
+NotificationSchema.post('insertMany', function(notifications) {
+  void dispatchNotificationEmails(notifications);
 });
 
 const Notification = mongoose.model('Notification', NotificationSchema);

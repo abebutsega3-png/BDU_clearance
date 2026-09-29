@@ -4,8 +4,6 @@ import mongoose from 'mongoose';
 import User from '../models/User.js';
 import { recordAuditLog } from './auditLogger.js';
 
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 const login = async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
@@ -15,40 +13,22 @@ const login = async (req, res) => {
       });
     }
 
-    const { identifier, email, password } = req.body;
-    const normalizedIdentifier = (identifier || email)?.trim();
-    if (!normalizedIdentifier || !password) {
-      return res.status(400).json({ success: false, message: 'Identifier and password are required' });
+    const { email, password } = req.body;
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    const users = await User.find({
-      $or: [
-        { email: normalizedIdentifier.toLowerCase() },
-        { username: { $regex: `^${escapeRegExp(normalizedIdentifier)}$`, $options: 'i' } },
-        { employeeId: { $regex: `^${escapeRegExp(normalizedIdentifier)}$`, $options: 'i' } },
-        { name: { $regex: `^${escapeRegExp(normalizedIdentifier)}$`, $options: 'i' } },
-      ],
-    });
-    if (!users.length) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    let user = null;
-    for (const candidate of users) {
-      if (await bcrypt.compare(password, candidate.password)) {
-        user = candidate;
-        break;
-      }
-    }
-    if (!user) {
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       await recordAuditLog({
         req,
-        user: users[0] || null,
+        user: user || null,
         action: 'FAILED_LOGIN',
         module: 'Authentication',
-        description: `Failed login attempt for ${normalizedIdentifier}.`,
+        description: `Failed login attempt for ${normalizedEmail}.`,
       });
-      return res.status(401).json({ success: false, message: 'Invalid password' });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
     const token = jwt.sign(

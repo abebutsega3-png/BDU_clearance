@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
-import { Eye, EyeOff, LockKeyhole, LogIn, UserRound } from 'lucide-react';
+import { Eye, EyeOff, LockKeyhole, LogIn, Mail } from 'lucide-react';
 import campusImage from '../assets/image1.png';
 
 export default function Login() {
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -21,8 +21,8 @@ export default function Login() {
 
     setError('');
 
-    if (!identifier.trim() || !password.trim()) {
-      setError('Please enter your email or username and password.');
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password.');
       return;
     }
 
@@ -30,7 +30,7 @@ export default function Login() {
 
     try {
       const response = await axios.post('http://localhost:3000/api/auth/login', {
-        identifier: identifier.trim(),
+        email: email.trim(),
         password,
       });
 
@@ -70,7 +70,7 @@ export default function Login() {
       if (!error.response) {
         setError('The login server is unavailable. Start the backend and try again.');
       } else {
-        setError(error.response.data?.message || 'Invalid email, username, or password.');
+        setError(error.response.data?.message || 'Invalid email or password.');
       }
     } finally {
       setIsSubmitting(false);
@@ -95,16 +95,16 @@ export default function Login() {
         {error && <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
         <div className="mb-5">
-          <label htmlFor="identifier" className="mb-2 block text-xs font-semibold text-slate-700">Email / Employee ID / Username / Full Name</label>
+          <label htmlFor="email" className="mb-2 block text-xs font-semibold text-slate-700">Email</label>
           <div className="relative">
-            <UserRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-            id="identifier"
-            type="text"
-            autoComplete="username"
-            placeholder="Enter your email, Employee ID, username, or full name"
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder="Enter your email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="h-11 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
             required
           />

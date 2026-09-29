@@ -1,10 +1,19 @@
 import express from 'express';
 import SystemSettings from '../models/SystemSettings.js';
 import { recordAuditLog } from '../controllers/auditLogger.js';
+import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
 
+const adminOnly = (req, res, next) => {
+  const role = String(req.user?.role || '').trim();
+  if (!/^(admin|administrator|system admin|system administrator)$/i.test(role)) {
+    return res.status(403).json({ success: false, message: 'Administrator access is required.' });
+  }
+  return next();
+};
+
 // Get Settings
-router.get('/', async (req, res) => {
+router.get('/', authMiddleware, adminOnly, async (req, res) => {
   try {
     let settings = await SystemSettings.findOne();
     if (!settings) settings = await SystemSettings.create({});
@@ -15,13 +24,14 @@ router.get('/', async (req, res) => {
 });
 
 // Update Settings Section
-router.put('/:section', async (req, res) => {
+router.put('/:section', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { section } = req.params;
     let settings = await SystemSettings.findOne();
     if (!settings) settings = new SystemSettings();
 
-    settings[section] = { ...settings[section], ...req.body };
+    const currentSection = settings.get(section)?.toObject?.() || {};
+    settings.set(section, { ...currentSection, ...req.body });
     await settings.save();
 
     await recordAuditLog({

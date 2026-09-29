@@ -28,7 +28,7 @@ const mergeSettings = (current, incoming = {}) => ({
 export default function SystemSettings() {
   const [settings, setSettings] = useState(defaults);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(null);
   const [selectedSetting, setSelectedSetting] = useState(null);
   const [settingForms, setSettingForms] = useState({
     general: {
@@ -55,13 +55,18 @@ export default function SystemSettings() {
       workflow: 'HR -> Library -> Finance -> Department',
     },
     notification: {
-      newRequest: true,
-      requestCleared: true,
-      requestRejected: true,
-      clearanceCompleted: true,
-      certificateAvailable: true,
-      emailNotification: true,
-      inAppNotification: true,
+      emailNotifications: true,
+      systemNotifications: true,
+      notifyWhen: {
+        newUserCreated: true,
+        newEmployeeAdded: true,
+        passwordResetRequested: true,
+        securityAlert: true,
+        userAccountDeactivated: true,
+        employeeClearanceCompleted: true,
+        systemErrorOccurred: true,
+        backupCompleted: false,
+      },
     },
     certificate: {
       template: 'BDU Standard Certificate',
@@ -94,22 +99,31 @@ export default function SystemSettings() {
         setSettings((current) => mergeSettings(current, data.settings));
         setSettingForms((current) => ({
           ...current,
+          notification: {
+            ...current.notification,
+            ...data.settings?.notifications,
+            notifyWhen: {
+              ...current.notification.notifyWhen,
+              ...data.settings?.notifications?.notifyWhen,
+            },
+          },
           certificate: { ...current.certificate, ...data.settings?.certificate },
           security: { ...current.security, ...data.settings?.security },
         }));
       })
-      .catch(() => setMessage('Unable to load settings. Please sign in again.'))
+      .catch(() => setMessage({ type: 'error', text: 'Unable to load settings. Please sign in again.' }))
       .finally(() => setLoading(false));
   }, []);
 
-  const saveSection = async (section, data) => {
+  const saveSection = async (section, data, label = section) => {
+    setMessage(null);
     try {
       const response = await axios.put(`${api}/${section}`, data, { headers: headers() });
       setSettings((current) => mergeSettings(current, response.data.settings));
-      setMessage(`${section} settings saved successfully.`);
+      setMessage({ type: 'success', text: response.data.message || `${label} settings saved successfully.` });
       return true;
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Unable to save settings.');
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Unable to save settings.' });
       return false;
     }
   };
@@ -179,7 +193,16 @@ export default function SystemSettings() {
 
   const saveSelectedSetting = async () => {
     if (!selectedSetting) return;
-    const saved = await saveSection(selectedSetting, settingForms[selectedSetting]);
+    const section = selectedSetting === 'notification' ? 'notifications' : selectedSetting;
+    const data = selectedSetting === 'notification'
+      ? {
+        emailNotifications: settingForms.notification.emailNotifications,
+        systemNotifications: settingForms.notification.systemNotifications,
+        notifyWhen: { ...settingForms.notification.notifyWhen },
+      }
+      : settingForms[selectedSetting];
+    const label = selectedSetting === 'notification' ? 'Notification' : selectedSetting;
+    const saved = await saveSection(section, data, label);
     if (saved) setSelectedSetting(null);
   };
 
@@ -269,13 +292,20 @@ export default function SystemSettings() {
             </div>
 
             <div className="space-y-4">
-              <ToggleField label="New Request Notification" checked={form.newRequest} onToggle={(value) => updateField('newRequest', value)} />
-              <ToggleField label="Cleared Notification" checked={form.requestCleared} onToggle={(value) => updateField('requestCleared', value)} />
-              <ToggleField label="Rejected Notification" checked={form.requestRejected} onToggle={(value) => updateField('requestRejected', value)} />
-              <ToggleField label="Clearance Completed Notification" checked={form.clearanceCompleted} onToggle={(value) => updateField('clearanceCompleted', value)} />
-              <ToggleField label="Certificate Available Notification" checked={form.certificateAvailable} onToggle={(value) => updateField('certificateAvailable', value)} />
-              <ToggleField label="Email Notification Enable / Disable" checked={form.emailNotification} onToggle={(value) => updateField('emailNotification', value)} />
-              <ToggleField label="In-App Notification Enable / Disable" checked={form.inAppNotification} onToggle={(value) => updateField('inAppNotification', value)} />
+              <ToggleField label="Email Notifications" checked={form.emailNotifications} onToggle={(value) => updateField('emailNotifications', value)} />
+              <ToggleField label="In-App Notifications" checked={form.systemNotifications} onToggle={(value) => updateField('systemNotifications', value)} />
+              {Object.entries({
+                newUserCreated: 'New User Created',
+                newEmployeeAdded: 'New Employee Added',
+                passwordResetRequested: 'Password Reset Requested',
+                securityAlert: 'Security Alert',
+                userAccountDeactivated: 'User Account Deactivated',
+                employeeClearanceCompleted: 'Employee Clearance Completed',
+                systemErrorOccurred: 'System Error Occurred',
+                backupCompleted: 'Backup Completed',
+              }).map(([key, label]) => (
+                <ToggleField key={key} label={label} checked={form.notifyWhen[key]} onToggle={(value) => updateCheckboxGroup('notifyWhen', key, value)} />
+              ))}
             </div>
 
             <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">
@@ -394,7 +424,14 @@ export default function SystemSettings() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 text-xs font-sans pb-10">
       {loading && <div className="px-6 py-2 bg-blue-50 text-blue-700">Loading settings...</div>}
-      {message && <div className="px-6 py-2 bg-emerald-50 text-emerald-700">{message}</div>}
+      {message && (
+        <div
+          role={message.type === 'error' ? 'alert' : 'status'}
+          className={`px-6 py-2 ${message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}
+        >
+          {message.text}
+        </div>
+      )}
 
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
         <div className="flex items-center gap-3">

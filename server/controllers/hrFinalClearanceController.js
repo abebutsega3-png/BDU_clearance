@@ -5,6 +5,7 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
+import { sendNotificationEmail } from '../utils/emailService.js';
 
 const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
   const department = typeof clearance.department === 'object'
@@ -14,9 +15,9 @@ const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
   const heads = await User.find({
     role: { $regex: '^department[ _]?head$', $options: 'i' },
     ...(escapedDepartment ? { department: { $regex: `^${escapedDepartment}$`, $options: 'i' } } : {}),
-  }).select('_id name');
+  }).select('_id name email notificationPreferences');
   if (!heads.length) return;
-  await Notification.insertMany(heads.map((head) => ({
+  const notifications = heads.map((head) => ({
     recipientId: head._id,
     targetName: head.name || 'Department Head',
     title: 'Clearance Request Ready for Department Review',
@@ -27,6 +28,13 @@ const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
     relatedRequestId: clearance.requestId,
     clearanceRequestId: clearance.requestId,
     isRead: false,
+  }));
+  await Notification.insertMany(notifications);
+  await Promise.all(heads.map((head, index) => sendNotificationEmail({
+    recipient: head,
+    title: notifications[index].title,
+    message: notifications[index].message,
+    actionLink: notifications[index].actionLink,
   })));
 };
 
@@ -39,10 +47,11 @@ export const updateInitialHRDecision = async (req, res) => {
     const { id } = req.params;
     const { decision, remarks = '', reason = '', affectedField = '' } = req.body || {};
     const normalizedDecision = String(decision || '').trim().toLowerCase();
+    const returnReason = String(reason || remarks).trim();
     if (!['in progress', 'approved', 'returned'].includes(normalizedDecision)) {
       return res.status(400).json({ success: false, message: 'Initial HR decision must be Start Review, Approved, or Returned.' });
     }
-    if (normalizedDecision === 'returned' && !String(remarks).trim()) {
+    if (normalizedDecision === 'returned' && !returnReason) {
       return res.status(400).json({ success: false, message: 'Return reason is required.' });
     }
 
@@ -74,7 +83,6 @@ export const updateInitialHRDecision = async (req, res) => {
     current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
     current.initialHRReviewedAt = new Date();
     const reviewerName = req.user?.fullName || req.user?.name || 'HR Officer';
-    const returnReason = String(reason || remarks).trim();
     const returnRemark = String(remarks).trim();
     current.initialHRRemarks = returnRemark;
     current.initialHRReviewedBy = reviewerName;
@@ -120,20 +128,29 @@ export const updateInitialHRDecision = async (req, res) => {
     );
 
     const employeeUser = await findEmployeeUser(current);
+    const employeeNotificationTitle = approved ? 'Clearance Accepted by HR' : 'Clearance Returned by HR';
+    const employeeNotificationMessage = approved
+      ? 'Your clearance request passed Initial HR Review and was sent to your Department Head.'
+      : `Please correct your clearance information and resubmit it. Reason: ${String(remarks).trim()}`;
+    const employeeNotificationLink = '/employee/My%20Clearance';
     await Notification.create({
       recipientId: employeeUser?._id || null,
       employeeId: current.employeeId || employeeUser?.employeeId || '',
       targetName: current.employeeName || 'Employee',
-      title: approved ? 'Clearance Accepted by HR' : 'Clearance Returned by HR',
-      message: approved
-        ? 'Your clearance request passed Initial HR Review and was sent to your Department Head.'
-        : `Please correct your clearance information and resubmit it. Reason: ${String(remarks).trim()}`,
+      title: employeeNotificationTitle,
+      message: employeeNotificationMessage,
       type: approved ? 'INITIAL_HR_APPROVED' : 'CLEARANCE_REQUEST_RETURNED',
       actionText: approved ? 'View Clearance' : 'Correct and Resubmit',
-      actionLink: '/employee/My%20Clearance',
+      actionLink: employeeNotificationLink,
       relatedRequestId: current.requestId,
       clearanceRequestId: current.requestId,
       isRead: false,
+    });
+    await sendNotificationEmail({
+      recipient: employeeUser,
+      title: employeeNotificationTitle,
+      message: employeeNotificationMessage,
+      actionLink: employeeNotificationLink,
     });
     if (approved) {
       await notifyDepartmentHeadsAfterInitialHR(current);
@@ -207,15 +224,24 @@ const normalizeOfficeName = (value) => {
 const normalizeOfficeStatus = (value) => String(value || '').trim().toLowerCase();
 
 const findEmployeeUser = async (clearance) => {
+  let user = null;
   if (clearance.employeeId) {
-    const byEmployeeId = await User.findOne({ employeeId: clearance.employeeId }).select('_id name employeeId').lean();
-    if (byEmployeeId) return byEmployeeId;
+    user = await User.findOne({ employeeId: clearance.employeeId }).select('_id name employeeId email notificationPreferences').lean();
   }
 
-  return User.findOne({
-    name: clearance.employeeName,
-    role: { $regex: /^(employee|standard user|user)$/i },
-  }).select('_id name employeeId').lean();
+  if (!user) {
+    user = await User.findOne({
+      name: clearance.employeeName,
+      role: { $regex: /^(employee|standard user|user)$/i },
+    }).select('_id name employeeId email notificationPreferences').lean();
+  }
+
+  if (!user?.email && clearance.employeeId) {
+    const employee = await Employee.findOne(employeeFilter(clearance.employeeId)).select('email').lean();
+    if (employee?.email) return { ...user, email: employee.email };
+  }
+
+  return user;
 };
 
 const getOfficeProgress = (clearance) => {
@@ -591,23 +617,34 @@ export const updateHRFinalDecision = async (req, res) => {
           ? `Your clearance request was returned by the HR Office. Reason: ${remarks || 'Please review and correct the request.'}`
           : 'All required offices have completed your clearance. Your request is now under final HR processing.';
 
+      const employeeTitle = decision === 'Approved' || decision === 'In Progress'
+        ? 'Clearance Request Approved'
+        : decision === 'Returned' || decision === 'Rejected' ? 'Clearance Request Returned' : 'All Clearances Completed';
+      const employeeActionLink = '/employee/My%20Clearance';
       await Notification.create({
         recipientId: employeeUser?._id || null,
         employeeId: clearance.employeeId || employeeUser?.employeeId || '',
         targetName: clearance.employeeName || 'Employee',
-        title: decision === 'Approved' || decision === 'In Progress' ? 'Clearance Request Approved' : decision === 'Returned' || decision === 'Rejected' ? 'Clearance Request Returned' : 'All Clearances Completed',
+        title: employeeTitle,
         message: employeeMessage,
         type: decision === 'Approved' || decision === 'In Progress' ? 'CLEARANCE_UPDATED' : decision === 'Returned' || decision === 'Rejected' ? 'CLEARANCE_REQUEST_RETURNED' : 'ALL_CLEARANCES_COMPLETED',
         actionText: decision === 'Returned' || decision === 'Rejected' ? 'View Request & Resubmit' : 'View Clearance',
-        actionLink: '/employee/My%20Clearance',
+        actionLink: employeeActionLink,
         relatedRequestId: clearance.requestId || null,
         clearanceRequestId: clearance.requestId || null,
         isRead: false,
       });
+      await sendNotificationEmail({
+        recipient: employeeUser,
+        title: employeeTitle,
+        message: employeeMessage,
+        actionLink: employeeActionLink,
+        notificationKey: decision === 'Completed' ? 'employeeClearanceCompleted' : undefined,
+      });
 
       if (decision === 'Completed' && currentCounts.approvedCount === currentCounts.totalOffices) {
-        const hrOfficers = await User.find({ role: { $regex: '^hr officer$', $options: 'i' } }).select('_id name');
-        await Notification.insertMany(hrOfficers.map((officer) => ({
+        const hrOfficers = await User.find({ role: { $regex: '^hr officer$', $options: 'i' } }).select('_id name email notificationPreferences');
+        const notifications = hrOfficers.map((officer) => ({
           recipientId: officer._id,
           targetName: officer.name || 'HR Officer',
           title: 'Certificate Ready',
@@ -618,6 +655,14 @@ export const updateHRFinalDecision = async (req, res) => {
           relatedRequestId: clearance.requestId || null,
           clearanceRequestId: clearance.requestId || null,
           isRead: false,
+        }));
+        await Notification.insertMany(notifications);
+        await Promise.all(hrOfficers.map((officer, index) => sendNotificationEmail({
+          recipient: officer,
+          title: notifications[index].title,
+          message: notifications[index].message,
+          actionLink: notifications[index].actionLink,
+          notificationKey: 'employeeClearanceCompleted',
         })));
         await notifyFinanceOfficers({
           type: 'CLEARANCE_COMPLETED',

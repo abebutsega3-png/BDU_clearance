@@ -38,6 +38,7 @@ const statusStyles = {
 
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
 const formatReturnedDate = (value) => value ? new Date(value).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '-';
+const defaultLastWorkingDate = '2026-09-28';
 
 export default function MyClearancePage() {
   const { user } = useAuth();
@@ -61,7 +62,7 @@ export default function MyClearancePage() {
     clearanceReason: 'Resignation',
     reason: 'I am resigning from my position.',
     remark: 'Thank you.',
-    lastWorkingDate: '2024-05-31',
+    lastWorkingDate: defaultLastWorkingDate,
     file: null,
     confirmed: false,
   });
@@ -170,7 +171,7 @@ export default function MyClearancePage() {
           clearanceReason: 'Resignation',
           reason: '',
           remark: '',
-          lastWorkingDate: '',
+          lastWorkingDate: defaultLastWorkingDate,
           file: null,
           confirmed: false,
         });
