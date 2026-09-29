@@ -162,7 +162,7 @@ export const updateInitialHRDecision = async (req, res) => {
   }
 };
 
-const CORE_OFFICES = ['Department Head', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Library'];
+const LEGACY_CORE_OFFICES = ['Department Head', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Library'];
 const approvedStatuses = ['approved', 'completed', 'cleared'];
 
 const employeeFilter = (employeeId) => ({
@@ -207,6 +207,9 @@ const officeAliases = {
   'ict office': 'ICT Office',
   library: 'Library',
   'library office': 'Library',
+  transport: 'Transport Office',
+  'transport office': 'Transport Office',
+  'transport clearance request': 'Transport Office',
 };
 
 const normalizeOfficeName = (value) => {
@@ -218,7 +221,16 @@ const normalizeOfficeName = (value) => {
   if (compactName.includes('property') || compactName.includes('asset')) return 'Property / Asset Office';
   if (compactName.includes('ict')) return 'ICT Office';
   if (compactName.includes('library')) return 'Library';
+  if (compactName.includes('transport')) return 'Transport Office';
   return value;
+};
+
+const getRequiredCoreOffices = (clearance) => {
+  const configuredOffices = Array.isArray(clearance.requiredOffices) && clearance.requiredOffices.length
+    ? clearance.requiredOffices
+    : LEGACY_CORE_OFFICES;
+  return [...new Set(configuredOffices.map(normalizeOfficeName))]
+    .filter((office) => office && !/final hr/i.test(office));
 };
 
 const normalizeOfficeStatus = (value) => String(value || '').trim().toLowerCase();
@@ -255,8 +267,9 @@ const getOfficeProgress = (clearance) => {
     'Property / Asset Office': clearance.propertyStatus,
     'Department Head': clearance.departmentStatus,
     Library: clearance.libraryStatus,
+    'Transport Office': clearance.transportStatus,
   };
-  return CORE_OFFICES.map((office) => {
+  return getRequiredCoreOffices(clearance).map((office) => {
     const matches = workflow.filter((step) => normalizeOfficeName(step.office || step.name || step.department) === office);
     const approvedStep = [...matches].reverse().find((candidate) => approvedStatuses.includes(normalizeOfficeStatus(candidate.status)));
     const step = approvedStep
@@ -276,6 +289,7 @@ const getOfficeProgress = (clearance) => {
       'Property / Asset Office': clearance.propertyReviewedBy,
       'Department Head': clearance.departmentReviewedBy || clearance.departmentClearance?.reviewedBy,
       Library: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
+      'Transport Office': clearance.transportReviewedBy,
     }[office] || '';
     const officeDate = {
       'Finance Office': clearance.financeReviewedAt,
@@ -283,8 +297,13 @@ const getOfficeProgress = (clearance) => {
       'Property / Asset Office': clearance.propertyReviewedAt,
       'Department Head': clearance.departmentReviewedAt,
       Library: clearance.libraryReviewedAt,
+      'Transport Office': clearance.transportReviewedAt,
     }[office] || null;
-    const officeRemarks = office === 'Property / Asset Office' ? clearance.officerComment : '';
+    const officeRemarks = office === 'Property / Asset Office'
+      ? clearance.officerComment
+      : office === 'Transport Office'
+        ? clearance.transportReturnReason || clearance.transportReview?.officerNotes || ''
+        : '';
     return {
       office,
       status,
@@ -298,7 +317,7 @@ const getOfficeProgress = (clearance) => {
 const getOfficeCounts = (clearance) => {
   const offices = getOfficeProgress(clearance);
   const approvedCount = offices.filter((office) => approvedStatuses.includes(String(office.status).toLowerCase())).length;
-  return { offices, approvedCount, totalOffices: CORE_OFFICES.length };
+  return { offices, approvedCount, totalOffices: offices.length };
 };
 
 const resolveOfficeReviewers = async (offices) => {
@@ -315,6 +334,7 @@ const resolveOfficeReviewers = async (offices) => {
     'Finance Office': /finance/i,
     'Property / Asset Office': /property|asset/i,
     'ICT Office': /ict/i,
+    'Transport Office': /transport/i,
   };
   const roleUsers = await Promise.all(Object.entries(rolePatterns).map(async ([office, role]) => [
     office,

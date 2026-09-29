@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { createClearance } from '../../until/clearanceHelper';
 import { fetchEmployees } from '../../until/EmployeeHelper';
 
-const defaultRequiredOffices = ['HR Office', 'Library', 'Finance', 'Department'];
+const defaultRequiredOffices = ['HR Office', 'Library', 'Finance', 'Department', 'Transport Office'];
 
 const initialForm = {
 	employee: '',
@@ -53,7 +53,7 @@ export default function AddClearance() {
 	const selectedEmployee = employees.find((item) => String(item.employeeId || item._id) === String(form.employee));
 	const officeFlow = (requiredOffices.length ? requiredOffices : defaultRequiredOffices).map((office) => ({
 		office,
-		icon: office === 'HR Office' ? '👥' : office === 'Library' ? '📚' : office === 'Finance' ? '💰' : office === 'Department' ? '🏢' : '▣',
+		icon: office === 'HR Office' ? '👥' : office === 'Library' ? '📚' : office === 'Finance' ? '💰' : office === 'Department' ? '🏢' : office === 'Transport Office' ? '🚌' : '▣',
 	}));
 
 	const toggleRequiredOffice = (office) => {

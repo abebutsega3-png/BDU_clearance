@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
-import { Eye, EyeOff, LockKeyhole, LogIn, Mail } from 'lucide-react';
+import { Eye, EyeOff, LockKeyhole, LogIn, UserRound } from 'lucide-react';
 import campusImage from '../assets/image1.png';
+import universityLogo from '../assets/image-transparent.png';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -21,8 +22,8 @@ export default function Login() {
 
     setError('');
 
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter your email and password.');
+    if (!identifier.trim() || !password) {
+      setError('Please enter your username or email and password.');
       return;
     }
 
@@ -30,7 +31,7 @@ export default function Login() {
 
     try {
       const response = await axios.post('http://localhost:3000/api/auth/login', {
-        email: email.trim(),
+        identifier: identifier.trim(),
         password,
       });
 
@@ -56,6 +57,8 @@ export default function Login() {
           navigate('/library-office');
         } else if (['ict officer', 'ict office', 'ict'].includes(userRole) || (userRole.includes('ict') && (userRole.includes('officer') || userRole.includes('office')))) {
           navigate('/ict-office');
+        } else if (userRole.includes('transport') && userRole.includes('officer')) {
+          navigate('/transport-office');
         } else if (userRole.includes('property') && (userRole.includes('officer') || userRole.includes('asset'))) {
           navigate('/property');
         } else {
@@ -70,7 +73,7 @@ export default function Login() {
       if (!error.response) {
         setError('The login server is unavailable. Start the backend and try again.');
       } else {
-        setError(error.response.data?.message || 'Invalid email or password.');
+        setError(error.response.data?.message || 'Invalid username/email or password.');
       }
     } finally {
       setIsSubmitting(false);
@@ -85,8 +88,8 @@ export default function Login() {
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,15,35,0.84),rgba(4,15,35,0.5))]" />
       <form onSubmit={handleLogin} className="relative z-10 w-full max-w-[430px] rounded-xl border border-slate-200 bg-white px-5 py-7 shadow-[0_10px_35px_rgba(15,23,42,0.08)] sm:px-8 sm:py-9">
         <div className="mb-7 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-700">
-            <LockKeyhole size={23} strokeWidth={2.2} />
+          <div className="mx-auto mb-3 h-16 w-16 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+            <img src={universityLogo} alt="Bahir Dar University" className="h-full w-full scale-[1.5] object-contain" />
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-[#12356b]">Login</h2>
           <p className="mt-2 text-xs text-slate-500">Access your account to manage your clearance process</p>
@@ -95,16 +98,16 @@ export default function Login() {
         {error && <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
         <div className="mb-5">
-          <label htmlFor="email" className="mb-2 block text-xs font-semibold text-slate-700">Email</label>
+          <label htmlFor="identifier" className="mb-2 block text-xs font-semibold text-slate-700">Username or Email</label>
           <div className="relative">
-            <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <UserRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            placeholder="Enter your email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            id="identifier"
+            type="text"
+            autoComplete="username"
+            placeholder="Enter your username or email"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             className="h-11 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
             required
           />

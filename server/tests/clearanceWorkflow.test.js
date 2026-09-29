@@ -20,6 +20,7 @@ test('default set includes every office in the employee clearance workflow in th
     'Library',
     'Property / Asset Office',
     'ICT Office',
+    'Transport Office',
     'Final HR Clearance',
   ]);
 });
@@ -60,6 +61,7 @@ test('current step resolves to the first incomplete office in workflow order', (
 test('progression moves to the next office after an approval and resets to employee after a return', () => {
   assert.equal(resolveNextStepAfterDecision('Department Head', 'Approved'), 'Finance Office');
   assert.equal(resolveNextStepAfterDecision('Library', 'Completed'), 'Property / Asset Office');
+  assert.equal(resolveNextStepAfterDecision('ICT Office', 'Approved'), 'Transport Office');
   assert.equal(resolveNextStepAfterDecision('Finance Office', 'Returned'), 'Employee');
 });
 
@@ -102,17 +104,20 @@ test('department approval also dispatches configured other required offices', ()
   }), ['Finance Office', 'ICT Office', 'Security Office', 'Other Required Office']);
 });
 
-test('ICT is dispatched immediately and final HR waits for every office', () => {
+test('ICT and Transport are dispatched immediately and final HR waits for every office', () => {
   const workflow = [
     { office: 'Finance Office', status: 'Completed' },
     { office: 'Library', status: 'Completed' },
     { office: 'Property / Asset Office', status: 'Completed' },
     { office: 'ICT Office', status: 'Pending' },
+    { office: 'Transport Office', status: 'Pending' },
   ];
 
-  assert.deepEqual(getResponsibleOffices({ departmentStatus: 'Approved', workflow }), ['ICT Office']);
+  assert.deepEqual(getResponsibleOffices({ departmentStatus: 'Approved', workflow }), ['ICT Office', 'Transport Office']);
   assert.equal(areAllRequiredOfficesCleared({ departmentStatus: 'Approved', workflow }), false);
   workflow[3].status = 'Completed';
+  assert.equal(areAllRequiredOfficesCleared({ departmentStatus: 'Approved', workflow }), false);
+  workflow[4].status = 'Completed';
   assert.equal(areAllRequiredOfficesCleared({ departmentStatus: 'Approved', workflow }), true);
 });
 

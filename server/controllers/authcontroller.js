@@ -14,20 +14,26 @@ const login = async (req, res) => {
       });
     }
 
-    const { email, password } = req.body;
-    const normalizedEmail = email?.trim().toLowerCase();
-    if (!normalizedEmail || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    const { identifier, email, password } = req.body;
+    const normalizedIdentifier = (identifier ?? email)?.trim().toLowerCase();
+    if (!normalizedIdentifier || !password) {
+      return res.status(400).json({ success: false, message: 'Username/email and password are required' });
     }
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const escapedIdentifier = normalizedIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await User.findOne({
+      $or: [
+        { email: normalizedIdentifier },
+        { username: { $regex: `^${escapedIdentifier}$`, $options: 'i' } },
+      ],
+    });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       await recordAuditLog({
         req,
         user: user || null,
         action: 'FAILED_LOGIN',
         module: 'Authentication',
-        description: `Failed login attempt for ${normalizedEmail}.`,
+        description: `Failed login attempt for ${normalizedIdentifier}.`,
       });
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }

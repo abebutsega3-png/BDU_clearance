@@ -27,14 +27,33 @@ export const getClearanceRequestStatus = (request, progressInfo) => {
   if (progress.returnedStep) return 'Returned';
   if (progress.finalHRStep?.status === 'Completed') return 'Completed';
   if (progress.totalOffices > 0 && progress.progressCount === progress.totalOffices) {
-    return 'In Progress';
+    return 'Awaiting Final HR Clearance';
   }
   return normalizeWorkflowStatus(request?.status || request?.overallStatus);
 };
 
-const CORE_OFFICES = ['Department Head', 'Library', 'Finance Office', 'Property / Asset Office', 'ICT Office'];
+const LEGACY_CORE_OFFICES = ['Department Head', 'Library', 'Finance Office', 'Property / Asset Office', 'ICT Office'];
 
-const officeMatches = (office, name) => String(office || '').toLowerCase().includes(String(name || '').toLowerCase());
+const normalizeOfficeName = (value) => {
+  const name = String(value || '').trim().toLowerCase();
+  if (name.includes('department')) return 'Department Head';
+  if (name.includes('finance')) return 'Finance Office';
+  if (name.includes('property') || name.includes('asset')) return 'Property / Asset Office';
+  if (name.includes('ict')) return 'ICT Office';
+  if (name.includes('library')) return 'Library';
+  if (name.includes('transport')) return 'Transport Office';
+  if (isFinalHRStage(name)) return 'Final HR Clearance';
+  return name;
+};
+
+const officeMatches = (office, name) => normalizeOfficeName(office) === normalizeOfficeName(name);
+
+const getRequiredOffices = (request) => {
+  const offices = Array.isArray(request?.requiredOffices) && request.requiredOffices.length
+    ? request.requiredOffices
+    : LEGACY_CORE_OFFICES;
+  return [...new Set(offices.map(normalizeOfficeName).filter((office) => office && !isFinalHRStage(office)))];
+};
 
 const getOfficeOverride = (request, office) => {
   const overrides = {
@@ -43,6 +62,7 @@ const getOfficeOverride = (request, office) => {
     Library: request?.libraryStatus,
     'Property / Asset Office': request?.propertyStatus,
     'Department Head': request?.departmentStatus,
+    'Transport Office': request?.transportStatus,
   };
   return overrides[office];
 };
@@ -54,14 +74,12 @@ export const computeClearanceProgress = (request) => {
       ? request.departmentClearances
       : [];
 
-  let previousOfficeApproved = true;
-  const steps = CORE_OFFICES.map((office) => {
+  const steps = getRequiredOffices(request).map((office) => {
     const matchingSteps = workflow.filter((step) => officeMatches(step?.office || step?.name || step?.department, office));
     const step = matchingSteps[matchingSteps.length - 1] || {};
     const override = getOfficeOverride(request, office);
     const actualStatus = normalizeWorkflowStatus(override || step.status || step.state || step.approvalStatus);
-    const status = previousOfficeApproved || actualStatus === 'Returned' ? actualStatus : 'Waiting';
-    previousOfficeApproved = status === 'Completed';
+    const status = actualStatus;
 
     return {
       office,
@@ -95,6 +113,8 @@ export const computeClearanceProgress = (request) => {
     || request?.propertyReturnReason
     || request?.ictReturnReason
     || request?.libraryReturnReason
+    || request?.transportReturnReason
+    || request?.transportReview?.returnReason
     || request?.financeRemarks
     || request?.remarks
     || 'Please resolve the issue and resubmit your request.';

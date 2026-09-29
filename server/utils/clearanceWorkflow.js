@@ -4,6 +4,7 @@ export const PARALLEL_CLEARANCE_OFFICES = [
   'Library',
   'Property / Asset Office',
   'ICT Office',
+  'Transport Office',
 ];
 export const POST_PARALLEL_CLEARANCE_OFFICES = [];
 export const CORE_CLEARANCE_OFFICES = [
@@ -34,6 +35,10 @@ const officeAliases = {
   'property / asset office': 'Property / Asset Office',
   'ict': 'ICT Office',
   'ict office': 'ICT Office',
+  transport: 'Transport Office',
+  'transport office': 'Transport Office',
+  'transport clearance': 'Transport Office',
+  'transport clearance request': 'Transport Office',
 };
 
 export const isFinalHRStage = (value = '') => {

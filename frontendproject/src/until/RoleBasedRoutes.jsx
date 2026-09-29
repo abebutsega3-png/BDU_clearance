@@ -16,6 +16,7 @@ const canonicalizeRole = (role) => {
 
   if (['administrator', 'admin', 'system admin', 'systemadministrator'].includes(normalized)) return 'admin';
   if (['library', 'librarian', 'library officer'].includes(normalized)) return 'library officer';
+  if (normalized.includes('transport') && normalized.includes('officer')) return 'transport officer';
   if (normalized.includes('property') && normalized.includes('officer')) return 'property officer';
   if (normalized.includes('property') && normalized.includes('asset')) return 'property officer';
   if (normalized === 'department head' || normalized === 'departmenthead') return 'department head';

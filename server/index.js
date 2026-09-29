@@ -56,6 +56,7 @@ import financeNotificationRouter from './routes/financenotificationRoutes.js';
 import financeSettingsRouter from './routes/financeSettingsRoutes.js';
 import departmentSettingsRouter from './routes/departmentSettingsRoutes.js';
 import aiRouter from './routes/aiRoutes.js';
+import transportDashboardRouter from './routes/transportDashboardRoutes.js';
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use('/api/department-head/settings', departmentSettingsRouter);
 app.use('/api/reports', reportRouter);
 app.use('/api/public/home', publicHomeRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/transport', transportDashboardRouter);
 
 // 2. Clearance Routes
 app.use('/api/clearance', clearanceRouter);

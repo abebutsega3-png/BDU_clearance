@@ -18,6 +18,12 @@ import {
 } from './ictClearanceController.js';
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
 import { isDepartmentNotificationEnabled } from './notificationcontroller.js';
+import { notifyTransportOfficers } from '../utils/transportNotifications.js';
+
+const hasTransportOffice = (clearance) => [
+	...(Array.isArray(clearance?.requiredOffices) ? clearance.requiredOffices : []),
+	...(Array.isArray(clearance?.workflow) ? clearance.workflow.map((step) => step.office || step.name) : []),
+].some((office) => /transport/i.test(String(office || '')));
 
 const resolveEmployeeNotificationRecipient = async (clearance) => {
 	if (!clearance) return null;
@@ -677,6 +683,12 @@ const updateClearance = async (req, res) => {
 			requestUpdates.status = 'Pending';
 			requestUpdates.overallStatus = 'In Progress';
 			requestUpdates.returnReason = '';
+			requestUpdates.returnedBy = '';
+			requestUpdates.returnedOffice = '';
+			requestUpdates.returnedAt = null;
+			requestUpdates.returnedReason = '';
+			requestUpdates.returnedRemark = '';
+			requestUpdates.affectedField = '';
 			requestUpdates.officerComment = requestUpdates.resolutionRemark || '';
 		}
 		if (Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length) {
@@ -773,7 +785,7 @@ const updateClearance = async (req, res) => {
 			const clearanceFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };
-			const existingClearance = await Clearance.findOne(clearanceFilter).select('workflow departmentClearances initialHRStatus').lean();
+			const existingClearance = await Clearance.findOne(clearanceFilter).select('workflow departmentClearances initialHRStatus transportReview').lean();
 			if (!existingClearance) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
 			requestUpdates.workflow = (Array.isArray(existingClearance.workflow) ? existingClearance.workflow : []).map((step) => {
 				if (String(step.status || '').toLowerCase() !== 'returned' && String(step.status || '').toLowerCase() !== 'rejected') return step;
@@ -785,6 +797,18 @@ const updateClearance = async (req, res) => {
 				}
 				if (office.includes('library')) requestUpdates.libraryStatus = 'Pending';
 				if (office.includes('property')) requestUpdates.propertyStatus = 'Pending';
+				if (office.includes('transport')) {
+					requestUpdates.transportStatus = 'Pending';
+					requestUpdates.transportReturnReason = '';
+					requestUpdates.transportOfficerComment = '';
+					requestUpdates.transportReview = {
+						...(existingClearance.transportReview || {}),
+						status: 'Pending',
+						returnReason: '',
+						officerNotes: '',
+					};
+					requestUpdates.currentStep = 'Transport Office';
+				}
 				if (office.includes('department')) requestUpdates.departmentStatus = 'Pending';
 				return { ...step, status: 'Pending', updatedAt: new Date(), comment: '', remarks: '', returnReason: '' };
 			});
@@ -806,7 +830,7 @@ const updateClearance = async (req, res) => {
 		const clearanceFilter = mongoose.isValidObjectId(req.params.id)
 			? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 			: { requestId: req.params.id };
-		const previousClearance = await Clearance.findOne(clearanceFilter).select('libraryStatus departmentStatus workflow').lean();
+		const previousClearance = await Clearance.findOne(clearanceFilter).select('libraryStatus departmentStatus workflow transportStatus returnedOffice').lean();
 		if (libraryDecision && previousClearance) {
 			const libraryWorkflowStatus = libraryDecision.status === 'Completed'
 				? 'Completed'
@@ -829,6 +853,11 @@ const updateClearance = async (req, res) => {
 		const previousPropertyWasReturned = previousClearance?.propertyStatus === 'Returned'
 			|| previousClearance?.propertyStatus === 'Rejected'
 			|| previousClearance?.workflow?.some((step) => /property/i.test(step.office || step.name || '') && /returned|rejected/i.test(step.status || ''));
+		const previousTransportWasReturned = previousClearance?.transportStatus === 'Returned'
+			|| previousClearance?.returnedOffice === 'Transport Office'
+			|| previousClearance?.workflow?.some((step) => /transport/i.test(step.office || step.name || '') && /returned|rejected/i.test(step.status || ''));
+		const previousTransportWasReviewed = ['Approved', 'Returned'].includes(previousClearance?.transportStatus)
+			|| previousClearance?.workflow?.some((step) => /transport/i.test(step.office || step.name || '') && /completed|approved|returned|rejected/i.test(step.status || ''));
 		if (requestUpdates.departmentStatus === 'Approved') {
 			await notifyDepartmentHeads({
 				clearance,
@@ -836,6 +865,19 @@ const updateClearance = async (req, res) => {
 				title: 'Clearance Approved',
 				message: `Department clearance for ${clearance.employeeName || 'the employee'} was successfully approved.`,
 			});
+			if (hasTransportOffice(clearance)) {
+				await notifyTransportOfficers({
+					type: 'TRANSPORT_NEW_CLEARANCE_REQUEST',
+					title: 'New Clearance Request',
+					message: `${clearance.employeeName || 'An employee'}${clearance.employeeId ? ` (${clearance.employeeId})` : ''} has a clearance request ready for Transport review.`,
+					employeeName: clearance.employeeName,
+					employeeId: clearance.employeeId,
+					requestId: clearance.requestId,
+					eventDate: clearance.updatedAt || new Date(),
+					actionText: 'Review Request',
+					actionLink: '/transport-office/requests',
+				});
+			}
 		}
 		if (requestUpdates.departmentStatus === 'Returned' || requestUpdates.departmentStatus === 'Rejected') {
 			await notifyDepartmentHeads({
@@ -853,6 +895,22 @@ const updateClearance = async (req, res) => {
 				message: `${clearance.employeeName || 'The employee'} updated and resubmitted the clearance request.`,
 				actionText: 'Review Request',
 			});
+			if (hasTransportOffice(clearance) && previousTransportWasReviewed) {
+				const notificationType = previousTransportWasReturned
+					? 'TRANSPORT_CLEARANCE_RESUBMITTED'
+					: 'TRANSPORT_EMPLOYEE_RESUBMISSION';
+				await notifyTransportOfficers({
+					type: notificationType,
+					title: previousTransportWasReturned ? 'Clearance Resubmitted' : 'Employee Resubmission',
+					message: `${clearance.employeeName || 'An employee'}${clearance.employeeId ? ` (${clearance.employeeId})` : ''} resubmitted clearance request ${clearance.requestId || ''}.`,
+					employeeName: clearance.employeeName,
+					employeeId: clearance.employeeId,
+					requestId: clearance.requestId,
+					eventDate: clearance.updatedAt || new Date(),
+					actionText: 'Review Request',
+					actionLink: '/transport-office/requests',
+				});
+			}
 		}
 		if (clearance.status === 'Completed') {
 			await notifyDepartmentHeads({

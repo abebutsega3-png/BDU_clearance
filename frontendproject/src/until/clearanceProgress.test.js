@@ -65,3 +65,32 @@ test('getClearanceRequestStatus reports completed only after Final HR approval',
 
   assert.equal(getClearanceRequestStatus(request), 'Completed');
 });
+
+test('computeClearanceProgress includes Transport when it is required by the request', () => {
+  const requiredOffices = [
+    'Department Head',
+    'Library',
+    'Finance Office',
+    'Property / Asset Office',
+    'ICT Office',
+    'Transport Office',
+    'Final HR Clearance',
+  ];
+  const request = {
+    status: 'In Progress',
+    requiredOffices,
+    transportStatus: 'Approved',
+    workflow: [
+      ...requiredOffices
+        .filter((office) => office !== 'Final HR Clearance')
+        .map((office) => ({ office, status: 'Completed' })),
+      { office: 'Final HR Clearance', status: 'Pending' },
+    ],
+  };
+
+  const result = computeClearanceProgress(request);
+
+  assert.equal(result.totalOffices, 6);
+  assert.equal(result.progressCount, 6);
+  assert.equal(result.currentStage.office, 'Final HR Clearance');
+});

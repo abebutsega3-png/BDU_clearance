@@ -93,6 +93,7 @@ import ICTReports from './components/ICT Officer/ICTReports';
 import ICTNotifications from './components/ICT Officer/ICTNotifications';
 import ICTProfile from './components/ICT Officer/ICTProfile';
 import ICTSettings from './components/ICT Officer/ICTSettings';
+import TransportOfficerDashboard from './page/Transport Officerdashboared';
 import DepartmentNotifications from './components/departmentheaddashboared/departmentnotification';
 import EmployeeClearanceChatbot from './components/EmployeeClearanceChatbot';
 
@@ -119,14 +120,15 @@ function MainLayout() {
   const isLibraryRoute = location.pathname.startsWith('/library-office');
   const isPropertyRoute = location.pathname.startsWith('/property');
   const isICTRoute = location.pathname.startsWith('/ict-office');
-	const assistantRoutePrefixes = ['/admin', '/hr-office', '/employee', '/department-head', '/finance-office', '/library-office', '/property', '/ict-office', '/other-office'];
+	  const isTransportRoute = location.pathname.startsWith('/transport-office');
+	 const assistantRoutePrefixes = ['/admin', '/hr-office', '/employee', '/department-head', '/finance-office', '/library-office', '/property', '/ict-office', '/transport-office', '/other-office'];
 	const showAssistant = location.pathname === '/contact' || assistantRoutePrefixes.some((prefix) => location.pathname.startsWith(prefix));
   const allowedPathsForFooter = ['/', '/home', '/services', '/about', '/instruction', '/contact'];
   const showFooter = allowedPathsForFooter.includes(location.pathname);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-	{!isAdminRoute && !isHrRoute && !isDepartmentHeadRoute && !isEmployeeRoute && !isFinanceRoute && !isLibraryRoute && !isPropertyRoute && !isICTRoute && <Navbar />}
+	{!isAdminRoute && !isHrRoute && !isDepartmentHeadRoute && !isEmployeeRoute && !isFinanceRoute && !isLibraryRoute && !isPropertyRoute && !isICTRoute && !isTransportRoute && <Navbar />}
       <div className="flex-grow">
         <Routes>
           <Route path="/" element={<Navigate to="/home" replace />} />
@@ -383,8 +385,18 @@ function MainLayout() {
               </PrivateRoutes>
             }
           />
-          <Route
-            path="/property"
+					<Route
+						path="/transport-office/*"
+						element={
+							<PrivateRoutes>
+								<RoleBasedRoutes requiredRole={["Transport Officer", "transport officer"]}>
+									<TransportOfficerDashboard />
+								</RoleBasedRoutes>
+							</PrivateRoutes>
+						}
+					/>
+					<Route
+						path="/property"
             element={
               <PrivateRoutes>
                 <RoleBasedRoutes requiredRole={["Property Officer", "property officer"]}>
