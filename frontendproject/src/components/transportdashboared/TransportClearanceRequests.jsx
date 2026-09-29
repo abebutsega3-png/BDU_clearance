@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   Bus,
@@ -14,11 +15,19 @@ import {
 const API_URL = 'http://localhost:3000/api/transport/requests';
 const emptyRecordCheck = {
   hasAssignedVehicle: null,
-  vehicleReturned: false,
-  noOutstandingIssue: false,
-  noUnreturnedTransportProperty: false,
-  noOtherObligation: false,
+  vehicleReturned: 'Pending',
+  vehicleCondition: 'Pending',
+  vehicleKeysReturned: 'Pending',
+  vehicleDocumentsReturned: 'Pending',
+  vehicleAccessoriesReturned: 'Pending',
+  noOutstandingIssue: 'Pending',
+  vehicleHandover: 'Pending',
+  transportRecords: 'Pending',
+  noUnreturnedTransportProperty: 'Pending',
+  noOtherObligation: 'Pending',
 };
+const vehicleCheckFields = ['vehicleReturned', 'vehicleCondition', 'vehicleKeysReturned', 'vehicleDocumentsReturned', 'vehicleAccessoriesReturned'];
+const allCheckFields = [...vehicleCheckFields, 'noOutstandingIssue', 'vehicleHandover', 'transportRecords', 'noUnreturnedTransportProperty', 'noOtherObligation'];
 
 const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
@@ -46,11 +55,15 @@ function InfoItem({ label, value }) {
   );
 }
 
-function CheckItem({ checked, onChange, disabled, children }) {
+function ChecklistStatusItem({ label, status, onChange, disabled }) {
   return (
-    <label className={`flex items-start gap-3 rounded-md border border-slate-200 px-3 py-3 text-xs leading-5 text-slate-700 ${disabled ? 'bg-slate-50' : 'cursor-pointer hover:border-teal-300'}`}>
-      <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} className="mt-0.5 h-4 w-4 shrink-0 accent-teal-700" />
-      <span>{children}</span>
+    <label className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-3 text-xs text-slate-700 sm:grid-cols-[minmax(0,1fr)_130px] sm:items-center">
+      <span>{label}</span>
+      <select value={status} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-teal-600 disabled:bg-slate-50">
+        <option>Pending</option>
+        <option>Cleared</option>
+        <option>N/A</option>
+      </select>
     </label>
   );
 }
@@ -64,6 +77,7 @@ export default function TransportClearanceRequests() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [checklistOpen, setChecklistOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
   const [recordCheck, setRecordCheck] = useState(emptyRecordCheck);
@@ -104,6 +118,7 @@ export default function TransportClearanceRequests() {
   const closeDetails = () => {
     if (actionLoading) return;
     setSelectedRequest(null);
+    setChecklistOpen(false);
     setConfirmApproval(false);
     setActionError('');
     setDetailError('');
@@ -111,6 +126,7 @@ export default function TransportClearanceRequests() {
 
   const openRequest = async (requestId) => {
     setSelectedRequest({ requestId });
+    setChecklistOpen(false);
     setDetailLoading(true);
     setDetailError('');
     setActionError('');
@@ -122,23 +138,18 @@ export default function TransportClearanceRequests() {
 
     try {
       const response = await axios.get(`${API_URL}/${encodeURIComponent(requestId)}`, authConfig());
-      let request = response.data.request;
-      if (request.status === 'Pending') {
-        const reviewResponse = await axios.patch(`${API_URL}/${encodeURIComponent(requestId)}/start-review`, {}, authConfig());
-        request = { ...request, status: reviewResponse.data.request?.status || 'Under Review' };
-      }
+      const request = response.data.request;
       setSelectedRequest(request);
       const transportAssets = request.transportAssets || [];
-      const allTransportAssetsReturned = transportAssets.length > 0 && transportAssets.every((asset) =>
-        ['returned', 'cleared', 'available', 'not applicable'].includes(String(asset.status || '').trim().toLowerCase())
-      );
       const savedReview = request.transportReview || {};
+      const normalizeStatus = (value) => value === true ? 'Cleared' : value === false ? 'Pending' : ['Cleared', 'Pending', 'N/A'].includes(value) ? value : 'Pending';
+      const hasAssignedVehicle = savedReview.hasAssignedVehicle ?? (transportAssets.length ? true : null);
       setRecordCheck({
         ...emptyRecordCheck,
         ...savedReview,
-        hasAssignedVehicle: savedReview.hasAssignedVehicle ?? (transportAssets.length ? true : null),
-        vehicleReturned: savedReview.vehicleReturned ?? allTransportAssetsReturned,
-        noUnreturnedTransportProperty: savedReview.noUnreturnedTransportProperty ?? allTransportAssetsReturned,
+        hasAssignedVehicle,
+        ...Object.fromEntries(allCheckFields.map((field) => [field, normalizeStatus(savedReview[field])])),
+        ...(hasAssignedVehicle === false ? Object.fromEntries(vehicleCheckFields.map((field) => [field, 'N/A'])) : {}),
       });
       setOfficerNotes(request.transportReview?.officerNotes || request.officerComment || '');
       setReturnReason(request.returnReason || '');
@@ -149,15 +160,38 @@ export default function TransportClearanceRequests() {
     }
   };
 
+  const startReview = async () => {
+    if (!selectedRequest?.requestId || selectedRequest.status !== 'Pending' || actionLoading) return;
+    setActionLoading(true);
+    setActionError('');
+    try {
+      const response = await axios.patch(`${API_URL}/${encodeURIComponent(selectedRequest.requestId)}/start-review`, {}, authConfig());
+      const status = response.data.request?.status || 'Under Review';
+      setSelectedRequest((current) => ({ ...current, status }));
+      setRequests((current) => current.map((request) => request.requestId === selectedRequest.requestId ? { ...request, status } : request));
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.message || 'Unable to start Transport review.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const canApprove = recordCheck.hasAssignedVehicle !== null
-    && (!recordCheck.hasAssignedVehicle || recordCheck.vehicleReturned)
-    && recordCheck.noOutstandingIssue
-    && recordCheck.noUnreturnedTransportProperty
-    && recordCheck.noOtherObligation;
-  const canDecide = ['Pending', 'Under Review'].includes(selectedRequest?.status);
+    && (!selectedRequest?.transportAssets?.length || recordCheck.hasAssignedVehicle === true)
+    && allCheckFields.every((field) => recordCheck[field] !== 'Pending')
+    && (recordCheck.hasAssignedVehicle
+      ? vehicleCheckFields.filter((field) => field !== 'vehicleAccessoriesReturned').every((field) => recordCheck[field] === 'Cleared')
+      : vehicleCheckFields.every((field) => recordCheck[field] === 'N/A'))
+    && (recordCheck.noUnreturnedTransportProperty === 'Cleared' || recordCheck.noUnreturnedTransportProperty === 'N/A');
+  const canDecide = selectedRequest?.status === 'Under Review';
 
   const updateCheck = (field, value) => {
-    setRecordCheck((current) => ({ ...current, [field]: value }));
+    setRecordCheck((current) => {
+      if (field !== 'hasAssignedVehicle') return { ...current, [field]: value };
+      if (value === false) return { ...current, hasAssignedVehicle: false, ...Object.fromEntries(vehicleCheckFields.map((checkField) => [checkField, 'N/A'])) };
+      if (value === true && current.hasAssignedVehicle === false) return { ...current, hasAssignedVehicle: true, ...Object.fromEntries(vehicleCheckFields.map((checkField) => [checkField, 'Pending'])) };
+      return { ...current, hasAssignedVehicle: value };
+    });
     setActionError('');
   };
 
@@ -181,6 +215,7 @@ export default function TransportClearanceRequests() {
         await axios.patch(`${API_URL}/${encodeURIComponent(selectedRequest.requestId)}/return`, {
           returnReason: returnReason.trim(),
           officerComment: officerNotes.trim(),
+          recordCheck,
         }, authConfig());
         setSuccessMessage(`Request ${selectedRequest.requestId} returned to the employee.`);
       }
@@ -312,8 +347,15 @@ export default function TransportClearanceRequests() {
                       <InfoItem label="Employee ID" value={selectedRequest.employee?.employeeId || selectedRequest.employeeId} />
                       <InfoItem label="Department" value={selectedRequest.employee?.department || selectedRequest.department} />
                       <InfoItem label="Position" value={selectedRequest.employee?.position || selectedRequest.position} />
+                    </dl>
+                  </section>
+
+                  <section className="rounded-md border border-slate-200 bg-white p-4">
+                    <h3 className="text-sm font-bold text-slate-900">Request Information</h3>
+                    <dl className="mt-2 grid grid-cols-1 gap-x-5 sm:grid-cols-2">
+                      <InfoItem label="Request Date" value={formatDate(selectedRequest.requestDate || selectedRequest.date)} />
                       <InfoItem label="Last Working Date" value={formatDate(selectedRequest.lastWorkingDate)} />
-                      <InfoItem label="Clearance Request Date" value={formatDate(selectedRequest.requestDate || selectedRequest.date)} />
+                      <InfoItem label="Reason" value={selectedRequest.reason || 'Not provided'} />
                     </dl>
                   </section>
 
@@ -328,8 +370,8 @@ export default function TransportClearanceRequests() {
                       <ul className="mt-3 divide-y divide-cyan-100 rounded border border-cyan-100 bg-white">
                         {selectedRequest.transportAssets.map((asset) => (
                           <li key={asset.assetId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
-                            <span className="font-medium text-slate-800">{asset.assetName} <span className="font-mono text-slate-500">{asset.assetId}</span></span>
-                            <span className="text-slate-600">{asset.status} · {asset.condition}</span>
+                            <span className="font-medium text-slate-800">{asset.plateNumber || asset.vehicleNumber || asset.assetId} <span className="ml-1 text-slate-500">{asset.assetType || asset.category || asset.assetName}</span></span>
+                            <span className="text-slate-600">{asset.status} · {asset.condition}{asset.assignedDate ? ` · Assigned ${formatDate(asset.assignedDate)}` : ''}</span>
                           </li>
                         ))}
                       </ul>
@@ -342,37 +384,46 @@ export default function TransportClearanceRequests() {
                     )}
                   </section>
 
+                  {checklistOpen && <>
+                  {selectedRequest.status === 'Pending' && <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Start Review before changing checklist items or making a clearance decision.</p>}
                   <section>
                     <div className="mb-3 flex items-center gap-2">
                       <ClipboardCheck size={16} className="text-teal-700" />
-                      <h3 className="text-sm font-bold text-slate-900">Transport Record Check</h3>
+                      <h3 className="text-sm font-bold text-slate-900">Transport Clearance Checklist</h3>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-4">
                       <div className="rounded-md border border-slate-200 p-3">
-                        <p className="text-xs font-semibold text-slate-800">Is a vehicle assigned to this employee?</p>
+                        <p className="text-xs font-semibold text-slate-800">Assigned Vehicle</p>
                         <div className="mt-2 flex gap-4 text-xs text-slate-700">
                           {[['Yes', true], ['No', false]].map(([label, value]) => (
                             <label key={label} className="flex cursor-pointer items-center gap-2">
-                              <input type="radio" name="hasAssignedVehicle" checked={recordCheck.hasAssignedVehicle === value} disabled={readOnly} onChange={() => updateCheck('hasAssignedVehicle', value)} className="h-4 w-4 accent-teal-700" />
+                              <input type="radio" name="hasAssignedVehicle" checked={recordCheck.hasAssignedVehicle === value} disabled={readOnly || (value === false && selectedRequest.transportAssets?.length > 0)} onChange={() => updateCheck('hasAssignedVehicle', value)} className="h-4 w-4 accent-teal-700" />
                               {label}
                             </label>
                           ))}
                         </div>
                       </div>
-                      {recordCheck.hasAssignedVehicle === true && (
-                        <CheckItem checked={recordCheck.vehicleReturned} disabled={readOnly} onChange={(event) => updateCheck('vehicleReturned', event.target.checked)}>
-                          The assigned vehicle has been returned.
-                        </CheckItem>
-                      )}
-                      <CheckItem checked={recordCheck.noOutstandingIssue} disabled={readOnly} onChange={(event) => updateCheck('noOutstandingIssue', event.target.checked)}>
-                        No outstanding Transport Office debt or balance remains.
-                      </CheckItem>
-                      <CheckItem checked={recordCheck.noUnreturnedTransportProperty} disabled={readOnly} onChange={(event) => updateCheck('noUnreturnedTransportProperty', event.target.checked)}>
-                        No vehicle or other Transport property is outstanding.
-                      </CheckItem>
-                      <CheckItem checked={recordCheck.noOtherObligation} disabled={readOnly} onChange={(event) => updateCheck('noOtherObligation', event.target.checked)}>
-                        No other Transport-related obligation remains.
-                      </CheckItem>
+                      <div>
+                        <h4 className="mb-2 text-xs font-bold text-slate-800">Vehicle Condition and Equipment</h4>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <ChecklistStatusItem label="Vehicle Return Status" status={recordCheck.vehicleReturned} disabled={readOnly || recordCheck.hasAssignedVehicle !== true} onChange={(value) => updateCheck('vehicleReturned', value)} />
+                          <ChecklistStatusItem label="Vehicle Condition" status={recordCheck.vehicleCondition} disabled={readOnly || recordCheck.hasAssignedVehicle !== true} onChange={(value) => updateCheck('vehicleCondition', value)} />
+                          <ChecklistStatusItem label="Vehicle Keys Returned" status={recordCheck.vehicleKeysReturned} disabled={readOnly || recordCheck.hasAssignedVehicle !== true} onChange={(value) => updateCheck('vehicleKeysReturned', value)} />
+                          <ChecklistStatusItem label="Vehicle Documents Returned" status={recordCheck.vehicleDocumentsReturned} disabled={readOnly || recordCheck.hasAssignedVehicle !== true} onChange={(value) => updateCheck('vehicleDocumentsReturned', value)} />
+                          <ChecklistStatusItem label="Fuel Card / Vehicle Accessories" status={recordCheck.vehicleAccessoriesReturned} disabled={readOnly || recordCheck.hasAssignedVehicle !== true} onChange={(value) => updateCheck('vehicleAccessoriesReturned', value)} />
+                        </div>
+                        {recordCheck.hasAssignedVehicle === false && <p className="mt-2 text-[11px] text-slate-500">Vehicle-specific checks are marked N/A because no vehicle is assigned.</p>}
+                      </div>
+                      <div>
+                        <h4 className="mb-2 text-xs font-bold text-slate-800">Transport Responsibilities</h4>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <ChecklistStatusItem label="Outstanding Vehicle-related Tasks" status={recordCheck.noOutstandingIssue} disabled={readOnly} onChange={(value) => updateCheck('noOutstandingIssue', value)} />
+                          <ChecklistStatusItem label="Vehicle Handover" status={recordCheck.vehicleHandover} disabled={readOnly} onChange={(value) => updateCheck('vehicleHandover', value)} />
+                          <ChecklistStatusItem label="Transport Records" status={recordCheck.transportRecords} disabled={readOnly} onChange={(value) => updateCheck('transportRecords', value)} />
+                          <ChecklistStatusItem label="No Unreturned Transport Property" status={recordCheck.noUnreturnedTransportProperty} disabled={readOnly} onChange={(value) => updateCheck('noUnreturnedTransportProperty', value)} />
+                          <ChecklistStatusItem label="Pending Transport Obligations" status={recordCheck.noOtherObligation} disabled={readOnly} onChange={(value) => updateCheck('noOtherObligation', value)} />
+                        </div>
+                      </div>
                     </div>
                   </section>
 
@@ -388,19 +439,21 @@ export default function TransportClearanceRequests() {
                       {returnError && <span className="mt-1 block text-[11px] text-rose-700">{returnError}</span>}
                     </label>
                   )}
+                  {canDecide && <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+                    <button type="button" onClick={() => finishDecision('return')} disabled={actionLoading || !returnReason.trim()} className="rounded-md border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">{actionLoading ? 'Saving...' : 'Return to Employee'}</button>
+                    <button type="button" onClick={() => setConfirmApproval(true)} disabled={actionLoading || !canApprove} title={!canApprove ? 'Complete the transport record checks before approval' : undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={14} />Approve / Clear</button>
+                  </div>}
+                  </>}
                 </>
               )}
             </div>
 
             {!detailLoading && !detailError && (
-              <footer className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-6">
+                {selectedRequest.status === 'Pending' && <button type="button" onClick={startReview} disabled={actionLoading} className="rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{actionLoading ? 'Starting...' : 'Start Review'}</button>}
+                {(selectedRequest.employee?.employeeId || selectedRequest.employeeId) && <Link to={`/transport-office/assigned-vehicles?search=${encodeURIComponent(selectedRequest.employee?.employeeId || selectedRequest.employeeId)}&requestId=${encodeURIComponent(selectedRequest.requestId)}`} state={{ transportClearanceContext: { request: selectedRequest, recordCheck, officerNotes, returnReason } }} className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-700"><Bus size={14} />Assigned Vehicle Record</Link>}
+                <button type="button" onClick={() => setChecklistOpen((open) => !open)} aria-expanded={checklistOpen} className="rounded-md border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-100">{checklistOpen ? 'Close Checklist' : 'Open Checklist'}</button>
                 <button type="button" onClick={closeDetails} disabled={actionLoading} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Close</button>
-                {canDecide && (
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                    <button type="button" onClick={() => finishDecision('return')} disabled={actionLoading || !returnReason.trim()} className="rounded-md border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">{actionLoading ? 'Saving...' : 'Return to Employee'}</button>
-                    <button type="button" onClick={() => setConfirmApproval(true)} disabled={actionLoading || !canApprove} title={!canApprove ? 'Complete the transport record checks before approval' : undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={14} />Approve / Clear</button>
-                  </div>
-                )}
               </footer>
             )}
           </section>

@@ -11,6 +11,7 @@ const employeeSchema = new mongoose.Schema({
 	maritalStatus: { type: String, enum: ['Single', 'Married', 'Divorced', 'Widowed', ''], default: '' },
 	dateOfBirth: { type: Date, default: null },
 	department: { type: String, required: true, trim: true },
+	departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
 	position: { type: String, required: true, trim: true },
 	campus: { type: String, required: true, trim: true },
 	category: { type: String, trim: true, default: 'Not specified' },

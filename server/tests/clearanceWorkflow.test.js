@@ -11,6 +11,7 @@ import {
   resolveNextStepAfterDecision,
   isRequestVisibleToOffice,
 } from '../utils/clearanceWorkflow.js';
+import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
 
 
 test('default set includes every office in the employee clearance workflow in the required order', () => {
@@ -119,6 +120,7 @@ test('ICT and Transport are dispatched immediately and final HR waits for every 
   assert.equal(areAllRequiredOfficesCleared({ departmentStatus: 'Approved', workflow }), false);
   workflow[4].status = 'Completed';
   assert.equal(areAllRequiredOfficesCleared({ departmentStatus: 'Approved', workflow }), true);
+  assert.deepEqual(getResponsibleOffices({ departmentStatus: 'Approved', workflow }), ['Final HR Clearance']);
 });
 
 test('a returned office remains responsible for the employee resubmission', () => {
@@ -130,6 +132,30 @@ test('a returned office remains responsible for the employee resubmission', () =
       { office: 'Property / Asset Office', status: 'Pending' },
     ],
   }), ['Finance Office']);
+});
+
+test('Transport resubmission resets all checklist items and prior review metadata', () => {
+  const review = resetTransportReviewForResubmission({
+    hasAssignedVehicle: true,
+    vehicleReturned: 'Cleared',
+    vehicleKeysReturned: 'Cleared',
+    noOutstandingIssue: 'Pending',
+    status: 'Returned',
+    reviewedBy: 'Transport Officer',
+    reviewedAt: new Date('2026-01-01T00:00:00.000Z'),
+    officerNotes: 'Old review',
+    returnReason: 'Keys missing',
+  });
+
+  assert.equal(review.hasAssignedVehicle, true);
+  assert.equal(review.status, 'Pending');
+  assert.equal(review.vehicleReturned, 'Pending');
+  assert.equal(review.vehicleKeysReturned, 'Pending');
+  assert.equal(review.noOutstandingIssue, 'Pending');
+  assert.equal(review.reviewedBy, '');
+  assert.equal(review.reviewedAt, null);
+  assert.equal(review.officerNotes, '');
+  assert.equal(review.returnReason, '');
 });
 
 test('Library Office can view requests using the legacy office label', () => {

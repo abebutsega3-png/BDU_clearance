@@ -56,6 +56,7 @@ const clearanceSchema = new mongoose.Schema({
 	transportOfficerComment: { type: String, default: '' },
 	transportReview: { type: mongoose.Schema.Types.Mixed, default: null },
 	departmentClearance: { type: mongoose.Schema.Types.Mixed, default: null },
+	departmentChecklist: { type: [mongoose.Schema.Types.Mixed], default: [] },
 	departmentClearances: { type: [mongoose.Schema.Types.Mixed], default: [] },
 	outstandingItems: { type: [String], default: [] },
 	checklistCompleted: { type: Boolean, default: false },

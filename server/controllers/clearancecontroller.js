@@ -19,6 +19,7 @@ import {
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
 import { isDepartmentNotificationEnabled } from './notificationcontroller.js';
 import { notifyTransportOfficers } from '../utils/transportNotifications.js';
+import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
 
 const hasTransportOffice = (clearance) => [
 	...(Array.isArray(clearance?.requiredOffices) ? clearance.requiredOffices : []),
@@ -233,6 +234,7 @@ const getOfficeProgress = (clearance) => {
 		'property office': clearance.propertyStatus,
 		'ict office': clearance.ictStatus,
 		library: clearance.libraryStatus,
+		'transport office': clearance.transportStatus,
 	};
 	const offices = (Array.isArray(clearance.requiredOffices) ? clearance.requiredOffices : Object.keys(statusByOffice))
 		.filter((office) => !/final hr/i.test(office));
@@ -678,7 +680,46 @@ const updateClearance = async (req, res) => {
 		}
 		const isResubmission = requestUpdates.resubmitted === true || requestUpdates.status === 'Resubmitted';
 		let resubmittedToFinance = false;
-		const departmentDecision = Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length;
+		const hasExplicitDepartmentDecision = requestUpdates.departmentDecision && typeof requestUpdates.departmentDecision === 'object';
+		const legacyDepartmentDecision = Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length
+			? requestUpdates.departmentClearances[requestUpdates.departmentClearances.length - 1]
+			: null;
+		const departmentDecision = hasExplicitDepartmentDecision ? requestUpdates.departmentDecision : legacyDepartmentDecision;
+		const hasDepartmentDecision = Boolean(departmentDecision);
+		if (hasExplicitDepartmentDecision) delete requestUpdates.departmentDecision;
+		if (hasDepartmentDecision) {
+			const role = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+			if (role !== 'departmenthead') return res.status(403).json({ success: false, message: 'Department Head access is required.' });
+			const departmentRequestFilter = mongoose.isValidObjectId(req.params.id)
+				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
+				: { requestId: req.params.id };
+			const reviewRequest = await Clearance.findOne(departmentRequestFilter)
+				.select('departmentId department employeeId initialHRStatus departmentStatus')
+				.lean();
+			if (!reviewRequest) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
+			if (reviewRequest.initialHRStatus !== 'Approved' || !['Pending', 'In Progress'].includes(reviewRequest.departmentStatus)) {
+				return res.status(400).json({ success: false, message: 'Only open requests approved by Initial HR can be reviewed.' });
+			}
+			const requestEmployee = reviewRequest.employeeId
+				? await Employee.findOne({ employeeId: reviewRequest.employeeId }).select('department departmentId').lean()
+				: null;
+			const requestDepartmentId = reviewRequest.departmentId || requestEmployee?.departmentId;
+			const userDepartmentId = req.user?.departmentId;
+			const requestDepartment = typeof reviewRequest.department === 'object'
+				? reviewRequest.department?.departmentName || reviewRequest.department?.name || requestEmployee?.department
+				: reviewRequest.department || requestEmployee?.department;
+			const userDepartment = String(req.user?.department || '').trim().toLowerCase();
+			const requestDepartmentName = String(requestDepartment || '').trim().toLowerCase();
+			const matchingDepartmentId = userDepartmentId && requestDepartmentId
+				&& String(userDepartmentId) === String(requestDepartmentId);
+			const conflictingDepartmentIds = userDepartmentId && requestDepartmentId
+				&& String(userDepartmentId) !== String(requestDepartmentId);
+			const matchingDepartmentName = !conflictingDepartmentIds && userDepartment && requestDepartmentName
+				&& userDepartment === requestDepartmentName;
+			if (!matchingDepartmentId && !matchingDepartmentName) {
+				return res.status(403).json({ success: false, message: 'This clearance request belongs to another department.' });
+			}
+		}
 		if (isResubmission) {
 			requestUpdates.status = 'Pending';
 			requestUpdates.overallStatus = 'In Progress';
@@ -691,13 +732,24 @@ const updateClearance = async (req, res) => {
 			requestUpdates.affectedField = '';
 			requestUpdates.officerComment = requestUpdates.resolutionRemark || '';
 		}
-		if (Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length) {
-			const departmentDecision = requestUpdates.departmentClearances[requestUpdates.departmentClearances.length - 1];
+		if (hasExplicitDepartmentDecision) {
+			const checklist = Array.isArray(requestUpdates.departmentChecklist) ? requestUpdates.departmentChecklist : [];
+			if (!checklist.length) return res.status(400).json({ success: false, message: 'At least one department checklist item is required.' });
+			if (checklist.some((item) => !['Cleared', 'Pending', 'N/A'].includes(item.status))) {
+				return res.status(400).json({ success: false, message: 'Checklist items must be Cleared, Pending, or N/A.' });
+			}
+			requestUpdates.departmentChecklist = checklist.map((item) => ({ ...item, updatedAt: new Date() }));
+		}
+		if (hasDepartmentDecision) {
 			const departmentStatus = departmentDecision.status === 'Completed' ? 'Approved' : departmentDecision.status;
 			if (!['Pending', 'In Progress', 'Approved', 'Returned'].includes(departmentStatus)) {
 				return res.status(400).json({ success: false, message: 'Invalid Department Head decision status.' });
 			}
-			if (departmentStatus === 'Returned' && !String(departmentDecision.returnReason || '').trim()) {
+			if (hasExplicitDepartmentDecision && departmentStatus === 'Approved' && requestUpdates.departmentChecklist.some((item) => item.status === 'Pending')) {
+				return res.status(400).json({ success: false, message: 'Resolve every checklist item as Cleared or N/A before approving.' });
+			}
+			const returnReason = String(departmentDecision.returnReason || requestUpdates.returnReason || '').trim();
+			if (departmentStatus === 'Returned' && !returnReason) {
 				return res.status(400).json({ success: false, message: 'Return reason is required.' });
 			}
 			const reviewedAt = new Date();
@@ -710,15 +762,15 @@ const updateClearance = async (req, res) => {
 			if (departmentStatus === 'Returned') {
 				requestUpdates.status = 'Returned';
 				requestUpdates.overallStatus = 'Returned';
-				requestUpdates.returnReason = departmentDecision.returnReason.trim();
+				requestUpdates.returnReason = returnReason;
 				requestUpdates.returnedBy = departmentReviewer;
 				requestUpdates.returnedOffice = 'Department Head';
 				requestUpdates.returnedAt = reviewedAt;
-				requestUpdates.returnedReason = departmentDecision.returnReason.trim();
+				requestUpdates.returnedReason = returnReason;
 				requestUpdates.returnedRemark = departmentDecision.comment || requestUpdates.remarks || '';
 				requestUpdates.affectedField = requestUpdates.affectedField || departmentDecision.affectedField || 'Department Head Review';
 			}
-			requestUpdates.departmentReturnReason = departmentDecision.returnReason || '';
+			requestUpdates.departmentReturnReason = returnReason;
 			requestUpdates.departmentReviewedBy = departmentReviewer;
 			requestUpdates.departmentReviewedById = req.user?._id || null;
 			requestUpdates.departmentReviewedAt = reviewedAt;
@@ -730,15 +782,25 @@ const updateClearance = async (req, res) => {
 				reviewedById: req.user?._id || null,
 				reviewedAt,
 				comment: departmentDecision.comment || requestUpdates.remarks || '',
-				returnReason: departmentDecision.returnReason || '',
+				returnReason,
 			};
-			requestUpdates.departmentClearances = [{
-				...departmentDecision,
-				status: departmentStatus,
-				reviewedBy: departmentReviewer,
-				reviewedById: req.user?._id || null,
-				reviewedAt,
-			}];
+			requestUpdates.departmentClearances = hasExplicitDepartmentDecision
+				? [{
+					office: 'Department Head',
+					status: departmentStatus,
+					reviewedBy: departmentReviewer,
+					reviewedById: req.user?._id || null,
+					reviewedAt,
+					comment: departmentDecision.comment || requestUpdates.remarks || '',
+					returnReason,
+				}]
+				: [{
+					...departmentDecision,
+					status: departmentStatus,
+					reviewedBy: departmentReviewer,
+					reviewedById: req.user?._id || null,
+					reviewedAt,
+				}];
 		}
 		if (libraryDecision) {
 			const { status, verificationResult = '', comment = '', returnReason = '' } = libraryDecision;
@@ -762,14 +824,14 @@ const updateClearance = async (req, res) => {
 				requestUpdates.affectedField = requestUpdates.affectedField || libraryDecision.affectedField || 'Library Clearance';
 			}
 		}
-		if (Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length) {
+		if (hasDepartmentDecision) {
 			const existingClearance = await Clearance.findById(req.params.id).select('workflow').lean();
 			if (!existingClearance) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
-			const departmentDecision = requestUpdates.departmentClearances[requestUpdates.departmentClearances.length - 1];
 			const workflow = Array.isArray(existingClearance.workflow) ? [...existingClearance.workflow] : [];
 			const departmentIndex = workflow.findIndex((step) => /department/i.test(step.office || step.name || ''));
-			if (departmentIndex >= 0) workflow[departmentIndex] = { ...workflow[departmentIndex], ...departmentDecision };
-			else workflow.unshift({ office: 'Department Head', ...departmentDecision });
+			const decisionRecord = requestUpdates.departmentClearances[0];
+			if (departmentIndex >= 0) workflow[departmentIndex] = { ...workflow[departmentIndex], ...decisionRecord };
+			else workflow.unshift({ office: 'Department Head', ...decisionRecord });
 			requestUpdates.workflow = workflow;
 		}
 		const resolvedCurrentStep = (() => {
@@ -801,16 +863,21 @@ const updateClearance = async (req, res) => {
 					requestUpdates.transportStatus = 'Pending';
 					requestUpdates.transportReturnReason = '';
 					requestUpdates.transportOfficerComment = '';
-					requestUpdates.transportReview = {
-						...(existingClearance.transportReview || {}),
-						status: 'Pending',
-						returnReason: '',
-						officerNotes: '',
-					};
+					requestUpdates.transportReviewedBy = '';
+					requestUpdates.transportReviewedAt = null;
+					requestUpdates.transportReview = resetTransportReviewForResubmission(existingClearance.transportReview || {});
 					requestUpdates.currentStep = 'Transport Office';
 				}
 				if (office.includes('department')) requestUpdates.departmentStatus = 'Pending';
-				return { ...step, status: 'Pending', updatedAt: new Date(), comment: '', remarks: '', returnReason: '' };
+				return {
+					...step,
+					status: 'Pending',
+					updatedAt: new Date(),
+					comment: '',
+					remarks: '',
+					returnReason: '',
+					...(office.includes('transport') ? { approvedBy: '', reviewedBy: '', reviewedAt: null, completedAt: null } : {}),
+				};
 			});
 			requestUpdates.departmentClearances = (Array.isArray(existingClearance.departmentClearances) ? existingClearance.departmentClearances : []).map((item) => {
 				if (!['returned', 'rejected'].includes(String(item.status || '').toLowerCase())) return item;
@@ -996,9 +1063,8 @@ const updateClearance = async (req, res) => {
 							: null;
 		const [title, message, type] = officeApproval || statusMessages[clearance.status] || statusMessages.Pending;
 		await createEmployeeNotification({ clearance, title, message, type, actionText: clearance.status === 'Returned' ? 'View Request' : 'View Clearance' });
-		const clearanceItems = Array.isArray(clearance.departmentClearances) ? clearance.departmentClearances : [];
-		const clearedCount = clearanceItems.filter((item) => ['approved', 'completed', 'cleared'].includes(String(item?.status || '').toLowerCase())).length;
 		const officeProgress = getOfficeProgress(clearance);
+		const allRequiredOfficesCleared = officeProgress.total > 0 && officeProgress.completed === officeProgress.total;
 		const decisionOffice = libraryDecision ? 'Library Office' : Array.isArray(requestUpdates.departmentClearances) ? 'Department Head' : 'Clearance Office';
 		const hrEvent = clearance.status === 'Cancelled'
 			? {
@@ -1018,14 +1084,14 @@ const updateClearance = async (req, res) => {
 					message: `${clearance.employeeName || 'Employee'} has resolved the issue and resubmitted the clearance request.`,
 					type: 'CLEARANCE_RESUBMITTED', actionText: 'Review Request', actionLink: '/hr-office/clearance-requests'
 				}
-				: clearanceItems.length && clearedCount > 0
+				: officeProgress.completed > 0
 					? {
-						title: clearedCount === clearanceItems.length ? 'Clearance Ready for Final Review' : 'Office Clearance Completed',
-						message: clearedCount === clearanceItems.length
+						title: allRequiredOfficesCleared ? 'Clearance Ready for Final Review' : 'Office Clearance Completed',
+						message: allRequiredOfficesCleared
 							? `All required offices have cleared ${clearance.employeeName || 'the employee'}. The request is now ready for final HR review.`
 							: `Request ${clearance.requestId || 'N/A'} | Employee: ${clearance.employeeName || 'Employee'}. ${decisionOffice} has approved the clearance. Progress: ${officeProgress.completed}/${officeProgress.total} offices.`,
-						type: clearedCount === clearanceItems.length ? 'ready_review' : 'CLEARANCE_PROGRESS_UPDATED',
-						actionText: clearedCount === clearanceItems.length ? 'View Final Clearance' : 'View Clearance',
+						type: allRequiredOfficesCleared ? 'ready_review' : 'CLEARANCE_PROGRESS_UPDATED',
+						actionText: allRequiredOfficesCleared ? 'View Final Clearance' : 'View Clearance',
 						actionLink: '/hr-office/final-hr-clearance'
 					}
 					: null;

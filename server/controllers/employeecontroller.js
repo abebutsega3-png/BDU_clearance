@@ -2,6 +2,8 @@ import bcrypt from 'bcrypt';
 import multer from 'multer';
 import Employee from '../models/employee.js';
 import Clearance from '../models/clearance.js';
+import Department from '../models/department.js';
+import Asset from '../models/propertyAsset.js';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isValidFullName = (value) => /^[\p{L}]+(?:[\s'-]+[\p{L}]+)*$/u.test(value);
@@ -33,6 +35,10 @@ const isValidEmploymentDate = (value) => {
   const todayValue = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   return employmentDate <= todayValue;
 };
+
+const findDepartmentByName = (name) => Department.findOne({
+  departmentName: { $regex: `^${escapeRegExp(name)}$`, $options: 'i' },
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -135,9 +141,11 @@ const addEmployee = async (req, res) => {
       return res.status(409).json({ success: false, message: 'Employee ID or email already exists.' });
     }
 
+    const departmentRecord = await findDepartmentByName(body.department.trim());
     const employeeData = {
       ...body,
       fullName: body.fullName.trim(),
+      departmentId: departmentRecord?._id || null,
       phone: normalizePhoneNumber(body.phone.trim()),
       alternativePhone: body.alternativePhone?.trim() ? normalizePhoneNumber(body.alternativePhone.trim()) : '',
       emergencyPhone: body.emergencyPhone?.trim() ? normalizePhoneNumber(body.emergencyPhone.trim()) : '',
@@ -174,25 +182,73 @@ const getEmployees = async (req, res) => {
 
 const getDepartmentEmployees = async (req, res) => {
   try {
+    const role = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (role !== 'departmenthead') {
+      return res.status(403).json({ success: false, message: 'Department Head access is required.' });
+    }
+
     const department = req.user?.department?.trim();
     if (!department) return res.status(400).json({ success: false, message: 'Your account is not assigned to a department.' });
 
-    const departmentRegex = { $regex: `^${escapeRegExp(department)}$`, $options: 'i' };
-    const employees = await Employee.find({ department: departmentRegex }).select('-password').sort({ fullName: 1 }).lean();
-    const clearances = await Clearance.find({ department: departmentRegex, employeeId: { $in: employees.map((employee) => employee.employeeId) } })
+    const departmentRecord = (req.user?.departmentId && await Department.findById(req.user.departmentId))
+      || await findDepartmentByName(department);
+    const departmentName = departmentRecord?.departmentName || department;
+    const departmentRegex = { $regex: `^${escapeRegExp(departmentName)}$`, $options: 'i' };
+    const employeeFilter = departmentRecord
+      ? { $or: [{ departmentId: departmentRecord._id }, { departmentId: null, department: departmentRegex }] }
+      : { department: departmentRegex };
+    const employees = await Employee.find(employeeFilter).select('-password').sort({ fullName: 1 }).lean();
+    const employeeIds = employees.map((employee) => employee.employeeId);
+    const clearanceFilter = departmentRecord
+      ? { $or: [{ departmentId: departmentRecord._id }, { departmentId: null, department: departmentRegex }] }
+      : { department: departmentRegex };
+    const clearances = await Clearance.find({ ...clearanceFilter, employeeId: { $in: employeeIds } })
       .sort({ createdAt: -1 }).lean();
     const latestByEmployee = new Map();
     clearances.forEach((clearance) => {
       if (!latestByEmployee.has(clearance.employeeId)) latestByEmployee.set(clearance.employeeId, clearance);
     });
 
+    const vehiclePattern = /\b(vehicle|transport|buses?|pickup|sedan|cars?|vans?|trucks?)\b/i;
+    const vehicleRecords = employeeIds.length
+      ? await Asset.find({
+        employeeId: { $in: employeeIds },
+        $or: [
+          { assetName: { $regex: 'vehicle|transport|bus|pickup|sedan|car|van|truck', $options: 'i' } },
+          { assetType: { $regex: 'vehicle|transport|bus|pickup|sedan|car|van|truck', $options: 'i' } },
+          { category: { $regex: 'vehicle|transport|bus|pickup|sedan|car|van|truck', $options: 'i' } },
+          { vehicleNumber: { $regex: 'vehicle|transport|bus|pickup|sedan|car|van|truck', $options: 'i' } },
+          { plateNumber: { $regex: 'vehicle|transport|bus|pickup|sedan|car|van|truck', $options: 'i' } },
+        ],
+      }).sort({ updatedAt: -1, assignedDate: -1 }).lean()
+      : [];
+    const vehicleByEmployee = new Map();
+    vehicleRecords.forEach((record) => {
+      const status = String(record.status || '').trim().toLowerCase();
+      if (!record.employeeId || ['returned', 'available', 'unassigned', 'not assigned'].includes(status)) return;
+      if (!vehiclePattern.test([record.assetName, record.assetType, record.category, record.vehicleNumber, record.plateNumber].join(' '))) return;
+      if (vehicleByEmployee.has(record.employeeId)) return;
+      const typeCandidates = [record.category, record.assetType, record.assetName].filter(Boolean);
+      const vehicleType = typeCandidates.find((value) => vehiclePattern.test(value) && !/^vehicles?$/i.test(value))
+        || typeCandidates[0]
+        || 'Vehicle';
+      vehicleByEmployee.set(record.employeeId, {
+        plateNumber: record.plateNumber || record.vehicleNumber || record.assetId || '',
+        vehicleType,
+        assignedDate: record.assignedDate || null,
+        status: record.status || 'Assigned',
+      });
+    });
+
     return res.status(200).json({
       success: true,
-      department,
+      department: departmentName,
+      departmentId: departmentRecord?._id || null,
       departmentHead: req.user.name,
       employees: employees.map((employee) => ({
         ...employee,
         clearance: latestByEmployee.get(employee.employeeId) || null,
+        assignedVehicle: vehicleByEmployee.get(employee.employeeId) || null,
       })),
     });
   } catch (error) {
@@ -214,6 +270,12 @@ const updateEmployee = async (req, res) => {
   try {
     const updates = { ...req.body };
     delete updates.confirmPassword;
+    if (updates.department !== undefined) {
+      const departmentRecord = await findDepartmentByName(String(updates.department).trim());
+      updates.departmentId = departmentRecord?._id || null;
+    } else {
+      delete updates.departmentId;
+    }
     if (updates.fullName !== undefined) {
       const normalizedFullName = String(updates.fullName).trim();
       if (!isValidFullName(normalizedFullName)) {

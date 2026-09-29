@@ -167,17 +167,18 @@ export default function ClearanceRequests() {
   };
 
   const handleStartDepartmentReview = () => saveDepartmentDecision('Under Review');
-  const handleApproveDepartmentClearance = () => saveDepartmentDecision('Approved');
-  const handleApproveFromList = (request) => {
-    selectRequest(request);
-    return saveDepartmentDecision('Approved', request);
+  const openDepartmentChecklist = (request = selectedRequest) => {
+    if (!request) return;
+    navigate(`/department-head/department-assets?requestId=${encodeURIComponent(request.requestId || request._id)}`);
   };
+  const handleApproveDepartmentClearance = () => openDepartmentChecklist();
+  const handleApproveFromList = (request) => openDepartmentChecklist(request);
   const handleReturnDepartmentClearance = () => {
     if (!returnReason.trim()) {
       setError('Return reason is required.');
       return;
     }
-    saveDepartmentDecision('Returned');
+    openDepartmentChecklist();
   };
 
   const getStatusBadge = (status) => {
@@ -214,20 +215,15 @@ export default function ClearanceRequests() {
             disabled={isSaving}
             className={`${baseButtonClass} bg-emerald-600 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60`}
           >
-            Approve
+            Review Checklist
           </button>
         )}
         {status === 'Returned' && (
           <button
-            onClick={() => {
-              selectRequest(item);
-              setReviewStatus('Under Review');
-              setReturnReason('');
-              setIsReturnMode(false);
-            }}
+            onClick={() => openDepartmentChecklist(item)}
             className={`${baseButtonClass} bg-orange-600 text-white hover:bg-orange-700`}
           >
-            Review Again
+            View Checklist
           </button>
         )}
       </div>
@@ -774,7 +770,7 @@ export default function ClearanceRequests() {
                 <AlertCircle size={16} className="text-slate-400" />
                 <p className="text-xs text-slate-600 font-semibold">
                   {reviewStatus === 'Pending' && '⏳ Click "Start Review" to begin the clearance review process'}
-                  {reviewStatus === 'Under Review' && '🔍 Review department items above, then approve or return the request'}
+                  {reviewStatus === 'Under Review' && 'Complete the department-specific checklist before approving or returning'}
                   {reviewStatus === 'Approved' && '✓ Department clearance approved — Proceeding to next office'}
                   {reviewStatus === 'Returned' && '↺ Request returned to employee for further action'}
                   {reviewStatus === 'Completed' && '✓ Clearance completed and archived'}
@@ -787,7 +783,7 @@ export default function ClearanceRequests() {
                   onClick={() => navigate(`/department-head/department-assets?requestId=${encodeURIComponent(selectedRequest.requestId || selectedRequest._id)}`)}
                   className="border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-700 font-semibold px-4 py-2 rounded-lg transition-colors text-xs"
                 >
-                  Department Assets
+                  Department Clearance Checklist
                 </button>
 
                 {reviewStatus === 'Pending' && (
@@ -803,20 +799,17 @@ export default function ClearanceRequests() {
                 {reviewStatus === 'Under Review' && !isReturnMode && (
                   <>
                     <button
-                      onClick={() => {
-                        setIsReturnMode(true);
-                        setError('');
-                      }}
+                      onClick={() => openDepartmentChecklist()}
                       className="border border-red-300 bg-white hover:bg-red-50 text-red-700 font-semibold px-4 py-2 rounded-lg transition-colors text-xs"
                     >
-                      Return Request
+                      Open Checklist
                     </button>
                     <button
                       onClick={handleApproveDepartmentClearance}
                       disabled={isSaving}
                       className="bg-emerald-600 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-semibold px-5 py-2 rounded-lg transition-colors shadow-sm text-xs"
                     >
-                      {isSaving ? 'Saving...' : 'Approve Clearance'}
+                      {isSaving ? 'Loading...' : 'Open Checklist'}
                     </button>
                   </>
                 )}
@@ -838,7 +831,7 @@ export default function ClearanceRequests() {
                       disabled={isSaving}
                       className="bg-red-600 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-semibold px-5 py-2 rounded-lg transition-colors shadow-sm text-xs"
                     >
-                      {isSaving ? 'Saving...' : 'Confirm Return'}
+                      {isSaving ? 'Loading...' : 'Open Checklist'}
                     </button>
                   </>
                 )}

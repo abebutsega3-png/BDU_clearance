@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Bus, Eye, LoaderCircle, Search, X } from 'lucide-react';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, Bus, CheckCircle2, Eye, LoaderCircle, Search, X } from 'lucide-react';
 
 const API_URL = 'http://localhost:3000/api/transport/assigned-vehicles';
+const REQUEST_API_URL = 'http://localhost:3000/api/transport/requests';
 const statusOptions = ['Assigned', 'Returned', 'Available', 'Under Maintenance', 'Lost'];
+const vehicleChecklistFields = ['vehicleReturned', 'vehicleCondition', 'vehicleKeysReturned', 'vehicleDocumentsReturned', 'vehicleAccessoriesReturned'];
+const transportChecklistFields = [...vehicleChecklistFields, 'noOutstandingIssue', 'vehicleHandover', 'transportRecords', 'noUnreturnedTransportProperty', 'noOtherObligation'];
 
 const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
@@ -32,9 +36,11 @@ function DetailItem({ label, value }) {
 }
 
 export default function AssignedVehicleRecords() {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [records, setRecords] = useState([]);
   const [filters, setFilters] = useState({ departments: [], vehicleTypes: [], statuses: [] });
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('search') || '');
   const [department, setDepartment] = useState('All');
   const [status, setStatus] = useState('All');
   const [vehicleType, setVehicleType] = useState('All');
@@ -43,6 +49,51 @@ export default function AssignedVehicleRecords() {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const [clearanceContext, setClearanceContext] = useState(location.state?.transportClearanceContext || null);
+  const [returnReason, setReturnReason] = useState(location.state?.transportClearanceContext?.returnReason || '');
+  const [decisionError, setDecisionError] = useState('');
+  const [decisionMessage, setDecisionMessage] = useState('');
+  const [decisionLoading, setDecisionLoading] = useState(false);
+
+  useEffect(() => {
+    setSearch(searchParams.get('search') || '');
+  }, [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadClearanceContext = async () => {
+      const carriedContext = location.state?.transportClearanceContext;
+      if (carriedContext?.request) {
+        setClearanceContext(carriedContext);
+        setReturnReason(carriedContext.returnReason || '');
+        return;
+      }
+
+      const requestId = searchParams.get('requestId');
+      if (!requestId) {
+        setClearanceContext(null);
+        return;
+      }
+
+      try {
+        const response = await axios.get(`${REQUEST_API_URL}/${encodeURIComponent(requestId)}`, authConfig());
+        if (cancelled) return;
+        const request = response.data.request;
+        setClearanceContext({
+          request,
+          recordCheck: request.transportReview || {},
+          officerNotes: request.transportReview?.officerNotes || request.officerComment || '',
+          returnReason: request.returnReason || '',
+        });
+        setReturnReason(request.returnReason || '');
+      } catch {
+        if (!cancelled) setDecisionError('Unable to load the clearance request decision context.');
+      }
+    };
+
+    loadClearanceContext();
+    return () => { cancelled = true; };
+  }, [location.state, searchParams]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -92,6 +143,50 @@ export default function AssignedVehicleRecords() {
   const closeVehicle = () => {
     setSelectedVehicle(null);
     setDetailError('');
+  };
+
+  const clearanceRequest = clearanceContext?.request;
+  const recordCheck = clearanceContext?.recordCheck || {};
+  const canApproveClearance = clearanceRequest?.status === 'Under Review'
+    && recordCheck.hasAssignedVehicle !== null
+    && recordCheck.hasAssignedVehicle !== undefined
+    && transportChecklistFields.every((field) => ['Cleared', 'N/A'].includes(recordCheck[field]))
+    && (recordCheck.hasAssignedVehicle
+      ? vehicleChecklistFields.filter((field) => field !== 'vehicleAccessoriesReturned').every((field) => recordCheck[field] === 'Cleared')
+      : vehicleChecklistFields.every((field) => recordCheck[field] === 'N/A'));
+
+  const submitClearanceDecision = async (decision) => {
+    if (!clearanceRequest?.requestId || decisionLoading) return;
+    if (clearanceRequest.status !== 'Under Review') {
+      setDecisionError('Start the Transport review before making a decision.');
+      return;
+    }
+    if (decision === 'return' && !returnReason.trim()) {
+      setDecisionError('Enter a return reason before returning this request.');
+      return;
+    }
+    if (decision === 'approve' && !canApproveClearance) {
+      setDecisionError('Complete every applicable Transport checklist item before approval.');
+      return;
+    }
+
+    setDecisionLoading(true);
+    setDecisionError('');
+    setDecisionMessage('');
+    try {
+      const endpoint = decision === 'approve' ? 'approve' : 'return';
+      const body = decision === 'approve'
+        ? { recordCheck, officerNotes: clearanceContext.officerNotes || '' }
+        : { recordCheck, returnReason: returnReason.trim(), officerComment: clearanceContext.officerNotes || '' };
+      await axios.patch(`${REQUEST_API_URL}/${encodeURIComponent(clearanceRequest.requestId)}/${endpoint}`, body, authConfig());
+      const status = decision === 'approve' ? 'Approved' : 'Returned';
+      setClearanceContext((current) => ({ ...current, request: { ...current.request, status } }));
+      setDecisionMessage(decision === 'approve' ? 'Transport clearance approved.' : 'Request returned to the employee.');
+    } catch (requestError) {
+      setDecisionError(requestError.response?.data?.message || 'Unable to save the Transport clearance decision.');
+    } finally {
+      setDecisionLoading(false);
+    }
   };
 
   return (
@@ -173,6 +268,21 @@ export default function AssignedVehicleRecords() {
           </table>
         </div>
       </div>
+
+      {clearanceRequest && <section className="space-y-3 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h2 className="text-sm font-bold text-slate-900">Transport Clearance Decision</h2><p className="mt-1 text-xs text-slate-500">Request {clearanceRequest.requestId} · {clearanceRequest.employee?.fullName || clearanceRequest.employeeName} · {clearanceRequest.status}</p></div>
+          {clearanceRequest.status === 'Under Review' && <span className="rounded-md bg-sky-50 px-2.5 py-1 text-[10px] font-semibold text-sky-700">Under Review</span>}
+        </div>
+        {decisionError && <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{decisionError}</p>}
+        {decisionMessage && <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{decisionMessage}</p>}
+        {clearanceRequest.status === 'Under Review' && <label className="block text-xs font-semibold text-slate-700">Return Reason <span className="font-normal text-slate-500">(required to return)</span><textarea value={returnReason} onChange={(event) => { setReturnReason(event.target.value); setDecisionError(''); }} rows={2} maxLength={1000} className="mt-1 w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-xs outline-none focus:border-teal-600" placeholder="Explain why the clearance request is being returned." /></label>}
+        {clearanceRequest.status === 'Under Review' && !canApproveClearance && <p className="text-[11px] text-amber-700"><AlertTriangle size={13} className="mr-1 inline" />Complete the applicable checklist in the clearance review before approving.</p>}
+        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+          <button type="button" onClick={() => submitClearanceDecision('return')} disabled={decisionLoading || clearanceRequest.status !== 'Under Review' || !returnReason.trim()} className="rounded-md border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">{decisionLoading ? 'Saving...' : 'Return to Employee'}</button>
+          <button type="button" onClick={() => submitClearanceDecision('approve')} disabled={decisionLoading || !canApproveClearance} title={!canApproveClearance ? 'Complete the applicable Transport checklist before approval' : undefined} className="inline-flex items-center gap-2 rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={14} />{decisionLoading ? 'Saving...' : 'Approve / Clear'}</button>
+        </div>
+      </section>}
 
       {selectedVehicle && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) closeVehicle(); }}>

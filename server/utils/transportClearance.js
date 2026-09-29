@@ -1,4 +1,26 @@
 const transportOfficeRegex = { $regex: 'transport', $options: 'i' };
+const transportChecklistFields = [
+  'vehicleReturned',
+  'vehicleCondition',
+  'vehicleKeysReturned',
+  'vehicleDocumentsReturned',
+  'vehicleAccessoriesReturned',
+  'noOutstandingIssue',
+  'vehicleHandover',
+  'transportRecords',
+  'noUnreturnedTransportProperty',
+  'noOtherObligation',
+];
+
+export const resetTransportReviewForResubmission = (review = {}) => ({
+  ...review,
+  ...Object.fromEntries(transportChecklistFields.map((field) => [field, 'Pending'])),
+  status: 'Pending',
+  reviewedBy: '',
+  reviewedAt: null,
+  officerNotes: '',
+  returnReason: '',
+});
 
 export const transportRequestFilter = {
   $or: [

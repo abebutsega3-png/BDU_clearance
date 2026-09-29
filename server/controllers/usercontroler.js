@@ -2,7 +2,10 @@ import bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Employee from '../models/employee.js';
+import Department from '../models/department.js';
 import { recordAuditLog } from './auditLogger.js';
+
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const getUsers = async (_req, res) => {
   try {
@@ -45,6 +48,9 @@ const addUser = async (req, res) => {
 
     const employee = await Employee.findOne({ employeeId: employeeId.trim() }).lean();
     if (!employee) return res.status(404).json({ success: false, message: 'Linked employee was not found.' });
+    const departmentRecord = employee.departmentId
+      ? null
+      : await Department.findOne({ departmentName: { $regex: `^${escapeRegExp(employee.department)}$`, $options: 'i' } }).select('_id').lean();
 
     const duplicateQuery = [{ username: username.trim() }, { employeeId: employee.employeeId }];
     if (employee.email?.trim()) duplicateQuery.push({ email: employee.email.trim().toLowerCase() });
@@ -64,6 +70,7 @@ const addUser = async (req, res) => {
       name: employee.fullName,
       email: employee.email?.trim().toLowerCase() || '',
       department: employee.department,
+      departmentId: employee.departmentId || departmentRecord?._id || null,
       password: await bcrypt.hash(password, 10),
       role,
       status: status || 'Active',

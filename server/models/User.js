@@ -31,6 +31,7 @@ const userSchema = new mongoose.Schema({
         required: true
     },
         department: { type: String, trim: true, default: '' },
+        departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
         status: { type: String, enum: ['Active', 'Inactive'], default: 'Active' },
     profileImage: {
         type: String

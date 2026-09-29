@@ -8,22 +8,33 @@ const normalizeDepartment = (value) => String(value || '')
   .toLowerCase()
   .replace(/[\s_-]+/g, '');
 
-const departmentQuery = (department) => ({
-  $or: [
-    { department: { $regex: `^${String(department || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
-    { 'department.name': { $regex: `^${String(department || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
-    { 'department.departmentName': { $regex: `^${String(department || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
-  ],
-});
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const departmentQuery = (department) => {
+  const name = typeof department === 'object' ? department?.departmentName || '' : department;
+  const nameRegex = { $regex: `^${escapeRegExp(name)}$`, $options: 'i' };
+  const nameFilters = [
+    { department: nameRegex },
+    { 'department.name': nameRegex },
+    { 'department.departmentName': nameRegex },
+  ];
+  const departmentId = typeof department === 'object' ? department?._id || department?.departmentId : null;
+  return {
+    $or: departmentId
+      ? [{ departmentId }, ...nameFilters.map((filter) => ({ departmentId: null, ...filter }))]
+      : nameFilters,
+  };
+};
 
 const departmentRequestQuery = async (department) => {
   const employees = await Employee.find(departmentQuery(department)).select('employeeId').lean();
+  const departmentFilters = departmentQuery(department).$or;
   return {
     $and: [{
       initialHRStatus: 'Approved',
       $or: [
-        departmentQuery(department),
-        { employeeId: { $in: employees.map((employee) => employee.employeeId) } },
+        ...departmentFilters,
+        { departmentId: null, employeeId: { $in: employees.map((employee) => employee.employeeId) } },
       ],
     }],
   };
@@ -48,12 +59,17 @@ const withDepartmentStatus = (query, status) => ({
 });
 
 const resolveDepartmentHeadDepartment = async (user) => {
+  if (user?.departmentId) {
+    const department = await Department.findById(user.departmentId).lean();
+    if (department) return department;
+  }
+
   const identity = [user?.name, user?.employeeId].filter(Boolean).map((value) => String(value).trim());
   if (identity.length) {
     const department = await Department.findOne({
       departmentHead: { $in: identity.map((value) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) },
-    }).select('departmentName').lean();
-    if (department?.departmentName?.trim()) return department.departmentName.trim();
+    }).lean();
+    if (department?.departmentName?.trim()) return department;
   }
 
   const employeeIdentityQuery = user?.employeeId
@@ -62,10 +78,20 @@ const resolveDepartmentHeadDepartment = async (user) => {
       ? { fullName: { $regex: `^${String(user.name).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } }
       : null;
   if (employeeIdentityQuery) {
-    const employee = await Employee.findOne(employeeIdentityQuery).select('department').lean();
-    if (employee?.department?.trim()) return employee.department.trim();
+    const employee = await Employee.findOne(employeeIdentityQuery).select('department departmentId').lean();
+    if (employee?.departmentId) {
+      const department = await Department.findById(employee.departmentId).lean();
+      if (department) return department;
+    }
+    if (employee?.department?.trim()) {
+      const department = await Department.findOne({ departmentName: { $regex: `^${escapeRegExp(employee.department)}$`, $options: 'i' } }).lean();
+      return department || { departmentName: employee.department };
+    }
   }
-  if (user?.department?.trim()) return user.department.trim();
+  if (user?.department?.trim()) {
+    const department = await Department.findOne({ departmentName: { $regex: `^${escapeRegExp(user.department)}$`, $options: 'i' } }).lean();
+    return department || { departmentName: user.department };
+  }
   return '';
 };
 
@@ -80,13 +106,13 @@ const departmentHistoryQuery = {
 
 const getDashboardSummary = async (req, res) => {
   try {
-    const department = await resolveDepartmentHeadDepartment(req.user);
-    if (!department) return res.status(400).json({ message: 'Your account is not assigned to a department.' });
+    const departmentRecord = await resolveDepartmentHeadDepartment(req.user);
+    if (!departmentRecord) return res.status(400).json({ message: 'Your account is not assigned to a department.' });
 
-    const requestQuery = addAssignedHeadFilter(await departmentRequestQuery(department), req.user._id);
+    const requestQuery = addAssignedHeadFilter(await departmentRequestQuery(departmentRecord), req.user._id);
     const [totalEmployees, activeEmployees, pending, underReview, approved, returned, completed, recentRequests, notifications] = await Promise.all([
-      Employee.countDocuments(departmentQuery(department)),
-      Employee.countDocuments({ ...departmentQuery(department), status: 'Active' }),
+      Employee.countDocuments(departmentQuery(departmentRecord)),
+      Employee.countDocuments({ ...departmentQuery(departmentRecord), status: 'Active' }),
       Clearance.countDocuments(withDepartmentStatus(requestQuery, 'Pending')),
       Clearance.countDocuments(withDepartmentStatus(requestQuery, 'In Progress')),
       Clearance.countDocuments(withDepartmentStatus(requestQuery, 'Approved')),
@@ -97,7 +123,8 @@ const getDashboardSummary = async (req, res) => {
     ]);
 
     return res.status(200).json({
-      department,
+      department: departmentRecord.departmentName,
+      departmentId: departmentRecord._id || null,
       departmentHead: req.user.name,
       employees: { total: totalEmployees, active: activeEmployees },
       stats: { pending, underReview, approved, returned, completed },
@@ -112,14 +139,14 @@ const getDashboardSummary = async (req, res) => {
 // Get Requests with Filter, Search, and Pagination
 const getRequests = async (req, res) => {
   try {
-    const department = await resolveDepartmentHeadDepartment(req.user);
-    if (!department) {
+    const departmentRecord = await resolveDepartmentHeadDepartment(req.user);
+    if (!departmentRecord) {
       return res.status(400).json({ message: 'Your account is not assigned to a department.' });
     }
 
     const { status, search, clearanceType, fromDate, toDate, history, page = 1, limit = 8 } = req.query;
 
-    let query = addAssignedHeadFilter(await departmentRequestQuery(department), req.user._id);
+    let query = addAssignedHeadFilter(await departmentRequestQuery(departmentRecord), req.user._id);
 
     if (history === 'true') query.$and.push(departmentHistoryQuery);
 
@@ -161,10 +188,20 @@ const getRequests = async (req, res) => {
       .limit(Number(limit))
       .lean();
 
+    const employeeIds = [...new Set(requests.map((request) => request.employeeId).filter(Boolean))];
+    const employees = employeeIds.length
+      ? await Employee.find({ employeeId: { $in: employeeIds } }).select('employeeId position').lean()
+      : [];
+    const positionByEmployeeId = new Map(employees.map((employee) => [employee.employeeId, employee.position]));
+    const requestsWithPosition = requests.map((request) => ({
+      ...request,
+      position: positionByEmployeeId.get(request.employeeId) || request.employee?.position || request.position || '',
+    }));
+
     const totalCount = await Clearance.countDocuments(query);
 
     // Dynamic Counts for Top Cards
-    const departmentFilter = addAssignedHeadFilter(await departmentRequestQuery(department), req.user._id);
+    const departmentFilter = addAssignedHeadFilter(await departmentRequestQuery(departmentRecord), req.user._id);
     const stats = {
       all: await Clearance.countDocuments(departmentFilter),
       pending: await Clearance.countDocuments(withDepartmentStatus(departmentFilter, 'Pending')),
@@ -175,7 +212,9 @@ const getRequests = async (req, res) => {
     };
 
     res.status(200).json({
-      requests,
+      requests: requestsWithPosition,
+      department: departmentRecord.departmentName,
+      departmentId: departmentRecord._id || null,
       totalCount,
       stats,
       totalPages: Math.ceil(totalCount / limit),

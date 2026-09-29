@@ -7,8 +7,8 @@ import UniversitySeal from '../UniversitySeal';
 const navigation = [
 	{ label: 'Dashboard', to: '/department-head', icon: LayoutDashboard },
 	{ label: 'Clearance Requests', to: '/department-head/clearance-requests', icon: FileText },
-	{ label: 'Department Assets', to: '/department-head/department-assets', icon: FileText },
-	{ label: 'My Department', to: '/department-head/my-department', icon: Users },
+	{ label: 'Department Clearance', to: '/department-head/department-assets', icon: FileText },
+	{ label: 'Department Employees', to: '/department-head/my-department', icon: Users },
 	{ label: 'Clearance History', to: '/department-head/clearance-history', icon: History },
 	{ label: 'Notifications', to: '/department-head/notifications', icon: ClipboardCheck },
 	{ label: 'Reports', to: '/department-head/reports', icon: BarChart3 },
@@ -48,7 +48,7 @@ const DepartmentSidebar = ({ onNavigate }) => {
 					className={({ isActive }) => `mb-1 flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm transition ${isActive ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
 				>
 					<UserCircle size={19} />
-					<span>Profile</span>
+					<span>My Profile</span>
 				</NavLink>
 			</nav>
 

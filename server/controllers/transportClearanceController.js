@@ -46,7 +46,7 @@ const getTransportAssets = async (employeeId) => {
       { category: { $regex: 'vehicle|transport|bus', $options: 'i' } },
     ],
   })
-    .select('assetId assetName assetType category status condition assignedDate returnDate')
+    .select('assetId assetName assetType category vehicleNumber plateNumber status condition assignedDate returnDate')
     .sort({ updatedAt: -1 })
     .lean();
 };
@@ -217,6 +217,7 @@ export const getTransportRequestById = async (req, res) => {
         employee,
         requestDate: request.requestDate || request.submittedDate || request.createdAt,
         lastWorkingDate: request.lastWorkingDate || request.relievingDate || null,
+        reason: request.reason || request.clearanceReason || request.remarks || '',
         transportInformation,
         transportAssets,
         transportReview: request.transportReview || null,
@@ -269,10 +270,36 @@ export const approveTransportClearance = async (req, res) => {
     if (typeof recordCheck.hasAssignedVehicle !== 'boolean') {
       return res.status(400).json({ message: 'Confirm whether the employee has an assigned vehicle.' });
     }
-    if (recordCheck.hasAssignedVehicle && recordCheck.vehicleReturned !== true) {
+    const checklistFields = [
+      'vehicleReturned',
+      'vehicleCondition',
+      'vehicleKeysReturned',
+      'vehicleDocumentsReturned',
+      'vehicleAccessoriesReturned',
+      'noOutstandingIssue',
+      'vehicleHandover',
+      'transportRecords',
+      'noUnreturnedTransportProperty',
+      'noOtherObligation',
+    ];
+    const normalizedCheck = Object.fromEntries(checklistFields.map((field) => {
+      const value = recordCheck[field];
+      return [field, value === true ? 'Cleared' : value === false ? 'Pending' : value || 'Pending'];
+    }));
+    if (checklistFields.some((field) => !['Cleared', 'Pending', 'N/A'].includes(normalizedCheck[field]))) {
+      return res.status(400).json({ message: 'Transport checks must be Cleared, Pending, or N/A.' });
+    }
+    if (checklistFields.some((field) => normalizedCheck[field] === 'Pending')) {
+      return res.status(400).json({ message: 'Resolve every applicable Transport checklist item before approval.' });
+    }
+    const vehicleFields = ['vehicleReturned', 'vehicleCondition', 'vehicleKeysReturned', 'vehicleDocumentsReturned'];
+    if (recordCheck.hasAssignedVehicle && vehicleFields.some((field) => normalizedCheck[field] !== 'Cleared')) {
       return res.status(400).json({ message: 'The assigned vehicle must be returned before clearance can be approved.' });
     }
-    if (recordCheck.noOutstandingIssue !== true || recordCheck.noUnreturnedTransportProperty !== true || recordCheck.noOtherObligation !== true) {
+    if (!recordCheck.hasAssignedVehicle && vehicleFields.some((field) => normalizedCheck[field] !== 'N/A')) {
+      return res.status(400).json({ message: 'Mark vehicle-specific checks N/A only after confirming that no vehicle is assigned.' });
+    }
+    if (normalizedCheck.noUnreturnedTransportProperty !== 'Cleared' && normalizedCheck.noUnreturnedTransportProperty !== 'N/A') {
       return res.status(400).json({ message: 'Resolve all outstanding Transport issues before approving clearance.' });
     }
 
@@ -280,8 +307,11 @@ export const approveTransportClearance = async (req, res) => {
     if (transportAssets.length && recordCheck.hasAssignedVehicle !== true) {
       return res.status(400).json({ message: 'Confirm the registered vehicle or transport asset before approving clearance.' });
     }
-    if (transportAssets.length && recordCheck.vehicleReturned !== true) {
+    if (transportAssets.length && normalizedCheck.vehicleReturned !== 'Cleared') {
       return res.status(400).json({ message: 'Confirm that the registered vehicle or transport asset has been returned.' });
+    }
+    if (transportAssets.length && normalizedCheck.noUnreturnedTransportProperty !== 'Cleared') {
+      return res.status(400).json({ message: 'Confirm all registered Transport property has been returned.' });
     }
     const unreturnedAssets = transportAssets.filter((asset) =>
       !['returned', 'cleared', 'available', 'not applicable'].includes(String(asset.status || '').trim().toLowerCase())
@@ -310,6 +340,7 @@ export const approveTransportClearance = async (req, res) => {
     request.transportReturnReason = '';
     request.transportReview = {
       ...recordCheck,
+      ...normalizedCheck,
       status: 'Approved',
       reviewedBy: reviewer,
       reviewedAt,
@@ -333,6 +364,23 @@ export const approveTransportClearance = async (req, res) => {
       officerComment: officerNotes,
     });
     await notifyEmployee(request, true);
+    if (request.currentStep === 'Final HR Clearance') {
+      const hrOfficers = await User.find({ role: { $regex: '^hr[ _]officer$', $options: 'i' } }).select('_id name').lean();
+      if (hrOfficers.length) {
+        await Notification.insertMany(hrOfficers.map((officer) => ({
+          recipientId: officer._id,
+          targetName: officer.name || 'HR Officer',
+          title: 'Clearance Ready for Final Review',
+          message: `All required offices have cleared ${request.employeeName || 'the employee'}. Request ${request.requestId || ''} is ready for final HR review.`,
+          type: 'ready_review',
+          actionText: 'View Final Clearance',
+          actionLink: '/hr-office/final-hr-clearance',
+          relatedRequestId: request.requestId,
+          clearanceRequestId: request.requestId,
+          isRead: false,
+        })));
+      }
+    }
     await notifyTransportOfficers({
       type: 'TRANSPORT_CLEARANCE_APPROVED',
       title: 'Clearance Approved',
@@ -381,6 +429,7 @@ export const returnTransportClearance = async (req, res) => {
     request.transportReturnReason = returnReason;
     request.transportReview = {
       ...(request.transportReview || {}),
+      ...(req.body?.recordCheck || {}),
       status: 'Returned',
       reviewedBy: reviewer,
       reviewedAt,
