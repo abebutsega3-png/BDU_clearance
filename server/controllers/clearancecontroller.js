@@ -21,6 +21,14 @@ import { isDepartmentNotificationEnabled } from './notificationcontroller.js';
 import { notifyTransportOfficers } from '../utils/transportNotifications.js';
 import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
 
+const libraryChecklistItems = [
+	'Borrowed books and circulation records',
+	'Unreturned or overdue materials',
+	'Outstanding fines and charges',
+	'Lost or damaged materials',
+	'Library account and other obligations',
+];
+
 const hasTransportOffice = (clearance) => [
 	...(Array.isArray(clearance?.requiredOffices) ? clearance.requiredOffices : []),
 	...(Array.isArray(clearance?.workflow) ? clearance.workflow.map((step) => step.office || step.name) : []),
@@ -806,6 +814,12 @@ const updateClearance = async (req, res) => {
 			const { status, verificationResult = '', comment = '', returnReason = '' } = libraryDecision;
 			if (!['In Progress', 'Completed', 'Rejected'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid library decision status.' });
 			if (status === 'Rejected' && !returnReason.trim()) return res.status(400).json({ success: false, message: 'Return reason is required.' });
+			if (requestUpdates.libraryChecklist !== undefined && (!Array.isArray(requestUpdates.libraryChecklist) || requestUpdates.libraryChecklist.some((item) => !item || !libraryChecklistItems.includes(item.item) || !['Cleared', 'Pending', 'N/A'].includes(item.status)))) {
+				return res.status(400).json({ success: false, message: 'Library checklist items must be Cleared, Pending, or N/A.' });
+			}
+			if (status === 'Completed' && (!Array.isArray(requestUpdates.libraryChecklist) || requestUpdates.libraryChecklist.length !== libraryChecklistItems.length || new Set(requestUpdates.libraryChecklist.map((item) => item.item)).size !== libraryChecklistItems.length || requestUpdates.libraryChecklist.some((item) => item.status === 'Pending'))) {
+				return res.status(400).json({ success: false, message: 'Resolve every Library checklist item as Cleared or N/A before approving.' });
+			}
 			requestUpdates.libraryStatus = status;
 			requestUpdates.libraryVerificationResult = verificationResult;
 			requestUpdates.libraryComment = comment;

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/authContext';
 import AdminNotificationBell from './AdminNotificationBell';
 import {
@@ -17,7 +18,8 @@ import {
 } from 'react-icons/fi';
 
 export default function SystemAdminMyProfile() {
-  const { user, login } = useAuth();
+  const { user, login, updateUser } = useAuth();
+  const location = useLocation();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -56,6 +58,7 @@ export default function SystemAdminMyProfile() {
         if (response.data.success) {
           const loadedProfile = response.data.data || response.data.user;
           setProfile(loadedProfile);
+          updateUser(loadedProfile);
           setProfileDraft({
             name: loadedProfile.name || '',
             email: loadedProfile.email || '',
@@ -75,7 +78,13 @@ export default function SystemAdminMyProfile() {
     };
 
     fetchProfile();
-  }, [user?._id]);
+  }, [user?._id, updateUser]);
+
+  useEffect(() => {
+    if (!loading && location.hash === '#admin-change-password') {
+      document.getElementById('admin-change-password')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [loading, location.hash]);
 
   const handleProfileSave = async (event) => {
     event.preventDefault();
@@ -210,8 +219,12 @@ export default function SystemAdminMyProfile() {
             <AdminNotificationBell />
 
             <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#edf1fa] text-xs font-bold text-slate-700">
-                {initials}
+              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#edf1fa] text-xs font-bold text-slate-700">
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Admin profile" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
               </div>
               <div className="flex flex-col text-left leading-tight">
                 <span className="text-[11px] font-semibold text-slate-700">System Administrator</span>
@@ -222,7 +235,7 @@ export default function SystemAdminMyProfile() {
         </div>
 
         <div className="mb-5 flex items-center gap-2 text-xs text-slate-500">
-          <span className="cursor-pointer hover:text-blue-600">Dashboard</span>
+          <Link to="/admin" className="hover:text-blue-600">Dashboard</Link>
           <FiChevronRight className="text-[11px] text-slate-400" />
           <span className="font-medium text-slate-700">My Profile</span>
         </div>
@@ -345,16 +358,9 @@ export default function SystemAdminMyProfile() {
                   <FiCheckCircle className="text-[#22c55e]" />
                   <span className="text-sm font-medium text-slate-700">Two-Factor Authentication</span>
                 </div>
-                <span className="text-xs text-slate-500">Not enabled</span>
+                <span className="text-xs text-slate-500">{profile.twoFactorEnabled ? 'Enabled' : 'Not enabled'}</span>
               </div>
-
-              <button
-                type="button"
-                className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg border border-[#dfe7f1] bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-              >
-                <FiShield className="text-sm" />
-                Enable 2FA
-              </button>
+              <p className="mt-3 text-xs text-slate-500">Two-factor authentication setup is not available yet.</p>
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -379,12 +385,9 @@ export default function SystemAdminMyProfile() {
               </div>
 
               <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
-                >
-                  View Full Activity
-                </button>
+                <Link to="/admin/audit-logs" className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200">
+                  View Audit Logs
+                </Link>
               </div>
             </section>
           </div>
@@ -441,6 +444,7 @@ export default function SystemAdminMyProfile() {
 
         <button
           type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           className="fixed bottom-6 right-7 flex h-14 w-14 items-center justify-center rounded-full bg-[#1d6ee8] text-2xl text-white shadow-lg shadow-blue-200 transition hover:bg-[#165cc4]"
           aria-label="Scroll to top"
         >

@@ -39,6 +39,7 @@ const clearanceSchema = new mongoose.Schema({
 	financeReviewedAt: { type: Date, default: null },
 	libraryStatus: { type: String, enum: ['Pending', 'In Progress', 'Completed', 'Returned', 'Rejected'], default: 'Pending' },
 	libraryVerificationResult: { type: String, enum: ['Clear', 'Not Clear', ''], default: '' },
+	libraryChecklist: { type: [mongoose.Schema.Types.Mixed], default: [] },
 	libraryComment: { type: String, default: '' },
 	libraryReturnReason: { type: String, default: '' },
 	libraryReviewedBy: { type: String, default: '' },

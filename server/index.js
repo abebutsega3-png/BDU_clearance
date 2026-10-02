@@ -135,21 +135,19 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
-  try {
+  while (true) {
     const dbConnected = await connectToDB();
-
-    if (!dbConnected) {
-      console.error('MongoDB is unavailable. Server will not start until the database is reachable.');
-      process.exitCode = 1;
-      return;
+    if (dbConnected) {
+      break;
     }
 
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error.message);
+    console.error('MongoDB is unavailable. Retrying in 5 seconds...');
+    await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-}
+
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+};
 
 startServer();

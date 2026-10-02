@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 const userContext = createContext();
@@ -6,6 +6,22 @@ const userContext = createContext();
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const interceptorId = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        const isLoginRequest = error.config?.url?.includes('/api/auth/login');
+        if (error.response?.status === 401 && !isLoginRequest) {
+          localStorage.removeItem('token');
+          setUser(null);
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => axios.interceptors.response.eject(interceptorId);
+  }, []);
 
   useEffect(() => {
     const verifyUser = async () => {
@@ -19,7 +35,9 @@ const AuthProvider = ({ children }) => {
             setUser(response.data.user);
           }
         } catch (error) {
-          console.log(error);
+          if (error.response?.status === 401 || error.response?.status === 404) {
+            localStorage.removeItem('token');
+          }
           setUser(null);
         } finally {
           setLoading(false);
@@ -36,13 +54,17 @@ const AuthProvider = ({ children }) => {
     setUser(userData);
   };
 
+  const updateUser = useCallback((userData) => {
+    setUser((currentUser) => ({ ...currentUser, ...userData }));
+  }, []);
+
   const logout = () => {
     setUser(null);
     localStorage.removeItem('token');
   };
 
   return (
-    <userContext.Provider value={{ user, login, logout, loading }}>
+    <userContext.Provider value={{ user, login, updateUser, logout, loading }}>
       {children}
     </userContext.Provider>
   );

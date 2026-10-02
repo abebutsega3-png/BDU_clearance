@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, BookOpen, CheckCircle2, Eye, Filter, Search, RotateCcw } from 'lucide-react';
+import LibraryClearanceViewModal from '../Library Management/LibraryClearanceRequests';
 
 const API_URL = 'http://localhost:3000/api/library/records';
 const initialFilters = { search: '', department: 'All', campus: 'All', status: 'All' };
@@ -13,6 +14,7 @@ export default function LibraryRecords() {
 	const [searchParams] = useSearchParams();
 	const employeeId = searchParams.get('employeeId') || '';
 	const [records, setRecords] = useState([]);
+	const [selectedRequestId, setSelectedRequestId] = useState('');
 	const [summary, setSummary] = useState({ borrowed: 0, outstanding: 0, overdue: 0, returned: 0 });
 	const [options, setOptions] = useState({ departments: [], campuses: [] });
 	const [filters, setFilters] = useState(initialFilters);
@@ -82,18 +84,19 @@ export default function LibraryRecords() {
 
 				{error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
 				<div className={activeSection === 'All' ? 'grid gap-4 xl:grid-cols-2' : 'grid gap-4'}>
-					  {(activeSection === 'All' ? sections : sections.filter((section) => section.key === activeSection)).map((section) => <RecordSection key={section.key} section={section} sectionRef={(element) => { sectionRefs.current[section.key] = element; }} records={records.filter((record) => record.recordStatus === section.key)} loading={loading} summary={summary[section.key.toLowerCase()]} active={activeSection === section.key} />)}
+					  {(activeSection === 'All' ? sections : sections.filter((section) => section.key === activeSection)).map((section) => <RecordSection key={section.key} section={section} sectionRef={(element) => { sectionRefs.current[section.key] = element; }} records={records.filter((record) => record.recordStatus === section.key)} loading={loading} summary={summary[section.key.toLowerCase()]} active={activeSection === section.key} onReview={(record) => setSelectedRequestId(record.requestId || record._id)} />)}
 				</div>
 			</div>
+			{selectedRequestId && <LibraryClearanceViewModal requestId={selectedRequestId} onClose={() => setSelectedRequestId('')} onRefresh={loadRecords} />}
 		</div>
 	);
 }
 
-function RecordSection({ section, sectionRef, records, loading, summary, active }) {
+function RecordSection({ section, sectionRef, records, loading, summary, active, onReview }) {
 	const Icon = section.icon;
 	return <section ref={sectionRef} className={`scroll-mt-5 overflow-hidden rounded-xl border bg-white shadow-sm transition ${section.tone} ${active ? 'ring-2 ring-teal-100' : ''}`}>
 		<div className="border-b border-slate-100 p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Icon size={20} className="text-teal-600" />{section.title}</h2><p className="mt-1 text-sm text-slate-500">{section.description}</p></div><span className={`rounded-lg px-3 py-2 text-xs font-bold ${section.badge}`}>{summary || 0} record{summary === 1 ? '' : 's'}</span></div></div>
-		<div className="overflow-x-auto"><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-50 text-[12px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">#</th><th className="px-4 py-3">Material ID</th><th className="px-4 py-3">Title / Material</th><th className="px-4 py-3">Employee</th><th className="px-4 py-3">Employee ID</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Borrow Date</th><th className="px-4 py-3">Due Date</th><th className="px-4 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? <tr><td colSpan="9" className="p-9 text-center text-slate-400">Loading records...</td></tr> : records.length === 0 ? <tr><td colSpan="9" className="p-9 text-center text-sm text-slate-400">No records found.</td></tr> : records.map((record, index) => <tr key={record._id} className="hover:bg-slate-50"><td className="px-4 py-3 text-slate-400">{index + 1}</td><td className="px-4 py-3 font-mono text-slate-500">{record.requestId || '-'}</td><td className="px-4 py-3 font-semibold text-slate-800">{record.materialTitle || record.clearanceReason || 'Library material'}</td><td className="px-4 py-3">{record.employeeName}</td><td className="px-4 py-3">{record.employeeId}</td><td className="px-4 py-3">{record.department}</td><td className="px-4 py-3">{formatDate(record.submittedDate || record.createdAt)}</td><td className="px-4 py-3">{formatDate(record.dueDate)}</td><td className="px-4 py-3 text-right"><button type="button" className="inline-flex items-center gap-1 rounded border border-teal-200 px-2.5 py-1.5 font-semibold text-teal-700 hover:bg-teal-50"><Eye size={14} /> View</button></td></tr>)}</tbody></table></div>
+		<div className="overflow-x-auto"><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-50 text-[12px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">#</th><th className="px-4 py-3">Material ID</th><th className="px-4 py-3">Title / Material</th><th className="px-4 py-3">Employee</th><th className="px-4 py-3">Employee ID</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Borrow Date</th><th className="px-4 py-3">Due Date</th><th className="px-4 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? <tr><td colSpan="9" className="p-9 text-center text-slate-400">Loading records...</td></tr> : records.length === 0 ? <tr><td colSpan="9" className="p-9 text-center text-sm text-slate-400">No records found.</td></tr> : records.map((record, index) => { const status = record.libraryStatus || record.status; const canReview = ['Pending', 'In Progress', 'Under Review'].includes(status); return <tr key={record._id} className="hover:bg-slate-50"><td className="px-4 py-3 text-slate-400">{index + 1}</td><td className="px-4 py-3 font-mono text-slate-500">{record.requestId || '-'}</td><td className="px-4 py-3 font-semibold text-slate-800">{record.materialTitle || record.clearanceReason || 'Library material'}</td><td className="px-4 py-3">{record.employeeName}</td><td className="px-4 py-3">{record.employeeId}</td><td className="px-4 py-3">{record.department}</td><td className="px-4 py-3">{formatDate(record.submittedDate || record.createdAt)}</td><td className="px-4 py-3">{formatDate(record.dueDate)}</td><td className="px-4 py-3"><div className="flex justify-end gap-1.5"><button type="button" onClick={() => onReview(record)} className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1.5 font-semibold text-slate-600 hover:bg-slate-50"><Eye size={13} /> View</button>{canReview && <><button type="button" onClick={() => onReview(record)} className="inline-flex items-center gap-1 rounded border border-emerald-200 px-2 py-1.5 font-semibold text-emerald-700 hover:bg-emerald-50"><CheckCircle2 size={13} /> Approve</button><button type="button" onClick={() => onReview(record)} className="inline-flex items-center gap-1 rounded border border-rose-200 px-2 py-1.5 font-semibold text-rose-700 hover:bg-rose-50"><RotateCcw size={13} /> Return</button></>}</div></td></tr>; })}</tbody></table></div>
 	</section>;
 }
 

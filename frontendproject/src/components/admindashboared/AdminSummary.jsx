@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import AdminNotificationBell from './AdminNotificationBell';
 import {
   Users, UserCheck, UserX, FileText, Clock, CheckCircle2,
   XCircle, Shield, Building2, GraduationCap, GitFork, Briefcase,
-  Award, PlusCircle, Settings, Bell, ChevronDown, Lock, AlertTriangle,
+  Award, PlusCircle, ChevronDown, Lock, AlertTriangle,
   FileBarChart, History
 } from 'lucide-react';
 
@@ -64,20 +63,12 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-slate-100 text-slate-800 text-xs font-sans pb-10">
       
       {/* HEADER */}
-      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sm:px-6">
         <h1 className="text-lg font-bold text-slate-800">System Admin Dashboard</h1>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center">
           <div className="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded text-slate-600">
             <span>{new Date().toLocaleDateString()}</span>
             <ChevronDown size={14} />
-          </div>
-          <AdminNotificationBell />
-          <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center font-bold text-[10px]">SA</div>
-            <div>
-              <p className="font-semibold text-xs leading-none">System Admin</p>
-              <p className="text-[10px] text-slate-400">Super Administrator</p>
-            </div>
           </div>
         </div>
       </header>

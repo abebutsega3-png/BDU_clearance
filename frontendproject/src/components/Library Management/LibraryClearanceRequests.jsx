@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -10,14 +10,32 @@ import {
   ArrowLeft,
   Play,
   RotateCcw,
-  History
+  History,
+  ClipboardCheck
 } from 'lucide-react';
+
+const libraryChecklistItems = [
+  'Borrowed books and circulation records',
+  'Unreturned or overdue materials',
+  'Outstanding fines and charges',
+  'Lost or damaged materials',
+  'Library account and other obligations',
+];
+
+const createLibraryChecklist = (savedItems) => libraryChecklistItems.map((item) => {
+  const savedChecklist = Array.isArray(savedItems) ? savedItems : [];
+  const saved = savedChecklist.find((entry) => entry.item === item);
+  return { item, status: ['Cleared', 'Pending', 'N/A'].includes(saved?.status) ? saved.status : 'Pending', note: saved?.note || '' };
+});
 
 export default function LibraryClearanceViewModal({ requestId, onClose, onRefresh }) {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [employee, setEmployee] = useState(null);
   const [libraryRecords, setLibraryRecords] = useState([]);
+  const [libraryChecklist, setLibraryChecklist] = useState(createLibraryChecklist());
+  const [showChecklist, setShowChecklist] = useState(false);
+  const checklistRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [verificationResult, setVerificationResult] = useState('Clear');
   const [comment, setComment] = useState('');
@@ -33,6 +51,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
       const request = res.data?.clearance || res.data;
       if (!request?._id && !request?.requestId) throw new Error('Clearance request details were not returned.');
       setData(request);
+      setLibraryChecklist(createLibraryChecklist(request.libraryChecklist));
       if (request.employeeId) {
         const recordsResponse = await axios.get('http://localhost:3000/api/library/records', {
           params: { employeeId: request.employeeId },
@@ -75,6 +94,10 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
   };
 
   const handleApprove = async () => {
+    if (!checklistComplete) {
+      setErrorMsg('Resolve every Library checklist item as Cleared or N/A before approving.');
+      return;
+    }
     const borrowedItemsClear = (data.borrowedItemsStatus || (data.outstandingItems?.length ? 'Not Clear' : 'Clear')) === 'Clear';
     const fineClear = Number(data.outstandingFineAmount || 0) <= 0;
     const obligationsClear = (data.otherObligationsStatus || (data.outstandingItems?.length ? 'Not Clear' : 'None')) === 'None';
@@ -84,7 +107,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
     }
     setErrorMsg('');
     try {
-      await axios.put(`http://localhost:3000/api/clearance/${data._id}`, { libraryDecision: { status: 'Completed', verificationResult: 'Clear', comment: comment || 'No outstanding library obligations.' } }, { headers });
+      await axios.put(`http://localhost:3000/api/clearance/${data._id}`, { libraryChecklist, libraryDecision: { status: 'Completed', verificationResult: 'Clear', comment: comment || 'No outstanding library obligations.' } }, { headers });
       fetchDetails();
       if (onRefresh) onRefresh();
     } catch (err) {
@@ -99,7 +122,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
     }
     setErrorMsg('');
     try {
-      await axios.put(`http://localhost:3000/api/clearance/${data._id}`, { libraryDecision: { status: 'Rejected', verificationResult: 'Not Clear', returnReason } }, { headers });
+      await axios.put(`http://localhost:3000/api/clearance/${data._id}`, { libraryChecklist, libraryDecision: { status: 'Rejected', verificationResult: 'Not Clear', returnReason } }, { headers });
       fetchDetails();
       if (onRefresh) onRefresh();
     } catch (err) {
@@ -122,6 +145,10 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
     const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : '';
     onClose();
     navigate(`/library-office/library-records${query}`);
+  };
+  const openLibraryChecklist = () => {
+    if (!showChecklist) checklistRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setShowChecklist((visible) => !visible);
   };
 
   if (loading) {
@@ -149,6 +176,8 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
     || data.borrowedItemsStatus === 'Not Clear'
     || Number(data.outstandingFineAmount || 0) > 0
     || data.otherObligationsStatus === 'Pending';
+  const checklistComplete = libraryChecklist.length === libraryChecklistItems.length
+    && libraryChecklist.every((item) => item.status !== 'Pending');
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 overflow-y-auto p-4 md:p-6 text-xs text-slate-700">
@@ -226,7 +255,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
         </div>
 
         {/* 3. Library Verification & Records */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div ref={checklistRef} className="scroll-mt-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-center space-x-2 border-b border-slate-100 pb-2 text-slate-900 font-bold">
             <BookCheck size={16} className="text-teal-700" />
             <h2>Library Verification &amp; Records</h2>
@@ -237,11 +266,37 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
           </div>
           <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="min-w-[650px] w-full text-left text-[11px]"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-2.5">Material</th><th className="p-2.5">Material ID</th><th className="p-2.5">Borrow Date</th><th className="p-2.5">Due Date</th><th className="p-2.5">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{materials.length === 0 ? <tr><td colSpan="5" className="p-5 text-center text-slate-400">No library materials found for this employee.</td></tr> : materials.map((item) => <tr key={item._id || item.materialId} className="hover:bg-slate-50"><td className="p-2.5 font-semibold text-slate-800">{item.title || item.materialTitle || 'Library material'}</td><td className="p-2.5 font-mono text-slate-600">{item.materialId || '-'}</td><td className="p-2.5">{item.borrowDate ? new Date(item.borrowDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}</td><td className="p-2.5">{item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}</td><td className="p-2.5"><span className={`rounded px-2 py-1 text-[10px] font-semibold ${item.status === 'Returned' ? 'bg-emerald-50 text-emerald-700' : item.status === 'Overdue' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{item.status || 'Borrowed'}</span></td></tr>)}</tbody></table></div>
           {hasOutstanding && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800"><p className="font-bold">Outstanding Library Material Found</p><p className="mt-1 text-[11px]">{outstandingMaterials[0]?.title || 'Employee has an outstanding library material.'}{outstandingMaterials[0]?.materialId ? ` (${outstandingMaterials[0].materialId})` : ''}</p></div>}
+
+        {showChecklist && <div className="space-y-3 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+            <div className="flex items-center gap-2 font-bold text-slate-900"><ClipboardCheck size={16} className="text-teal-700" /><h2>Library Clearance Checklist</h2></div>
+            <span className={`text-[11px] font-semibold ${checklistComplete ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {libraryChecklist.filter((item) => item.status !== 'Pending').length} / {libraryChecklist.length} complete
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500">Verify each Library obligation before approving the request.</p>
+          <div className="space-y-2">
+            {libraryChecklist.map((item) => <div key={item.item} className="grid gap-2 rounded-lg border border-slate-100 p-3 sm:grid-cols-[minmax(0,1fr)_105px] sm:items-center">
+              <span className="min-w-0 font-medium text-slate-800">{item.item}</span>
+              <select aria-label={`${item.item} status`} value={item.status} disabled={!['In Progress', 'Under Review'].includes(libraryStatus)} onChange={(event) => setLibraryChecklist((current) => current.map((entry) => entry.item === item.item ? { ...entry, status: event.target.value } : entry))} className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold outline-none focus:border-teal-600 disabled:bg-slate-100">
+                <option>Pending</option><option>Cleared</option><option>N/A</option>
+              </select>
+              <input aria-label={`${item.item} note`} value={item.note} disabled={!['In Progress', 'Under Review'].includes(libraryStatus)} onChange={(event) => setLibraryChecklist((current) => current.map((entry) => entry.item === item.item ? { ...entry, note: event.target.value } : entry))} placeholder="Note (optional)" className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] outline-none focus:border-teal-600 disabled:bg-slate-100 sm:col-span-2" />
+            </div>)}
+          </div>
+          {(libraryStatus === 'In Progress' || libraryStatus === 'Under Review') && (
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+              <button type="button" onClick={handleReturn} className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-md border border-rose-300 bg-white px-4 py-2.5 font-semibold text-rose-700 hover:bg-rose-50"><RotateCcw size={14} /> Return Request</button>
+              {!hasOutstanding && <button type="button" onClick={handleApprove} disabled={!checklistComplete} className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={14} /> Approve Clearance</button>}
+            </div>
+          )}
+        </div>}
         </div>
 
         {/* 4. Decision & Actions Dynamic Section */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-          <h2 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Decision Form</h2>
+          <h2 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Library Officer Decision</h2>
+          <p className="text-[11px] text-slate-500">Review the employee's Library records and checklist. Approve when obligations are cleared; if there are issues, explain them in the return reason.</p>
 
           {/* STATUS: Pending -> ACTION: Start Review */}
           {libraryStatus === 'Pending' && (
@@ -263,20 +318,15 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
           {/* STATUS: Under Review -> ACTIONS: Approve Clearance OR Return Request */}
           {(libraryStatus === 'In Progress' || libraryStatus === 'Under Review') && (
             <div className="space-y-4">
-              <label className="block font-bold text-slate-700 mb-1">Officer Comment
+              <label className="block font-bold text-slate-700 mb-1">Comment (Optional)
                 <textarea rows={3} placeholder={hasOutstanding ? 'Employee has an outstanding library material. Please return it before clearance.' : 'No outstanding library obligations.'} value={comment} onChange={(e) => setComment(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 outline-none focus:border-teal-600" />
               </label>
               <label className="block font-bold text-slate-700 mb-1">Return Reason <span className="text-red-500">*</span>
                 <textarea rows={2} placeholder="Employee has an outstanding library obligation." value={returnReason} onChange={(e) => setReturnReason(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 outline-none focus:border-red-500" />
               </label>
               {errorMsg && <p className="text-red-500 text-[11px]">{errorMsg}</p>}
-              <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
                 <div><span className="text-slate-400 font-semibold">Current State:</span> <span className="font-bold text-blue-700">Under Review</span></div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={openEmployeeLibraryRecords} className="rounded-lg bg-slate-100 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-200">Employee Library Records</button>
-                  <button type="button" onClick={handleReturn} className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-2 font-semibold text-rose-700 ring-1 ring-inset ring-rose-200 hover:bg-rose-100"><RotateCcw size={14} /> Return Request</button>
-                  {!hasOutstanding && <button type="button" onClick={handleApprove} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white hover:bg-emerald-700"><CheckCircle2 size={14} /> Approve Clearance</button>}
-                </div>
               </div>
             </div>
           )}
@@ -327,6 +377,11 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
             </div>
           )}
 
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+            <button type="button" onClick={openEmployeeLibraryRecords} className="inline-flex min-h-12 min-w-[190px] items-center justify-center rounded-md border border-teal-200 bg-teal-50 px-4 py-2.5 text-center font-semibold text-teal-700 hover:bg-teal-100">Employee Library Records</button>
+            <button type="button" onClick={openLibraryChecklist} aria-expanded={showChecklist} className="inline-flex min-h-12 min-w-[160px] items-center justify-center rounded-md border border-rose-300 bg-white px-4 py-2.5 font-semibold text-rose-700 hover:bg-rose-50">{showChecklist ? 'Close Checklist' : 'Open Checklist'}</button>
+            <button type="button" onClick={onClose} className="inline-flex min-h-12 min-w-[110px] items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+          </div>
         </div>
 
       </div>

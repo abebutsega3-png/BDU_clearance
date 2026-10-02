@@ -26,7 +26,7 @@ const AdminSidebar = () => {
     { label: 'Positions', path: '/admin/positions', icon: FaBuilding },
     { label: 'Reports', path: '/admin/reports', icon: FaChartBar },
     { label: 'Audit Logs', path: '/admin/audit-logs', icon: FaHistory },
-    { label: 'My Profile', path: '/admin/profile', icon: FaUser },
+    // { label: 'My Profile', path: '/admin/profile', icon: FaUser },
     { label: 'System Settings', path: '/admin/system-settings', icon: FaCogs },
   ];
 

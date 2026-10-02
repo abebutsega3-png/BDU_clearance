@@ -45,7 +45,8 @@ import PositionList from './components/position/Positionlist';
 import AddPosition from './components/position/addposition';
 import EditPosition from './components/position/Editposition';
 import ViewPosition from './components/position/Viewposition';
-import SystemAdminMyProfile from './components/admindashboared/systemadminmyprofile';
+import SystemAdminMyProfile from './components/admindashboared/systemadminprofileform';
+import SystemAdminChangePassword from './components/admindashboared/systemadminchangepassword';
 import HRmyprofile from './components/myprofile/HRmyprofile';
 import HRSetting from './components/hrofficedashboared/HRSetting';
 import EmployeeDashboard from './page/employeedashboared';
@@ -535,6 +536,7 @@ function MainLayout() {
           />
           <Route path="/admin/audit-logs" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["admin"]}><AdminLayout><AuditLog /></AdminLayout></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/admin/profile" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["admin"]}><AdminLayout><SystemAdminMyProfile /></AdminLayout></RoleBasedRoutes></PrivateRoutes>} />
+		  <Route path="/admin/change-password" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["admin"]}><AdminLayout><SystemAdminChangePassword /></AdminLayout></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/admin/reports" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["admin"]}><AdminLayout><SystemAdminReports /></AdminLayout></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/admin/system-settings" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["admin"]}><AdminLayout><SystemSettings /></AdminLayout></RoleBasedRoutes></PrivateRoutes>} />
           <Route

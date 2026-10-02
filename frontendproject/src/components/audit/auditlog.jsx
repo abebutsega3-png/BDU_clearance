@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FaCalendarAlt, FaDownload, FaFilter, FaSearch, FaUserFriends, FaWaveSquare } from 'react-icons/fa';
 import { exportAuditLogs, fetchAuditLogs } from '../../until/auditLogHelper';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const actionStyles = {
   UPDATE: 'bg-amber-50 text-amber-700',
@@ -54,16 +55,21 @@ const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
 const AuditLog = () => {
   const [filters, setFilters] = useState({ user: '', module: '', action: '', dateFrom: '', dateTo: '' });
   const [logs, setLogs] = useState([]);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadLogs = async (query = filters) => {
+  const loadLogs = async (query = filters, targetPage = page, targetLimit = limit) => {
     setLoading(true);
     setError('');
 
     try {
-      const response = await fetchAuditLogs(Object.fromEntries(Object.entries(query).filter(([, value]) => value !== '')));
+      const params = Object.fromEntries(Object.entries(query).filter(([, value]) => value !== ''));
+      const response = await fetchAuditLogs({ ...params, page: targetPage, limit: targetLimit });
       setLogs(response.data || []);
+      setPagination(response.pagination || { total: response.total || 0, totalPages: 0 });
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to load audit logs.');
     } finally {
@@ -72,8 +78,8 @@ const AuditLog = () => {
   };
 
   useEffect(() => {
-    loadLogs();
-  }, []);
+    loadLogs(filters, page, limit);
+  }, [page, limit]);
 
   const updateFilter = (key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -102,14 +108,14 @@ const AuditLog = () => {
   };
 
   return (
-    <main className="min-h-screen bg-[#f5f7fb] p-4 text-[#1e2a3a] sm:p-6">
+    <main className="min-h-[calc(100vh-72px)] bg-[#f5f7fb] p-3 text-[#1e2a3a] sm:p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Audit Logs</h1>
-          <p className="mt-1 text-xs text-slate-500">Track and monitor all system activities and changes made by users.</p>
+          <h1 className="text-xl font-bold">Audit Logs</h1>
+          <p className="mt-1 text-xs text-slate-500">System activities and user actions log</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="hidden items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 text-sky-600">
             <FaWaveSquare />
           </div>
@@ -123,7 +129,7 @@ const AuditLog = () => {
         </div>
       </div>
 
-      <section className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+      <section className="hidden rounded-md border border-slate-200 bg-white p-3 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-[11px] text-slate-500">
             <span>System activities and audit trails</span>
@@ -240,12 +246,13 @@ const AuditLog = () => {
         </div>
       </section>
 
-      <div className="mt-4 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-[1000px] w-full text-left text-[11px]">
-            <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+          <table className="min-w-[1050px] w-full text-left text-[11px]">
+            <thead className="bg-[#f0f6fc] text-[10px] font-bold text-slate-600">
               <tr>
-                <th className="px-3 py-3">ID</th>
+                <th className="px-3 py-3">#</th>
+                <th className="px-3 py-3">Log ID</th>
                 <th className="px-3 py-3">User</th>
                 <th className="px-3 py-3">Role</th>
                 <th className="px-3 py-3">Action</th>
@@ -258,20 +265,21 @@ const AuditLog = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="px-3 py-10 text-center text-xs text-slate-500">
+                  <td colSpan="9" className="px-3 py-10 text-center text-xs text-slate-500">
                     Loading audit logs...
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-3 py-10 text-center text-xs text-slate-500">
+                  <td colSpan="9" className="px-3 py-10 text-center text-xs text-slate-500">
                     No audit logs found.
                   </td>
                 </tr>
               ) : (
-                logs.map((entry) => (
+                logs.map((entry, index) => (
                   <tr key={entry.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-3 py-3 text-slate-600">{entry.id}</td>
+                    <td className="px-3 py-3 text-slate-600">{(page - 1) * limit + index + 1}</td>
+                    <td className="px-3 py-3 font-mono text-[10px] text-slate-600">{entry.id}</td>
                     <td className="px-3 py-3 font-semibold text-slate-700">{entry.user}</td>
                     <td className="px-3 py-3 text-slate-600">{entry.role}</td>
                     <td className="px-3 py-3">
@@ -283,8 +291,8 @@ const AuditLog = () => {
                     <td className="px-3 py-3 text-slate-600">{entry.ip || '-'}</td>
                     <td className="px-3 py-3 text-slate-600">{formatDate(entry.date)}</td>
                     <td className="px-3 py-3">
-                      <span className="rounded bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700">
-                        Success
+                      <span className={`rounded px-2 py-1 text-[9px] font-bold ${entry.action === 'FAILED_LOGIN' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                        {entry.action === 'FAILED_LOGIN' ? 'Failed' : 'Success'}
                       </span>
                     </td>
                   </tr>
@@ -292,6 +300,32 @@ const AuditLog = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-[11px] text-slate-500 sm:flex-row">
+          <div className="flex items-center gap-2 sm:order-3">
+            <label htmlFor="audit-page-size">Show</label>
+            <select
+              id="audit-page-size"
+              value={limit}
+              onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}
+              className="h-8 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+            <span>per page</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setPage((current) => Math.max(current - 1, 1))} disabled={page <= 1 || loading} className="inline-flex h-8 items-center gap-1 rounded border border-slate-200 px-3 disabled:cursor-not-allowed disabled:opacity-50">
+              <ChevronLeft size={14} /> Previous
+            </button>
+            <span>Page {page} of {Math.max(pagination.totalPages || 0, 1)}</span>
+            <button type="button" onClick={() => setPage((current) => Math.min(current + 1, Math.max(pagination.totalPages || 0, 1)))} disabled={page >= Math.max(pagination.totalPages || 0, 1) || loading} className="inline-flex h-8 items-center gap-1 rounded bg-blue-600 px-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+          <span className="sm:order-2">Show {logs.length} of {pagination.total || 0}</span>
         </div>
       </div>
 
