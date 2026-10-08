@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Save, ShieldCheck } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const permissionLabels = ['View', 'Create', 'Edit', 'Delete', 'Approve', 'Reject', 'Export'];
 const moduleNames = [
@@ -73,8 +74,8 @@ export default function EditRole() {
     }
   };
 
-  if (loading) return <main className="min-h-[calc(100vh-3rem)] bg-slate-50 p-8 text-center text-sm text-slate-500">Loading role...</main>;
-  return <main className="min-h-[calc(100vh-3rem)] bg-slate-50 text-slate-800">
+  if (loading) return <AdminTranslatedView><main className="min-h-[calc(100vh-3rem)] bg-slate-50 p-8 text-center text-sm text-slate-500">Loading role...</main></AdminTranslatedView>;
+  return <AdminTranslatedView><main className="min-h-[calc(100vh-3rem)] bg-slate-50 text-slate-800">
     <div className="border-b border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 sm:px-8"><button onClick={() => navigate('/admin/roles-permissions')} className="font-semibold text-blue-600 hover:underline">Roles &amp; Permissions</button><ChevronRight className="mx-1 inline" size={13} /> Edit Role</div>
     <form onSubmit={handleSubmit} className="mx-auto max-w-[1500px] p-4 sm:p-8"><div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-4 py-4 sm:px-6"><h1 className="flex items-center gap-2 text-xl font-bold text-slate-900"><ShieldCheck size={21} className="text-blue-600" /> Edit Role</h1></div>
@@ -88,5 +89,5 @@ export default function EditRole() {
       </section>
       <div className="flex flex-col-reverse justify-between gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:px-6"><div>{message && <p className={`text-xs ${message.includes('successfully') ? 'text-emerald-600' : 'text-rose-600'}`}>{message}</p>}</div><div className="flex justify-end gap-2"><button type="button" onClick={() => navigate('/admin/roles-permissions')} className="rounded border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600">Cancel</button><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"><Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}</button></div></div>
     </div></form>
-  </main>;
+  </main></AdminTranslatedView>;
 }

@@ -51,8 +51,52 @@ router.put('/me', authMiddleware, async (req, res) => {
 		if (req.body?.emailPreferences && typeof req.body.emailPreferences === 'object') {
 			updates['propertySettings.emailPreferences'] = Object.fromEntries(Object.entries(req.body.emailPreferences).filter(([key, value]) => allowedEmailKeys.includes(key) && typeof value === 'boolean'));
 		}
-		if (Array.isArray(req.body?.clearanceChecklist)) {
-			updates['propertySettings.clearanceChecklist'] = req.body.clearanceChecklist.filter((item) => item && typeof item.key === 'string' && typeof item.label === 'string').map((item) => ({ key: item.key, label: item.label, enabled: Boolean(item.enabled) }));
+		const propertySettings = req.body?.propertySettings;
+		if (propertySettings?.clearanceRules && typeof propertySettings.clearanceRules === 'object') {
+			const rules = propertySettings.clearanceRules;
+			const clearanceRules = {};
+			if (typeof rules.requireNoOutstandingAssets === 'boolean') clearanceRules.requireNoOutstandingAssets = rules.requireNoOutstandingAssets;
+			if (typeof rules.requireOfficerComment === 'boolean') clearanceRules.requireOfficerComment = rules.requireOfficerComment;
+			if (Object.keys(clearanceRules).length) updates['propertySettings.clearanceRules'] = clearanceRules;
+		}
+		const clearanceChecklist = propertySettings?.clearanceChecklist ?? req.body?.clearanceChecklist;
+		if (Array.isArray(clearanceChecklist)) {
+			updates['propertySettings.clearanceChecklist'] = clearanceChecklist
+				.filter((item) => item && typeof item.key === 'string' && typeof item.label === 'string')
+				.map((item) => ({ key: item.key.slice(0, 80), label: item.label.slice(0, 120), enabled: Boolean(item.enabled) }));
+		}
+		if (Array.isArray(propertySettings?.assetCategories)) {
+			if (propertySettings.assetCategories.some((item) => !item || typeof item.name !== 'string' || !item.name.trim())) {
+				return res.status(400).json({ success: false, message: 'Every asset category needs a name.' });
+			}
+			const categories = propertySettings.assetCategories.map((item) => ({
+					name: item.name.trim().slice(0, 100),
+					description: typeof item.description === 'string' ? item.description.trim().slice(0, 240) : '',
+					enabled: item.enabled !== false
+				}));
+			const categoryNames = categories.map((item) => item.name.toLowerCase());
+			if (new Set(categoryNames).size !== categoryNames.length) {
+				return res.status(400).json({ success: false, message: 'Asset category names must be unique.' });
+			}
+			if (!categories.some((item) => item.enabled)) {
+				return res.status(400).json({ success: false, message: 'At least one asset category must remain active.' });
+			}
+			updates['propertySettings.assetCategories'] = categories;
+		}
+		if (Array.isArray(propertySettings?.assetStatuses)) {
+			if (propertySettings.assetStatuses.some((item) => !item || typeof item.name !== 'string' || !item.name.trim())) {
+				return res.status(400).json({ success: false, message: 'Every asset status needs a name.' });
+			}
+			const statuses = propertySettings.assetStatuses.map((item) => ({
+					name: item.name.trim().slice(0, 100),
+					description: typeof item.description === 'string' ? item.description.trim().slice(0, 240) : '',
+					color: ['Blue', 'Green', 'Red', 'Orange', 'Purple'].includes(item.color) ? item.color : 'Blue'
+				}));
+			const statusNames = statuses.map((item) => item.name.toLowerCase());
+			if (new Set(statusNames).size !== statusNames.length) {
+				return res.status(400).json({ success: false, message: 'Asset status names must be unique.' });
+			}
+			updates['propertySettings.assetStatuses'] = statuses;
 		}
 		const user = await User.findByIdAndUpdate(req.user._id, updates, { returnDocument: 'after', runValidators: true }).select('-password').lean();
 		if (!user) return res.status(404).json({ success: false, message: 'User not found.' });

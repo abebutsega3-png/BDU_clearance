@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight, LoaderCircle, Upload } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
 import UniversitySeal from '../UniversitySeal';
+import { useAdminLanguage } from './AdminLanguage';
 
 const profileUrl = (id) => `http://localhost:3000/api/profile/${id}`;
 const authConfig = () => ({
@@ -11,6 +12,7 @@ const authConfig = () => ({
 });
 
 export default function SystemAdminProfileForm() {
+  const { t } = useAdminLanguage();
   const { user, updateUser } = useAuth();
   const [profile, setProfile] = useState(null);
   const [draft, setDraft] = useState({ name: '', email: '', phoneNumber: '' });
@@ -115,11 +117,11 @@ export default function SystemAdminProfileForm() {
   };
 
   if (loading) {
-    return <div className="flex min-h-[calc(100vh-72px)] items-center justify-center bg-slate-50 text-sm text-slate-600"><LoaderCircle size={18} className="mr-2 animate-spin" />Loading profile...</div>;
+    return <div className="flex min-h-[calc(100vh-72px)] items-center justify-center bg-slate-50 text-sm text-slate-600"><LoaderCircle size={18} className="mr-2 animate-spin" />{t('Loading profile...')}</div>;
   }
 
   if (!profile) {
-    return <div className="mx-auto mt-10 max-w-md rounded-lg border border-red-200 bg-white p-5 text-sm text-red-700">{message?.text || 'Unable to load profile.'}</div>;
+    return <div className="mx-auto mt-10 max-w-md rounded-lg border border-red-200 bg-white p-5 text-sm text-red-700">{t(message?.text || 'Unable to load profile.')}</div>;
   }
 
   const roleTitle = profile.position || (profile.role?.toLowerCase() === 'admin' ? 'System Administrator' : profile.role || 'Not assigned');
@@ -128,18 +130,18 @@ export default function SystemAdminProfileForm() {
     <main className="min-h-[calc(100vh-72px)] bg-slate-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-md rounded-xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:px-6">
         <div className="border-b border-slate-100 pb-4">
-          <p className="text-[10px] font-bold uppercase text-indigo-600">Account</p>
-          <h1 className="mt-1 text-xl font-bold text-slate-900">Profile</h1>
-          <p className="mt-1 text-xs text-slate-500">Your authenticated account details.</p>
+          <p className="text-[10px] font-bold uppercase text-indigo-600">{t('Account')}</p>
+          <h1 className="mt-1 text-xl font-bold text-slate-900">{t('Profile')}</h1>
+          <p className="mt-1 text-xs text-slate-500">{t('Your authenticated account details.')}</p>
         </div>
 
         <form onSubmit={handleProfileSave} className="pt-4">
           <div className="mb-5 flex items-center gap-3">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-slate-100 bg-white">
-              {photoPreview ? <img src={photoPreview} alt="Profile" className="h-full w-full object-cover" /> : <UniversitySeal className="h-12 w-12" />}
+              {photoPreview ? <img src={photoPreview} alt={t('Profile')} className="h-full w-full object-cover" /> : <UniversitySeal className="h-12 w-12" />}
             </div>
             <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 ${photoSaving ? 'pointer-events-none opacity-60' : ''}`}>
-              <Upload size={13} />{photoSaving ? 'Uploading...' : 'Change Profile Photo'}
+              <Upload size={13} />{t(photoSaving ? 'Uploading...' : 'Change Profile Photo')}
               <input type="file" accept="image/jpeg,image/png,image/gif" onChange={handlePhotoChange} className="sr-only" disabled={photoSaving} />
             </label>
           </div>
@@ -147,30 +149,31 @@ export default function SystemAdminProfileForm() {
           <div className="space-y-3.5">
             <ProfileField label="Full Name" name="name" value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} required />
             <ProfileField label="Email Address" name="email" type="email" value={draft.email} onChange={(value) => setDraft((current) => ({ ...current, email: value }))} required />
-            <ProfileField label="Role / Title" value={roleTitle} readOnly />
-            <ProfileField label="Department" value={profile.department || 'Not assigned'} readOnly />
-            <ProfileField label="Phone Number" name="phoneNumber" type="tel" value={draft.phoneNumber} onChange={(value) => setDraft((current) => ({ ...current, phoneNumber: value }))} placeholder="Enter phone number" />
+            <ProfileField label="Role / Title" value={t(roleTitle)} readOnly />
+            <ProfileField label="Department" value={t(profile.department || 'Not assigned')} readOnly />
+            <ProfileField label="Phone Number" name="phoneNumber" type="tel" value={draft.phoneNumber} onChange={(value) => setDraft((current) => ({ ...current, phoneNumber: value }))} placeholder={t('Enter phone number')} />
           </div>
 
-          {message && <p role="status" className={`mt-4 rounded-md px-3 py-2 text-xs ${message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{message.text}</p>}
+          {message && <p role="status" className={`mt-4 rounded-md px-3 py-2 text-xs ${message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{t(message.text)}</p>}
 
           <button type="submit" disabled={saving || photoSaving} className="mt-5 inline-flex items-center justify-center rounded-md bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60">
-            {saving ? 'Saving Profile...' : 'Save Profile Changes'}
+            {t(saving ? 'Saving Profile...' : 'Save Profile Changes')}
           </button>
         </form>
       </div>
 
       <div className="mx-auto mt-4 max-w-md text-xs text-slate-500">
-        <Link to="/admin" className="inline-flex items-center gap-1 hover:text-indigo-700">Dashboard <ChevronRight size={12} /> Profile</Link>
+        <Link to="/admin" className="inline-flex items-center gap-1 hover:text-indigo-700">{t('Dashboard')} <ChevronRight size={12} /> {t('Profile')}</Link>
       </div>
     </main>
   );
 }
 
 function ProfileField({ label, name, value, onChange, type = 'text', placeholder, readOnly = false, required = false }) {
+  const { t } = useAdminLanguage();
   return (
     <label className="block text-[11px] font-semibold text-slate-700">
-      {label}
+      {t(label)}
       <input
         name={name}
         type={type}

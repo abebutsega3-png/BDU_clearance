@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
+import { useOptionalAdminLanguage } from '../admindashboared/AdminLanguage';
 
 const HR_CLEARANCE_NOTIFICATION_TYPES = new Set([
   'NEW_CLEARANCE_REQUEST',
@@ -39,6 +40,7 @@ const HR_CLEARANCE_NOTIFICATION_TYPES = new Set([
 ]);
 
 export default function NotificationsPage() {
+  const { t } = useOptionalAdminLanguage();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user } = useAuth();
@@ -202,7 +204,7 @@ export default function NotificationsPage() {
           <button className="text-slate-500 hover:text-slate-700">
             <Menu size={20} />
           </button>
-          <h1 className="text-base font-bold text-slate-800">Notifications</h1>
+          <h1 className="text-base font-bold text-slate-800">{t('Notifications')}</h1>
         </div>
 
         <div className="flex items-center space-x-4">
@@ -229,9 +231,9 @@ export default function NotificationsPage() {
         <div className="col-span-8 space-y-4">
           <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-slate-800">Notifications</h2>
+              <h2 className="text-base font-bold text-slate-800">{t('Notifications')}</h2>
               <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                {unreadNotifications.length} unread
+                {unreadNotifications.length} {t('unread')}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -243,7 +245,7 @@ export default function NotificationsPage() {
                     onClick={() => setActiveTab(tab)}
                     className={`rounded-md px-3 py-1.5 text-xs font-semibold ${activeTab === tab ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600'}`}
                   >
-                    {tab}{tab === 'Unread' ? ` (${unreadNotifications.length})` : ''}
+                    {t(tab)}{tab === 'Unread' ? ` (${unreadNotifications.length})` : ''}
                   </button>
                 ))}
               </div>
@@ -252,13 +254,13 @@ export default function NotificationsPage() {
                 className="flex items-center space-x-1.5 text-blue-600 border border-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
               >
                 <Check size={14} />
-                <span>Mark all as read</span>
+                <span>{t('Mark all as read')}</span>
               </button>
             </div>
           </div>
 
           <div className="space-y-3">
-            {loading ? <p className="rounded-xl bg-white p-8 text-center text-xs text-slate-400">Loading notifications...</p> : loadError ? <p className="rounded-xl bg-white p-8 text-center text-xs text-red-500">{loadError}</p> : visibleNotifications.length === 0 ? <p className="rounded-xl bg-white p-8 text-center text-xs text-slate-400">No notifications found.</p> : visibleNotifications.map((item) => (
+            {loading ? <p className="rounded-xl bg-white p-8 text-center text-xs text-slate-400">{t('Loading notifications...')}</p> : loadError ? <p className="rounded-xl bg-white p-8 text-center text-xs text-red-500">{t(loadError)}</p> : visibleNotifications.length === 0 ? <p className="rounded-xl bg-white p-8 text-center text-xs text-slate-400">{t('No notifications found.')}</p> : visibleNotifications.map((item) => (
               <div 
                 key={item.id} 
                 className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between relative transition-colors ${
@@ -269,18 +271,18 @@ export default function NotificationsPage() {
                   {getIcon(item.type)}
                   <div className="space-y-0.5 text-xs">
                     <h3 className={`font-semibold text-sm ${getTitleColor(item.type)}`}>
-                      {item.title}
+                      {t(item.title)}
                     </h3>
                     {!isEmployeeRoute && (item.requestId || item.employeeName) && (
                       <p className="text-[11px] font-medium text-slate-500">
-                        {item.requestId && `Request: ${item.requestId}`}
+                        {item.requestId && `${t('Request')}: ${item.requestId}`}
                         {item.requestId && item.employeeName && ' | '}
-                        {item.employeeName && `Employee: ${item.employeeName}`}
+                        {item.employeeName && `${t('Employee')}: ${item.employeeName}`}
                       </p>
                     )}
-                    <p className="text-slate-600 leading-relaxed">{item.message || item.text || ''}</p>
+                    <p className="text-slate-600 leading-relaxed">{t(item.message || item.text || '')}</p>
                     <button type="button" onClick={() => openNotification(item)} className="inline-block text-blue-600 font-medium pt-1 hover:underline text-xs">
-                      {item.action}
+                      {t(item.action)}
                     </button>
                   </div>
                 </div>
@@ -293,8 +295,8 @@ export default function NotificationsPage() {
                   <button
                     type="button"
                     onClick={() => deleteNotification(item)}
-                    title="Delete notification"
-                    aria-label="Delete notification"
+                    title={t('Delete notification')}
+                    aria-label={t('Delete notification')}
                     className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                   >
                     <Trash2 size={15} />
@@ -310,7 +312,7 @@ export default function NotificationsPage() {
           
           {/* Unread Summary Card */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-800 text-sm mb-2">Unread Summary</h3>
+            <h3 className="font-bold text-slate-800 text-sm mb-2">{t('Unread Summary')}</h3>
             
             <div className="space-y-2 text-xs">
               {isAdminRoute ? <>

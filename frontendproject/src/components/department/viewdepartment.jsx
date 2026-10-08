@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { FaArrowLeft, FaBuilding, FaCheckCircle, FaEdit, FaGlobe, FaUserTie } from 'react-icons/fa';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const DetailItem = ({ label, value }) => (
 	<div className="border-b border-slate-100 py-3 last:border-b-0">
@@ -35,11 +36,12 @@ const ViewDepartment = () => {
 	}, [id]);
 
 	if (loading) {
-		return <div className="p-6 text-sm text-slate-500">Loading department details...</div>;
+		return <AdminTranslatedView><div className="p-6 text-sm text-slate-500">Loading department details...</div></AdminTranslatedView>;
 	}
 
 	if (error || !department) {
 		return (
+			<AdminTranslatedView>
 			<div className="p-6">
 				<div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
 					{error || 'Department not found.'}
@@ -48,12 +50,14 @@ const ViewDepartment = () => {
 					Back to departments
 				</button>
 			</div>
+			</AdminTranslatedView>
 		);
 	}
 
 	const isActive = department.isApprovingDepartment ?? department.status === 'Active';
 
 	return (
+		<AdminTranslatedView>
 		<div className="min-h-screen bg-slate-50 p-6">
 			<div className="mx-auto max-w-6xl">
 				<div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -115,6 +119,7 @@ const ViewDepartment = () => {
 				</div>
 			</div>
 		</div>
+		</AdminTranslatedView>
 	);
 };
 

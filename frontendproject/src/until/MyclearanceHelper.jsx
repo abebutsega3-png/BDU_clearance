@@ -8,7 +8,7 @@ const myclearanceApiUrl = /\/api\/clearance$/i.test(configuredApiUrl)
 // Create axios instance with default config
 const axiosInstance = axios.create({
   baseURL: myclearanceApiUrl,
-  timeout: 10000, // 10 seconds timeout
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },

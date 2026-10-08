@@ -21,7 +21,7 @@ const login = async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      await recordAuditLog({
+      void recordAuditLog({
         req,
         user: user || null,
         action: 'FAILED_LOGIN',
@@ -41,7 +41,7 @@ const login = async (req, res) => {
     user.lastLogin = new Date();
     await user.save();
 
-    await recordAuditLog({
+    void recordAuditLog({
       req,
       user,
       action: 'LOGIN',

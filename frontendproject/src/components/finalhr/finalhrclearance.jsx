@@ -10,6 +10,8 @@ import {
   ShieldCheck,
   ChevronDown,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   X,
   User,
@@ -138,6 +140,8 @@ export default function HRFinalClearance() {
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [decisionSaving, setDecisionSaving] = useState(false);
@@ -194,6 +198,13 @@ export default function HRFinalClearance() {
       return matchesSearch && matchesDepartment && matchesStatus && matchesFromDate && matchesToDate;
     });
   }, [requests, searchTerm, selectedDepartment, selectedStatus, fromDate, toDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const visibleRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, selectedDepartment, selectedStatus, fromDate, toDate, pageSize]);
 
   const departments = useMemo(() => {
     const set = new Set(requests.map((request) => request.department).filter(Boolean));
@@ -396,12 +407,12 @@ export default function HRFinalClearance() {
                     <td colSpan="8" className="px-4 py-8 text-center text-slate-500">No clearance requests found.</td>
                   </tr>
                 ) : (
-                  filteredRows.map((request, index) => {
+                  visibleRows.map((request, index) => {
                     const info = getProgressInfo(request);
 
                     return (
                       <tr key={request._id || request.requestId || index} className="border-t border-slate-200 text-[12px] text-slate-700 odd:bg-white even:bg-slate-50/50">
-                        <td className="px-4 py-4 font-medium text-slate-500">{index + 1}</td>
+                        <td className="px-4 py-4 font-medium text-slate-500">{(page - 1) * pageSize + index + 1}</td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
                             <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80" alt={request.employeeName || 'Employee'} className="h-9 w-9 rounded-full object-cover" />
@@ -459,6 +470,48 @@ export default function HRFinalClearance() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-600">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={14} />
+                Previous
+              </button>
+
+              <span className="px-1 font-medium text-slate-700">Page {page} of {totalPages}</span>
+
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                className="inline-flex items-center gap-1 rounded-md bg-[#5a7ef8] px-3 py-2 font-semibold text-white shadow-sm transition hover:bg-[#4a6fea] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+                <ChevronRight size={14} />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-slate-600">
+              <span>Show</span>
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 outline-none focus:border-blue-400"
+              >
+                {[10, 20, 30, 50].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {selectedRequest && (

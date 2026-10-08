@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { FiSearch, FiPlus, FiEdit2, FiTrash2, FiEye } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import { useAdminLanguage } from '../admindashboared/AdminLanguage';
 
 const statusOptions = ['All Status', 'Active', 'Inactive'];
 
 export default function PositionList() {
   const navigate = useNavigate();
+  const { t } = useAdminLanguage();
   const [positions, setPositions] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('All Departments');
@@ -51,18 +53,18 @@ export default function PositionList() {
       <div className="mx-auto max-w-[1400px]">
         <div className="mb-4 flex items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <span className="cursor-pointer hover:text-blue-600">Dashboard</span>
+            <span className="cursor-pointer hover:text-blue-600">{t('Dashboard')}</span>
             <span>{'>'}</span>
-            <span className="cursor-pointer hover:text-blue-600">Position / Job Title</span>
+            <span className="cursor-pointer hover:text-blue-600">{t('Position / Job Title')}</span>
             <span>{'>'}</span>
-            <span className="font-medium text-slate-700">All Positions</span>
+            <span className="font-medium text-slate-700">{t('All Positions')}</span>
           </div>
         </div>
 
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">All Positions / Job Titles</h1>
-            <p className="mt-1 text-sm text-slate-500">Manage all job positions in the university</p>
+            <h1 className="text-2xl font-bold text-slate-900">{t('All Positions / Job Titles')}</h1>
+            <p className="mt-1 text-sm text-slate-500">{t('Manage all job positions in the university')}</p>
           </div>
         </div>
 
@@ -74,7 +76,7 @@ export default function PositionList() {
                   type="text"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search position by name..."
+                  placeholder={t('Search position by name...')}
                   className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-3 pr-10 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
                 <FiSearch className="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400" />
@@ -82,27 +84,27 @@ export default function PositionList() {
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-slate-600">Filter by Department</label>
+                  <label className="text-xs font-medium text-slate-600">{t('Filter by Department')}</label>
                   <select
                     value={departmentFilter}
                     onChange={(event) => setDepartmentFilter(event.target.value)}
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
                     {departmentOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
+                      <option key={option} value={option}>{t(option)}</option>
                     ))}
                   </select>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-slate-600">Filter by Status</label>
+                  <label className="text-xs font-medium text-slate-600">{t('Filter by Status')}</label>
                   <select
                     value={statusFilter}
                     onChange={(event) => setStatusFilter(event.target.value)}
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
                     {statusOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
+                      <option key={option} value={option}>{t(option)}</option>
                     ))}
                   </select>
                 </div>
@@ -115,7 +117,7 @@ export default function PositionList() {
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
             >
               <FiPlus className="text-base" />
-              Add New Position
+              {t('Add New Position')}
             </button>
           </div>
         </div>
@@ -128,7 +130,7 @@ export default function PositionList() {
 
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-4 py-3">
-            <span className="text-sm font-medium text-slate-700">Total Positions: {filteredPositions.length}</span>
+            <span className="text-sm font-medium text-slate-700">{t('Total Positions:')} {filteredPositions.length}</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -136,25 +138,25 @@ export default function PositionList() {
               <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <tr>
                   <th className="px-4 py-3">#</th>
-                  <th className="px-4 py-3">Position / Job Title</th>
-                  <th className="px-4 py-3">Department / Office</th>
-                  <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Created At</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th className="px-4 py-3">{t('Position / Job Title')}</th>
+                  <th className="px-4 py-3">{t('Department / Office')}</th>
+                  <th className="px-4 py-3">{t('Description')}</th>
+                  <th className="px-4 py-3">{t('Status')}</th>
+                  <th className="px-4 py-3">{t('Created At')}</th>
+                  <th className="px-4 py-3">{t('Actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {loading ? (
                   <tr>
                     <td colSpan="7" className="px-4 py-10 text-center text-sm text-slate-500">
-                      Loading positions...
+                      {t('Loading positions...')}
                     </td>
                   </tr>
                 ) : filteredPositions.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="px-4 py-10 text-center text-sm text-slate-500">
-                      No positions match the current filters.
+                      {t('No positions match the current filters.')}
                     </td>
                   </tr>
                 ) : (
@@ -172,7 +174,7 @@ export default function PositionList() {
                               : 'bg-red-100 text-red-700'
                           }`}
                         >
-                          {position.status}
+                          {t(position.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-600">
@@ -184,7 +186,7 @@ export default function PositionList() {
                             type="button"
                             onClick={() => navigate(`/admin/view-position/${position.id}`)}
                             className="text-blue-600 hover:text-blue-800"
-                            aria-label="View position"
+                            aria-label={t('View position')}
                           >
                             <FiEye />
                           </button>
@@ -192,11 +194,11 @@ export default function PositionList() {
                             type="button"
                             onClick={() => navigate(`/admin/edit-position/${position.id}`)}
                             className="text-blue-600 hover:text-blue-800"
-                            aria-label="Edit position"
+                            aria-label={t('Edit position')}
                           >
                             <FiEdit2 />
                           </button>
-                          <button type="button" className="text-red-600 hover:text-red-800" aria-label="Delete position">
+                          <button type="button" className="text-red-600 hover:text-red-800" aria-label={t('Delete position')}>
                             <FiTrash2 />
                           </button>
                         </div>

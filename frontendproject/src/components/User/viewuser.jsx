@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Edit2, UserCircle } from 'lucide-react';
 import { fetchUser } from '../../until/UserHelper';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const detailFields = [
 	['Username', 'username'],
@@ -35,10 +36,11 @@ export default function ViewUser() {
 		return undefined;
 	}, [id]);
 
-	if (loading) return <main className="p-6 text-sm text-slate-500">Loading user information...</main>;
-	if (error || !user) return <main className="p-6"><p className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{error || 'User not found.'}</p><button type="button" onClick={() => navigate('/admin/users')} className="mt-4 text-sm text-blue-700">Back to users</button></main>;
+	if (loading) return <AdminTranslatedView><main className="p-6 text-sm text-slate-500">Loading user information...</main></AdminTranslatedView>;
+	if (error || !user) return <AdminTranslatedView><main className="p-6"><p className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{error || 'User not found.'}</p><button type="button" onClick={() => navigate('/admin/users')} className="mt-4 text-sm text-blue-700">Back to users</button></main></AdminTranslatedView>;
 
 	return (
+		<AdminTranslatedView>
 		<main className="min-h-screen bg-slate-50 p-4 md:p-6">
 			<div className="mx-auto max-w-5xl">
 				<div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -51,5 +53,6 @@ export default function ViewUser() {
 				</section>
 			</div>
 		</main>
+		</AdminTranslatedView>
 	);
 }

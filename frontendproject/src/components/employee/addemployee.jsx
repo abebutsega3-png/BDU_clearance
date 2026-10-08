@@ -3,6 +3,7 @@ import axios from 'axios';
 import { FiArrowLeft, FiCheck, FiUploadCloud } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { createEmployee } from '../../until/EmployeeHelper';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const initialForm = {
   employeeId: `BDU_${new Date().getFullYear()}_${String(Date.now()).slice(-6)}`,
@@ -22,9 +23,22 @@ const houseNumberPattern = /^[\p{L}\p{N}]+(?:[\s/#-]*[\p{L}\p{N}]+)*$/u;
 const addressNameFields = ['region', 'city', 'subCity', 'woreda', 'kebele', 'emergencyContactName'];
 const gmailPattern = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?@gmail\.com$/i;
 const today = new Date();
-const maxDateOfBirth = today.toISOString().slice(0, 10);
-const minimumDateOfBirth = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
-const maxEmploymentDate = today.toISOString().slice(0, 10);
+const formatDate = (year, month, day) => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+const maxEmploymentDate = '2025-12-31';
+const minimumDateOfBirthDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+const minimumDateOfBirth = formatDate(
+  minimumDateOfBirthDate.getFullYear(),
+  minimumDateOfBirthDate.getMonth() + 1,
+  minimumDateOfBirthDate.getDate(),
+);
+const isValidDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+};
 
 function Field({ label, name, form, update, required = false, type = 'text', pattern, placeholder, inputMode, minLength, min, max, title, children }) {
   const effectivePattern = name === 'email'
@@ -45,7 +59,7 @@ function Field({ label, name, form, update, required = false, type = 'text', pat
         : name === 'houseNumber'
           ? 'Use letters, numbers, spaces, hyphens, slashes, or #.'
       : title;
-  return <label className="block text-[11px] font-semibold text-slate-700">{label}{required && <span className="text-red-500"> *</span>}{children || <input className={inputClass} name={name} type={type} value={form[name] || ''} onChange={update} required={required} pattern={effectivePattern} placeholder={placeholder} inputMode={inputMode} minLength={minLength} min={min} max={max} title={effectiveTitle} />}</label>;
+  return <label className="block text-[11px] font-semibold text-slate-700">{label}{required && <span className="text-red-500"> *</span>}{children || <input className={inputClass} name={name} type={type} lang={type === 'date' ? 'en-US' : undefined} value={form[name] || ''} onChange={update} required={required} pattern={effectivePattern} placeholder={placeholder} inputMode={inputMode} minLength={minLength} min={min} max={max} title={effectiveTitle} />}</label>;
 }
 
 function SelectField({ label, name, options, form, update, required = false }) {
@@ -99,13 +113,15 @@ export default function AddEmployee() {
     if (form.emergencyContactPhone.trim() && !phonePattern.test(form.emergencyContactPhone.trim())) { setError('Emergency Contact Phone must contain only digits and use the 09xxxxxxxx or +2519xxxxxxxx format.'); return; }
     if (form.alternativePhone.trim() && normalizePhoneNumber(form.phone.trim()) === normalizePhoneNumber(form.alternativePhone.trim())) { setError('Phone Number and Alternative Phone must be different numbers.'); return; }
     if (!namePattern.test(form.fullName.trim())) { setError('Full Name must contain letters only, with spaces, hyphens, or apostrophes allowed.'); return; }
-      if (!form.employmentDate || form.employmentDate > maxEmploymentDate) { setError('Employment Date cannot be in the future.'); return; }
+    if (!isValidDate(form.employmentDate)) { setError('Select a valid Employment Date.'); return; }
+    if (form.employmentDate > maxEmploymentDate) { setError('Employment Date cannot be later than December 31, 2025.'); return; }
     for (const field of addressNameFields) {
       if (form[field].trim() && !namePattern.test(form[field].trim())) { setError(`${field} must contain letters only, with spaces, hyphens, or apostrophes allowed.`); return; }
     }
     if (form.houseNumber.trim() && !houseNumberPattern.test(form.houseNumber.trim())) { setError('House Number may contain letters, numbers, spaces, hyphens, slashes, and # only.'); return; }
     if (!gmailPattern.test(form.email.trim())) { setError('Email address must use the format name@gmail.com or name123@gmail.com.'); return; }
-    if (form.dateOfBirth && (form.dateOfBirth > minimumDateOfBirth || form.dateOfBirth > maxDateOfBirth)) { setError('Employee must be at least 18 years old.'); return; }
+    if (form.dateOfBirth && !isValidDate(form.dateOfBirth)) { setError('Select a valid Date of Birth.'); return; }
+    if (form.dateOfBirth && form.dateOfBirth > minimumDateOfBirth) { setError('Employee must be at least 18 years old.'); return; }
 
     setSaving(true);
     const employee = {
@@ -122,19 +138,31 @@ export default function AddEmployee() {
       relationship: form.emergencyContactRelationship,
       address: [form.region, form.city, form.subCity, form.woreda, form.kebele, form.houseNumber].filter(Boolean).join(', '),
     };
-    try { await createEmployee(employee); navigate('/hr-office/employees'); } catch (requestError) { setError(requestError.response?.data?.message || 'Unable to add employee.'); } finally { setSaving(false); }
+    try {
+      await createEmployee(employee);
+      navigate('/hr-office/employees');
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message
+        || (requestError.request
+          ? 'Cannot connect to the server. Make sure the backend is running on port 3000.'
+          : requestError.message || 'Unable to add employee.'),
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
-  return <main className="min-h-screen bg-[#f5f7fa] p-3 sm:p-5"><div className="mx-auto max-w-[1320px]">
+  return <AdminTranslatedView><main className="min-h-screen bg-[#f5f7fa] p-3 sm:p-5"><div className="mx-auto max-w-[1320px]">
     <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center"><div><p className="text-[10px] text-slate-400">Dashboard <span className="px-1">/</span> Employees <span className="px-1">/</span> Create New Employee</p><h1 className="mt-2 text-lg font-bold text-slate-900">Create New Employee</h1><p className="text-[11px] text-slate-500">Add a new employee to the organization</p></div><button type="button" onClick={() => navigate('/hr-office/employees')} className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-600 shadow-sm"><FiArrowLeft /> Back to Employees</button></div>
     <form onSubmit={submit}>
-      <div className="grid gap-3 xl:grid-cols-2"><Section number="1" title="Personal Information"><Field label="Full Name" name="fullName" form={form} update={update} required pattern="[A-Za-z\u1200-\u137F][A-Za-z\u1200-\u137F' -]*" title="Use letters only; spaces, hyphens, and apostrophes are allowed." /><SelectField label="Gender" name="gender" options={['Male', 'Female', 'Other']} form={form} update={update} required /><Field label="Date of Birth" name="dateOfBirth" form={form} update={update} type="date" /><SelectField label="Marital Status" name="maritalStatus" options={['Single', 'Married', 'Divorced', 'Widowed']} form={form} update={update} /><SelectField label="Nationality" name="nationality" options={['Ethiopian', 'Other']} form={form} update={update} required /><Field label="Phone Number" name="phone" form={form} update={update} required type="tel" pattern="09[0-9]{8}" placeholder="0911234567" inputMode="tel" /><Field label="Alternative Phone" name="alternativePhone" form={form} update={update} type="tel" pattern="09[0-9]{8}" placeholder="0911234567" inputMode="tel" /><Field label="Email Address" name="email" form={form} update={update} required type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address." /></Section>
-        <Section number="2" title="Employee Information"><Field label="Employee ID" name="employeeId" form={form} update={update} required /><SelectField label="Employment Type" name="employmentType" options={['Permanent', 'Contract', 'Temporary', 'Intern']} form={form} update={update} required /><Field label="Employment Date" name="employmentDate" form={form} update={update} required type="date" /><SelectField label="Employee Status" name="status" options={['Active', 'Inactive']} form={form} update={update} required /><SelectField label="Position" name="position" options={positions.map((position) => position.title || position.name)} form={form} update={update} required /><SelectField label="Educational Qualification" name="educationLevel" options={['PhD', "Master's Degree", "Bachelor's Degree", 'Diploma', 'Certificate', 'TVET', '12th Grade', '10th Grade', 'Other']} form={form} update={update} required /><SelectField label="Department" name="department" options={departments.map((department) => department.name)} form={form} update={update} required /><SelectField label="Campus" name="campus" options={['Main (Peda) Campus', 'BiT (Poly) Campus', 'Zenzelma Campus', 'Gish Abay Campus', 'Tibebe Ghion Campus', 'Tana Campus', 'Gish Abay / Yibab Campus', 'Selam (EiTEX) Campus', 'Gilgel Abay Campus']} form={form} update={update} required /></Section>
+      <div className="grid gap-3 xl:grid-cols-2"><Section number="1" title="Personal Information"><Field label="Full Name" name="fullName" form={form} update={update} required pattern="[A-Za-z\u1200-\u137F][A-Za-z\u1200-\u137F' -]*" title="Use letters only; spaces, hyphens, and apostrophes are allowed." /><SelectField label="Gender" name="gender" options={['Male', 'Female', 'Other']} form={form} update={update} required /><Field label="Date of Birth (Gregorian)" name="dateOfBirth" form={form} update={update} type="date" max={minimumDateOfBirth} /><SelectField label="Marital Status" name="maritalStatus" options={['Single', 'Married', 'Divorced', 'Widowed']} form={form} update={update} /><SelectField label="Nationality" name="nationality" options={['Ethiopian', 'Other']} form={form} update={update} required /><Field label="Phone Number" name="phone" form={form} update={update} required type="tel" pattern="09[0-9]{8}" placeholder="0911234567" inputMode="tel" /><Field label="Alternative Phone" name="alternativePhone" form={form} update={update} type="tel" pattern="09[0-9]{8}" placeholder="0911234567" inputMode="tel" /><Field label="Email Address" name="email" form={form} update={update} required type="email" pattern="[^\s@]+@[^\s@]+\.[^\s@]+" title="Enter a valid email address." /></Section>
+        <Section number="2" title="Employee Information"><Field label="Employee ID" name="employeeId" form={form} update={update} required /><SelectField label="Employment Type" name="employmentType" options={['Permanent', 'Contract', 'Temporary', 'Intern']} form={form} update={update} required /><Field label="Employment Date (Gregorian)" name="employmentDate" form={form} update={update} type="date" max={maxEmploymentDate} required /><SelectField label="Employee Status" name="status" options={['Active', 'Inactive']} form={form} update={update} required /><SelectField label="Position" name="position" form={form} update={update} options={positions.map((position) => position.title || position.name)} required /><SelectField label="Educational Qualification" name="educationLevel" options={['PhD', "Master's Degree", "Bachelor's Degree", 'Diploma', 'Certificate', 'TVET', '12th Grade', '10th Grade', 'Other']} form={form} update={update} required /><SelectField label="Department" name="department" options={departments.map((department) => department.name)} form={form} update={update} required /><SelectField label="Campus" name="campus" options={['Main (Peda) Campus', 'BiT (Poly) Campus', 'Zenzelma Campus', 'Gish Abay Campus', 'Tibebe Ghion Campus', 'Tana Campus', 'Gish Abay / Yibab Campus', 'Selam (EiTEX) Campus', 'Gilgel Abay Campus']} form={form} update={update} required /></Section>
         <Section number="3" title="Contact & Address"><Field label="Region" name="region" form={form} update={update} /><Field label="City" name="city" form={form} update={update} /><Field label="Sub City / District" name="subCity" form={form} update={update} /><Field label="Woreda" name="woreda" form={form} update={update} /><Field label="Kebele" name="kebele" form={form} update={update} /><Field label="House Number" name="houseNumber" form={form} update={update} /><Field label="Emergency Contact Name" name="emergencyContactName" form={form} update={update} /><Field label="Emergency Contact Phone" name="emergencyContactPhone" form={form} update={update} /><Field label="Relationship" name="emergencyContactRelationship" form={form} update={update} /></Section>
         <Section number="4" title="Identification"><Field label="National ID" name="nationalId" form={form} update={update} /><Field label="TIN" name="tin" form={form} update={update} /><Field label="Bank Account" name="bankAccount" form={form} update={update} /></Section>
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-2"><Section number="5" title="Documents" className="h-full"><div className="col-span-full grid grid-cols-2 gap-2 sm:grid-cols-4"><label className="flex h-20 cursor-pointer flex-col items-center justify-center rounded border border-dashed border-slate-300 text-[10px] text-slate-500 hover:border-blue-400"><FiUploadCloud className="mb-1 text-base text-blue-500" />Choose Photo<input type="file" className="hidden" accept="image/*" /></label>{['ID Document', 'Employment Letter', 'Appointment Letter'].map((label) => <div key={label} className="flex h-20 flex-col items-center justify-center rounded border border-dashed border-slate-300 text-[10px] text-slate-400"><FiUploadCloud className="mb-1 text-base" />{label}<span className="text-[9px]">PDF / PNG</span></div>)}</div></Section><Section number="6" title="Additional Information" className="h-full"><Field label="Notes" name="notes" form={form} update={update}><textarea className={`${inputClass} h-20 py-2`} name="notes" value={form.notes} onChange={update} placeholder="Enter any additional information about the employee..." /></Field></Section></div>
       <div className="mt-3 flex flex-col items-start justify-between gap-3 rounded-md border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center"><div className="flex items-center gap-2 text-[11px] text-slate-600"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">7</span><strong>Status</strong><span className="ml-3">Employee Status: <b className="text-emerald-600">{form.status}</b></span></div><div className="flex gap-2"><button type="button" onClick={() => navigate('/hr-office/employees')} className="rounded border border-slate-300 px-4 py-2 text-[11px] text-slate-600">Cancel</button><button type="submit" disabled={saving} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-4 py-2 text-[11px] font-semibold text-white disabled:opacity-60"><FiCheck />{saving ? 'Saving...' : 'Save Employee'}</button></div></div>{error && <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-600">{error}</p>}
     </form>
-  </div></main>;
+  </div></main></AdminTranslatedView>;
 }

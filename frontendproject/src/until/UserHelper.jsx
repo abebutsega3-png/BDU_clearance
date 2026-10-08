@@ -1,14 +1,19 @@
 import axios from 'axios';
 
-const userApiUrl = 'http://localhost:3000/api/user';
+const userApiUrl = '/api/user';
 
 export const getUserHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
 });
 
-export const fetchUsers = async () => {
-  const response = await axios.get(userApiUrl, { headers: getUserHeaders() });
-  return response.data.users || [];
+export const fetchUsers = async (filters, { signal } = {}) => {
+  const response = await axios.get(userApiUrl, {
+    params: filters,
+    headers: getUserHeaders(),
+    timeout: 10000,
+    signal,
+  });
+  return response.data;
 };
 export const getUserIdentifier = (user) => user?._id || user?.id || user?.employeeId || user?.username;
 

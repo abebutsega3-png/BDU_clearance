@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const EditDepartment = () => {
   const { id } = useParams();
@@ -76,6 +77,7 @@ const EditDepartment = () => {
   };
 
   return (
+    <AdminTranslatedView>
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h2 className="text-xl font-bold text-gray-800 mb-6">Edit Department</h2>
@@ -187,7 +189,8 @@ const EditDepartment = () => {
         )}
       </div>
     </div>
+    </AdminTranslatedView>
   );
-};
+}
 
 export default EditDepartment;

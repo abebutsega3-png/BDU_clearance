@@ -25,7 +25,6 @@ export const sendNotificationEmail = async ({ recipient, title, message, actionL
     const emailPassword = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD;
     const port = Number(EMAIL_PORT || 465);
     if (!EMAIL_USER || !emailPassword || !port) {
-      console.warn('Email notification skipped: configure EMAIL_USER and EMAIL_PASS in server/.env.');
       return { sent: false, reason: 'SMTP configuration is incomplete.' };
     }
 

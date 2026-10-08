@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { usePropertyLanguage } from './propertyLanguage';
 import {
   ListCheck,
   Eye,
@@ -13,11 +14,12 @@ import {
   Package,
   FileText,
   Loader2,
-  CheckSquare,
   Boxes
 } from 'lucide-react';
+import UniversitySeal from '../UniversitySeal';
 
 export default function PropertyClearanceRequests() {
+  const { t } = usePropertyLanguage();
   const { status } = useParams();
   const navigate = useNavigate();
   const normalizeStatus = (routeStatus) => {
@@ -33,6 +35,13 @@ export default function PropertyClearanceRequests() {
   const [filter, setFilter] = useState(() => normalizeStatus(status));
   const [loading, setLoading] = useState(false);
   const [loadingAssets, setLoadingAssets] = useState(false);
+  const [assetLoadError, setAssetLoadError] = useState('');
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
+  const [requiredChecks, setRequiredChecks] = useState([]);
+  const [completedChecks, setCompletedChecks] = useState([]);
+  const [approvalRules, setApprovalRules] = useState({ requireNoOutstandingAssets: true, requireOfficerComment: false });
+  const [updatingAssetId, setUpdatingAssetId] = useState('');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -118,12 +127,7 @@ export default function PropertyClearanceRequests() {
         propertyStatus: getPropertyStatus(item),
         officerComment: item.officerComment || item.libraryComment || '',
         returnReason: item.propertyReturnReason || item.returnReason || item.libraryReturnReason || '',
-        assets: Array.isArray(item.outstandingItems) ? item.outstandingItems.map((asset, index) => ({
-          assetName: asset,
-          assetId: `AST-${String(index + 1).padStart(5, '0')}`,
-          status: 'Outstanding',
-          condition: 'N/A'
-        })) : []
+        assets: []
       }));
 
       setRequests(mapped);
@@ -143,21 +147,53 @@ export default function PropertyClearanceRequests() {
     fetchRequests();
   }, [filter]);
 
+  useEffect(() => {
+    let active = true;
+    const loadPropertySettings = async () => {
+      try {
+        const response = await axios.get('/api/property/profile/me', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+        });
+        const settings = response.data?.profile?.propertySettings || {};
+        if (!active) return;
+        setRequiredChecks(Array.isArray(settings.clearanceChecklist) ? settings.clearanceChecklist : []);
+        setApprovalRules((current) => ({ ...current, ...(settings.clearanceRules || {}) }));
+        setSettingsLoaded(true);
+      } catch (error) {
+        console.error('Unable to load property clearance rules:', error);
+        if (active) {
+          setSettingsError(error.response?.data?.message || 'Unable to load property clearance settings.');
+          setSettingsLoaded(false);
+        }
+      }
+    };
+    loadPropertySettings();
+    return () => { active = false; };
+  }, []);
+
   const loadEmployeeAssets = async (request) => {
-    if (!request?.employeeId || request.employeeId === 'N/A') return request?.assets || [];
+    if (!request?.employeeId || request.employeeId === 'N/A') {
+      setAssetLoadError(t('This request does not include an employee ID, so asset records cannot be loaded.', 'ይህ ጥያቄ የሰራተኛ መለያ አልያዘም፤ ስለዚህ የንብረት መዝገቦች መጫን አይቻልም።'));
+      return [];
+    }
 
     try {
       setLoadingAssets(true);
-      const res = await axios.get(`http://localhost:3000/api/property/dashboard/assets?employeeId=${encodeURIComponent(request.employeeId)}`);
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`http://localhost:3000/api/property/dashboard/assets?employeeId=${encodeURIComponent(request.employeeId)}`, {
+        headers: { Authorization: `Bearer ${token || ''}` }
+      });
       return (res.data?.records || []).map((asset) => ({
         assetName: asset.assetName,
         assetId: asset.assetId,
         status: asset.status,
-        condition: asset.condition
+        condition: asset.condition,
+        assetType: asset.assetType
       }));
     } catch (err) {
       console.warn('Unable to load employee assets for this request.', err);
-      return request.assets || [];
+      setAssetLoadError(t('Could not load the employee asset records. Check the connection and try opening the request again.', 'የሰራተኛውን የንብረት መዝገቦች መጫን አልተቻለም። ግንኙነቱን ያረጋግጡና ጥያቄውን እንደገና ለመክፈት ይሞክሩ።'));
+      return [];
     } finally {
       setLoadingAssets(false);
     }
@@ -166,6 +202,7 @@ export default function PropertyClearanceRequests() {
   // Open Details Modal with the employee's current asset records.
   const handleView = async (req) => {
     let latestRequest = req;
+    setAssetLoadError('');
     try {
       const response = await axios.get(`http://localhost:3000/api/property/clearance-requests/requests/${encodeURIComponent(req.requestId)}`);
       if (response.data) {
@@ -185,9 +222,36 @@ export default function PropertyClearanceRequests() {
     }
     setSelectedRequest(latestRequest);
     setOfficerComment(latestRequest.officerComment || '');
+    setCompletedChecks(Array.isArray(latestRequest.completedPropertyChecks) ? latestRequest.completedPropertyChecks : []);
     setIsModalOpen(true);
     const assets = await loadEmployeeAssets(latestRequest);
     setSelectedRequest((current) => current?.requestId === latestRequest.requestId ? { ...current, assets } : current);
+  };
+
+  const handleAssetAction = async (asset, status) => {
+    if (!selectedRequest || !asset?.assetId || updatingAssetId) return;
+    setUpdatingAssetId(asset.assetId);
+    setAssetLoadError('');
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.patch(
+        `http://localhost:3000/api/property/clearance-requests/requests/${encodeURIComponent(selectedRequest.requestId)}/assets/${encodeURIComponent(asset.assetId)}/status`,
+        { status },
+        { headers: { Authorization: `Bearer ${token || ''}` } }
+      );
+      const updatedAsset = response.data?.asset;
+      if (!updatedAsset) throw new Error(t('The server did not return the updated asset record.', 'አገልጋዩ የተዘመነውን የንብረት መዝገብ አልመለሰም።'));
+      const updateRequestAssets = (request) => request.requestId === selectedRequest.requestId
+        ? { ...request, assets: request.assets.map((item) => item.assetId === updatedAsset.assetId ? { ...item, ...updatedAsset } : item) }
+        : request;
+      setSelectedRequest((current) => current ? updateRequestAssets(current) : current);
+      setRequests((current) => current.map(updateRequestAssets));
+    } catch (err) {
+      console.error('Unable to update property asset status:', err);
+      setAssetLoadError(err.response?.data?.message || err.message || t('Unable to update this asset. Please try again.', 'ይህን ንብረት ማዘመን አልተቻለም። እባክዎ እንደገና ይሞክሩ።'));
+    } finally {
+      setUpdatingAssetId('');
+    }
   };
 
   const handleOpenEmployeeAssets = (request = selectedRequest) => {
@@ -214,11 +278,12 @@ export default function PropertyClearanceRequests() {
     if (!selectedRequest) return;
     try {
       const response = await axios.patch(`http://localhost:3000/api/property/clearance-requests/requests/${selectedRequest.requestId}/approve`, {
-        officerComment
+        officerComment,
+        completedChecks
       });
       const savedRequest = response.data;
       if (savedRequest?.propertyStatus !== 'Approved') {
-        throw new Error('The server did not confirm the property approval.');
+        throw new Error(t('The server did not confirm the property approval.', 'አገልጋዩ የንብረት ማጽደቁን አላረጋገጠም።'));
       }
       const updated = {
         ...selectedRequest,
@@ -232,7 +297,7 @@ export default function PropertyClearanceRequests() {
       setIsModalOpen(false);
     } catch (err) {
       console.error('Property approval failed:', err);
-      alert(err.response?.data?.message || 'Approval failed. The request is still Pending.');
+      alert(err.response?.data?.message || t('Approval failed. The request is still Pending.', 'ማጽደቁ አልተሳካም። ጥያቄው አሁንም በመጠባበቅ ላይ ነው።'));
     }
   };
 
@@ -264,11 +329,32 @@ export default function PropertyClearanceRequests() {
   // Assets Calculation Helpers
   const getAssetCounts = (assets = []) => {
     const total = assets.length;
-    const returned = assets.filter(a => a.status === 'Returned').length;
-    const outstanding = assets.filter(a => a.status === 'Outstanding').length;
+    const returned = assets.filter(a => String(a.status || '').toLowerCase() === 'returned').length;
+    const outstanding = assets.filter(a => String(a.status || '').toLowerCase() !== 'returned').length;
     return { total, returned, outstanding };
   };
 
+  const selectedAssetCounts = getAssetCounts(selectedRequest?.assets || []);
+  const enabledRequiredChecks = requiredChecks.filter((check) => check.enabled);
+  const missingRequiredChecks = enabledRequiredChecks.filter((check) => !completedChecks.includes(check.key));
+  const approvalBlocked = !settingsLoaded
+    || Boolean(settingsError)
+    || loadingAssets
+    || Boolean(assetLoadError)
+    || (approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0)
+    || missingRequiredChecks.length > 0
+    || (approvalRules.requireOfficerComment && !officerComment.trim());
+
+  const filterLabels = {
+    All: t('All', 'ሁሉም'),
+    Pending: t('Pending', 'በመጠባበቅ ላይ'),
+    'Under Review': t('Under Review', 'በግምገማ ላይ'),
+    Approved: t('Approved', 'ጸድቋል'),
+    Returned: t('Returned', 'ተመልሷል')
+  };
+  const localizedSettingsError = settingsError === 'Unable to load property clearance settings.'
+    ? t(settingsError, 'የንብረት ማጽደቂያ ቅንብሮችን መጫን አልተቻለም።')
+    : settingsError;
   const filteredRequests = filter === 'All' 
     ? requests 
     : requests.filter(r => r.status === filter);
@@ -281,10 +367,10 @@ export default function PropertyClearanceRequests() {
         <div>
           <h1 className="text-base font-bold text-slate-900 flex items-center space-x-2">
             <ListCheck className="text-teal-600" size={18} />
-            <span>Property Officer → Clearance Requests</span>
+            <span>{t('Property Officer → Clearance Requests', 'የንብረት ኃላፊ → የማጽደቂያ ጥያቄዎች')}</span>
           </h1>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Verify employee assets, examine outstanding equipment, and grant or return clearance.
+            {t('Verify employee assets, examine outstanding equipment, and grant or return clearance.', 'የሰራተኞችን ንብረቶች ያረጋግጡ፣ ያልተመለሱ መሳሪያዎችን ይመርምሩ፣ ማጽደቂያ ይስጡ ወይም ይመልሱ።')}
           </p>
         </div>
 
@@ -300,7 +386,7 @@ export default function PropertyClearanceRequests() {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {tab}
+              {filterLabels[tab]}
             </button>
           ))}
         </div>
@@ -312,25 +398,25 @@ export default function PropertyClearanceRequests() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
-                <th className="p-3">Request ID</th>
-                <th className="p-3">Employee</th>
-                <th className="p-3">Department</th>
-                <th className="p-3">Date</th>
-                <th className="p-3">Status</th>
-                <th className="p-3 text-right">Action</th>
+                <th className="p-3">{t('Request ID', 'የጥያቄ መለያ')}</th>
+                <th className="p-3">{t('Employee', 'ሰራተኛ')}</th>
+                <th className="p-3">{t('Department', 'የስራ ክፍል')}</th>
+                <th className="p-3">{t('Date', 'ቀን')}</th>
+                <th className="p-3">{t('Status', 'ሁኔታ')}</th>
+                <th className="p-3 text-right">{t('Action', 'ድርጊት')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
                   <td colSpan="6" className="p-6 text-center text-slate-400">
-                    <Loader2 className="animate-spin inline mr-2" size={16} /> Loading requests...
+                    <Loader2 className="animate-spin inline mr-2" size={16} /> {t('Loading requests...', 'ጥያቄዎችን በመጫን ላይ...')}
                   </td>
                 </tr>
               ) : filteredRequests.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="p-6 text-center text-slate-400 font-medium">
-                    No clearance requests found for category "{filter}".
+                    {t('No clearance requests found for category', 'ለዚህ ምድብ ምንም የማጽደቂያ ጥያቄ አልተገኘም')} "{filterLabels[filter] || filter}".
                   </td>
                 </tr>
               ) : (
@@ -356,7 +442,7 @@ export default function PropertyClearanceRequests() {
                         className="px-2.5 py-1 bg-teal-700 hover:bg-teal-800 text-white font-semibold rounded flex items-center space-x-1 ml-auto transition-colors"
                       >
                         <Eye size={12} />
-                        <span>View</span>
+                        <span>{t('View', 'አሳይ')}</span>
                       </button>
                     </td>
                   </tr>
@@ -369,130 +455,165 @@ export default function PropertyClearanceRequests() {
 
       {/* -------------------- 🔍 CLEARANCE DETAILS MODAL -------------------- */}
       {isModalOpen && selectedRequest && (
-        <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4 p-5">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-3 backdrop-blur-sm sm:p-5">
+          <div className="max-h-[94vh] w-full max-w-4xl space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5">
             
             {/* Modal Header */}
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2">
+            <div className="sticky top-0 z-10 -mx-4 -mt-4 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 sm:-mx-5 sm:-mt-5 sm:px-5">
+              <div className="flex min-w-0 items-center gap-2">
                 <FileText className="text-teal-600" size={18} />
-                <h2 className="text-sm font-bold text-slate-900">
-                  Clearance Request Details ({selectedRequest.requestId})
+                <h2 className="truncate text-sm font-bold text-slate-900">
+                  {t('Clearance Request Details', 'የማጽደቂያ ጥያቄ ዝርዝሮች')} <span className="font-medium text-slate-500">{t('(Auto-populated from Asset Records)', '(ከንብረት መዝገቦች በራስ-ሰር የተሞላ)')}</span>
                 </h2>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={16} />
-              </button>
+              <div className="ml-3 flex shrink-0 items-center gap-2">
+                <UniversitySeal className="h-8 w-8" />
+                <span className="text-xs font-bold text-blue-900">BDU</span>
+                <button type="button" onClick={() => setIsModalOpen(false)} aria-label={t('Close clearance details', 'የማጽደቂያ ዝርዝሮችን ዝጋ')} className="ml-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             {/* Employee Information */}
-            <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2">
-              <h3 className="font-bold text-slate-800 flex items-center space-x-1.5 text-[11px] uppercase tracking-wider">
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
                 <User size={13} className="text-slate-500" />
-                <span>Employee Information</span>
+                <span>{t('Employee Information', 'የሰራተኛ መረጃ')}</span>
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-[11px]">
+              <div className="grid grid-cols-2 gap-3 text-[11px] sm:grid-cols-5">
                 <div>
-                  <span className="text-slate-400 block">Name:</span>
+                  <span className="text-slate-400 block">{t('Name:', 'ስም፡')}</span>
                   <span className="font-semibold text-slate-800">{selectedRequest.employeeName}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Employee ID:</span>
+                  <span className="text-slate-400 block">{t('Employee ID:', 'የሰራተኛ መለያ፡')}</span>
                   <span className="font-medium text-slate-700">{selectedRequest.employeeId}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Department:</span>
+                  <span className="text-slate-400 block">{t('Department:', 'የስራ ክፍል፡')}</span>
                   <span className="font-medium text-slate-700">{selectedRequest.department}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Position:</span>
+                  <span className="text-slate-400 block">{t('Position:', 'የስራ መደብ፡')}</span>
                   <span className="font-medium text-slate-700">{selectedRequest.position || 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Reason:</span>
+                  <span className="text-slate-400 block">{t('Reason:', 'ምክንያት፡')}</span>
                   <span className="font-medium text-slate-700">{selectedRequest.clearanceReason}</span>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-3.5 rounded-lg border border-slate-200 space-y-2">
-              <h3 className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Clearance Information</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[11px]">
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-800">{t('Clearance Information', 'የማጽደቂያ መረጃ')}</h3>
+              <div className="grid grid-cols-2 gap-3 text-[11px] sm:grid-cols-3">
                 <div>
-                  <span className="text-slate-400 block">Reason:</span>
+                  <span className="text-slate-400 block">{t('Reason:', 'ምክንያት፡')}</span>
                   <span className="font-medium text-slate-700">{selectedRequest.clearanceReason}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Request Date:</span>
+                  <span className="text-slate-400 block">{t('Request Date:', 'የጥያቄ ቀን፡')}</span>
                   <span className="font-medium text-slate-700">{selectedRequest.date}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Status:</span>
+                  <span className="text-slate-400 block">{t('Status:', 'ሁኔታ፡')}</span>
                   <span className="font-semibold text-slate-700">{selectedRequest.status}</span>
                 </div>
               </div>
             </div>
 
             {/* Asset Verification Section */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 flex items-center space-x-1.5 text-[11px] uppercase tracking-wider">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
                   <Package size={13} className="text-teal-600" />
-                  <span>Property Verification & Asset Records</span>
+                  <span>{t('Property Verification & Asset Records', 'የንብረት ማረጋገጫ እና መዝገቦች')}</span>
                 </h3>
                 
                 {/* Summary Badges */}
                 {(() => {
                   const counts = getAssetCounts(selectedRequest.assets);
                   return (
-                    <div className="flex space-x-2 text-[10px] font-bold">
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded">Assigned: {counts.total}</span>
-                      <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">Returned: {counts.returned}</span>
-                      <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded">Outstanding: {counts.outstanding}</span>
+                    <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                      <span className="rounded bg-slate-100 px-2 py-1 text-slate-700">{t('Assigned:', 'የተመደቡ፡')} {counts.total}</span>
+                      <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-800">{t('Returned:', 'የተመለሱ፡')} {counts.returned}</span>
+                      <span className="rounded bg-rose-100 px-2 py-1 text-rose-800">{t('Outstanding:', 'ያልተመለሱ፡')} {counts.outstanding}</span>
                     </div>
                   );
                 })()}
               </div>
+              <p className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2 text-[10px] text-sky-800">
+                {t('This verification list is automatically linked to the employee’s Asset Records. No manual asset search is required.', 'ይህ የማረጋገጫ ዝርዝር ከሰራተኛው የንብረት መዝገብ ጋር በራስ-ሰር ተያይዟል። ንብረትን በእጅ መፈለግ አያስፈልግም።')}
+              </p>
 
               {/* Asset Table */}
               {loadingAssets && (
                 <p className="text-[11px] text-slate-500 flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={13} /> Loading employee asset records...
+                  <Loader2 className="animate-spin" size={13} /> {t('Loading employee asset records...', 'የሰራተኛ የንብረት መዝገቦችን በመጫን ላይ...')}
                 </p>
               )}
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
-                      <th className="p-2.5">Asset</th>
-                      <th className="p-2.5">Asset ID</th>
-                      <th className="p-2.5">Condition</th>
-                      <th className="p-2.5 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {selectedRequest.assets?.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="p-3 text-center text-slate-400">No assigned assets found for this employee.</td>
+              {assetLoadError && (
+                <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-700">
+                  {assetLoadError}
+                </p>
+              )}
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] border-collapse text-left">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-100/70 font-semibold text-slate-600">
+                        <th className="p-2.5">{t('Asset', 'ንብረት')}</th>
+                        <th className="p-2.5">{t('Asset ID', 'የንብረት መለያ')}</th>
+                        <th className="p-2.5">{t('Condition', 'ሁኔታ')}</th>
+                        <th className="p-2.5">{t('Current Status', 'አሁን ያለበት ሁኔታ')}</th>
+                        <th className="p-2.5 text-right">{t('Action', 'ድርጊት')}</th>
                       </tr>
-                    ) : selectedRequest.assets?.map((ast, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50">
-                        <td className="p-2.5 font-medium text-slate-800">{ast.assetName}</td>
-                        <td className="p-2.5 font-mono text-slate-500">{ast.assetId}</td>
-                        <td className="p-2.5 text-slate-600">{ast.condition || 'Good'}</td>
-                        <td className="p-2.5 text-right">
-                          <span className={`px-2 py-0.5 rounded font-semibold text-[10px] ${
-                            ast.status === 'Returned' 
-                              ? 'bg-emerald-100 text-emerald-800' 
-                              : 'bg-rose-100 text-rose-800'
-                          }`}>
-                            {ast.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {!loadingAssets && selectedRequest.assets?.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="p-3 text-center text-slate-400">{t('No assigned assets found for this employee.', 'ለዚህ ሰራተኛ የተመደበ ንብረት አልተገኘም።')}</td>
+                        </tr>
+                      ) : selectedRequest.assets?.map((ast) => (
+                        <tr key={ast.assetId} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-medium text-slate-800">{ast.assetName}</td>
+                          <td className="p-2.5 font-mono text-slate-500">{ast.assetId}</td>
+                          <td className="p-2.5 text-slate-600">{ast.condition || 'N/A'}</td>
+                          <td className="p-2.5">
+                            <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                              String(ast.status || '').toLowerCase() === 'returned'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : String(ast.status || '').toLowerCase() === 'damaged'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {ast.status || 'Outstanding'}
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-right">
+                            <select
+                              aria-label={`${t('Action for', 'ድርጊት ለ')} ${ast.assetName}`}
+                              value={String(ast.status || '').toLowerCase() === 'returned'
+                                ? 'Returned'
+                                : String(ast.status || '').toLowerCase() === 'damaged'
+                                  ? 'Damaged'
+                                  : 'Outstanding'}
+                              onChange={(event) => handleAssetAction(ast, event.target.value)}
+                              disabled={selectedRequest.status !== 'Under Review' || Boolean(updatingAssetId)}
+                              className="max-w-[190px] rounded border border-slate-300 bg-white px-2 py-1.5 text-[10px] text-slate-700 outline-none focus:border-teal-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            >
+                              <option value="Outstanding">{t('Pending', 'በመጠባበቅ ላይ')}</option>
+                              <option value="Returned">{t('Mark as Returned', 'እንደተመለሰ ምልክት አድርግ')}</option>
+                              <option value="Damaged">{t('Report as Damaged', 'እንደተበላሸ ሪፖርት አድርግ')}</option>
+                            </select>
+                            {updatingAssetId === ast.assetId && <Loader2 className="ml-1 inline animate-spin text-teal-600" size={12} />}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -501,13 +622,13 @@ export default function PropertyClearanceRequests() {
               <div className="space-y-2">
                 {selectedRequest.officerComment && (
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
-                    <span className="font-bold text-slate-800 block text-[11px]">Officer Comment:</span>
+                    <span className="font-bold text-slate-800 block text-[11px]">{t('Officer Comment:', 'የኃላፊ አስተያየት፡')}</span>
                     <p className="text-slate-700">{selectedRequest.officerComment}</p>
                   </div>
                 )}
                 {selectedRequest.status === 'Returned' && selectedRequest.returnReason && (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg space-y-1">
-                    <span className="font-bold text-rose-900 block text-[11px]">Return Reason:</span>
+                    <span className="font-bold text-rose-900 block text-[11px]">{t('Return Reason:', 'የመመለሻ ምክንያት፡')}</span>
                     <p className="text-rose-800">{selectedRequest.returnReason}</p>
                   </div>
                 )}
@@ -515,17 +636,43 @@ export default function PropertyClearanceRequests() {
             )}
 
             {selectedRequest.status === 'Under Review' && (
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-800 text-[11px] block">
-                  Officer Comment
-                </label>
-                <textarea
-                  rows="3"
-                  value={officerComment}
-                  onChange={(e) => setOfficerComment(e.target.value)}
-                  placeholder="Describe the verification result or note the outstanding asset condition..."
-                  className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-teal-500 focus:border-teal-500 outline-none"
-                ></textarea>
+              <div className="space-y-3">
+                <section className="rounded-lg border border-slate-200 bg-white p-3">
+                  <h3 className="mb-2 text-[11px] font-bold text-slate-800">{t('Required Property Checks', 'አስፈላጊ የንብረት ማረጋገጫዎች')}</h3>
+                  {settingsError ? (
+                    <p role="alert" className="text-[10px] text-rose-700">{localizedSettingsError}</p>
+                  ) : enabledRequiredChecks.length ? (
+                    <div className="space-y-2">
+                      {enabledRequiredChecks.map((check) => (
+                        <label key={check.key} className="flex items-center gap-2 text-[10px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={completedChecks.includes(check.key)}
+                            onChange={(event) => setCompletedChecks((current) => event.target.checked
+                              ? [...new Set([...current, check.key])]
+                              : current.filter((key) => key !== check.key))}
+                            className="h-3.5 w-3.5 accent-teal-600"
+                          />
+                          {check.label}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-500">{t('No additional property checklist items are required.', 'ተጨማሪ የንብረት ማረጋገጫ ዝርዝሮች አያስፈልጉም።')}</p>
+                  )}
+                </section>
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-800 text-[11px] block">
+                    {t('Officer Comment', 'የኃላፊ አስተያየት')} {approvalRules.requireOfficerComment && <span className="text-rose-600">*</span>}
+                  </label>
+                  <textarea
+                    rows="3"
+                    value={officerComment}
+                    onChange={(e) => setOfficerComment(e.target.value)}
+                    placeholder={approvalRules.requireOfficerComment ? t('Required before approval...', 'ከማጽደቅ በፊት ያስፈልጋል...') : t('Describe the verification result or note the outstanding asset condition...', 'የማረጋገጫውን ውጤት ይግለጹ ወይም ያልተመለሰውን ንብረት ሁኔታ ይጻፉ...')}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                  />
+                </div>
               </div>
             )}
 
@@ -534,12 +681,19 @@ export default function PropertyClearanceRequests() {
               
               {/* Status Badge */}
               <div className="flex items-center space-x-1.5">
-                <span className="text-slate-400 font-semibold">Current State:</span>
+                <span className="text-slate-400 font-semibold">{t('Current State:', 'አሁን ያለው ሁኔታ፡')}</span>
                 <span className="font-bold text-slate-800">{selectedRequest.status}</span>
               </div>
 
               {/* Contextual Actions */}
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-200"
+                >
+                  {t('Close', 'ዝጋ')}
+                </button>
                 
                 {/* Workflow Step 1: Pending -> Start Review */}
                 {selectedRequest.status === 'Pending' && (
@@ -549,14 +703,14 @@ export default function PropertyClearanceRequests() {
                       className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg flex items-center space-x-1 transition-colors"
                     >
                       <Boxes size={14} />
-                      <span>View Employee Assets</span>
+                      <span>{t('View Employee Assets', 'የሰራተኛ ንብረቶችን አሳይ')}</span>
                     </button>
                     <button
                       onClick={handleStartReview}
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg flex items-center space-x-1 transition-colors"
                     >
                       <PlayCircle size={14} />
-                      <span>Start Review</span>
+                      <span>{t('Start Review', 'ግምገማ ጀምር')}</span>
                     </button>
                   </div>
                 )}
@@ -565,51 +719,57 @@ export default function PropertyClearanceRequests() {
                 {selectedRequest.status === 'Under Review' && (
                   <>
                     {getAssetCounts(selectedRequest.assets).outstanding === 0 && (
-                      <span className="text-emerald-700 font-semibold">No Outstanding Assets</span>
+                      <span className="text-emerald-700 font-semibold">{t('No Outstanding Assets', 'ያልተመለሰ ንብረት የለም')}</span>
                     )}
                     <button
                       onClick={() => handleOpenEmployeeAssets()}
                       className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg flex items-center space-x-1 transition-colors"
                     >
                       <Boxes size={14} />
-                      <span>Employee Assets</span>
+                      <span>{t('Employee Assets', 'የሰራተኛ ንብረቶች')}</span>
                     </button>
                     <button
                       onClick={() => setShowReturnModal(true)}
                       className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold rounded-lg flex items-center space-x-1 transition-colors"
                     >
                       <RotateCcw size={14} />
-                      <span>Return Request</span>
+                      <span>{t('Return Clearance', 'ማጽደቂያውን መልስ')}</span>
                     </button>
 
                     <button
                       onClick={handleApprove}
-                      disabled={getAssetCounts(selectedRequest.assets).outstanding > 0}
+                      disabled={approvalBlocked}
                       className={`px-3 py-1.5 font-semibold rounded-lg flex items-center space-x-1 transition-colors ${
-                        getAssetCounts(selectedRequest.assets).outstanding > 0
+                        approvalBlocked
                           ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                           : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       }`}
-                      title={getAssetCounts(selectedRequest.assets).outstanding > 0 ? "Cannot approve with outstanding assets" : ""}
+                      title={localizedSettingsError || (loadingAssets ? t('Waiting for asset records to load.', 'የንብረት መዝገቦች እስኪጫኑ በመጠባበቅ ላይ።') : assetLoadError || (approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0 ? t('Disabled:', 'ተሰናክሏል፡') + ` ${selectedAssetCounts.outstanding} ` + t('outstanding asset(s) remain.', 'ያልተመለሱ ንብረቶች ቀርተዋል።') : missingRequiredChecks.length ? t('Complete all required property checks before approval.', 'ከማጽደቅ በፊት ሁሉንም አስፈላጊ የንብረት ማረጋገጫዎች ያጠናቅቁ።') : approvalRules.requireOfficerComment && !officerComment.trim() ? t('An officer comment is required before approval.', 'ከማጽደቅ በፊት የኃላፊ አስተያየት ያስፈልጋል።') : ''))}
                     >
                       <CheckCircle2 size={14} />
-                      <span>Approve Clearance</span>
+                      <span>{t('Approve Clearance', 'ማጽደቂያውን አጽድቅ')}</span>
                     </button>
                   </>
                 )}
 
-                {/* Finished States */}
-                {(selectedRequest.status === 'Approved' || selectedRequest.status === 'Returned') && (
-                  <button
-                    onClick={() => setIsModalOpen(false)}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg"
-                  >
-                    Close
-                  </button>
-                )}
-
               </div>
             </div>
+            {selectedRequest.status === 'Under Review' && approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0 && (
+              <p className="mt-2 text-right text-[10px] font-medium text-amber-700">
+                {t('Disabled:', 'ተሰናክሏል፡')} {selectedAssetCounts.outstanding} {t('outstanding asset(s) remain.', 'ያልተመለሱ ንብረቶች ቀርተዋል።')}
+              </p>
+            )}
+            {selectedRequest.status === 'Under Review' && missingRequiredChecks.length > 0 && (
+              <p className="mt-2 text-right text-[10px] font-medium text-amber-700">
+                {t('Complete', 'ያጠናቅቁ')} {missingRequiredChecks.length} {t('required property check(s) before approval.', 'አስፈላጊ የንብረት ማረጋገጫዎችን ከማጽደቅ በፊት።')}
+              </p>
+            )}
+            {selectedRequest.status === 'Under Review' && approvalRules.requireOfficerComment && !officerComment.trim() && (
+              <p className="mt-2 text-right text-[10px] font-medium text-amber-700">{t('An officer comment is required before approval.', 'ከማጽደቅ በፊት የኃላፊ አስተያየት ያስፈልጋል።')}</p>
+            )}
+            {selectedRequest.status === 'Under Review' && loadingAssets && (
+              <p className="mt-2 text-right text-[10px] font-medium text-slate-500">{t('Waiting for asset records to load before approval.', 'ከማጽደቅ በፊት የንብረት መዝገቦች እስኪጫኑ በመጠባበቅ ላይ።')}</p>
+            )}
 
           </div>
         </div>
@@ -617,13 +777,13 @@ export default function PropertyClearanceRequests() {
 
       {/* -------------------- ⚠️ RETURN REASON MODAL -------------------- */}
       {showReturnModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
             
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
               <h3 className="font-bold text-rose-900 flex items-center space-x-1.5">
                 <AlertTriangle size={16} className="text-rose-600" />
-                <span>Return Clearance Request</span>
+                <span>{t('Return Clearance Request', 'የማጽደቂያ ጥያቄውን መልስ')}</span>
               </h3>
               <button onClick={() => setShowReturnModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={15} />
@@ -631,19 +791,19 @@ export default function PropertyClearanceRequests() {
             </div>
 
             <p className="text-slate-600 text-[11px]">
-              Specify the reason for returning this request back to the employee. (e.g., Unreturned equipment).
+              {t('Explain why this request is being returned to the employee for follow-up.', 'ይህ ጥያቄ ለተጨማሪ እርምጃ ወደ ሰራተኛው ለምን እንደሚመለስ ያብራሩ።')}
             </p>
 
             {/* Mandatory Reason Textarea */}
             <div className="space-y-1">
               <label className="font-semibold text-slate-800 text-[11px] block">
-                Return Reason <span className="text-rose-600">*</span>
+                {t('Return Reason', 'የመመለሻ ምክንያት')} <span className="text-rose-600">*</span>
               </label>
               <textarea
                 rows="3"
                 value={returnReason}
                 onChange={(e) => setReturnReason(e.target.value)}
-                placeholder="Write reason (e.g., Employee has not returned Laptop AST-00125)..."
+                placeholder={t('Write reason (e.g., Employee has not returned Laptop AST-00125)...', 'ምክንያቱን ይጻፉ (ለምሳሌ፦ ሰራተኛው AST-00125 ላፕቶፕን አልመለሰም)...')}
                 className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 focus:border-rose-500 outline-none"
               ></textarea>
             </div>
@@ -653,7 +813,7 @@ export default function PropertyClearanceRequests() {
                 onClick={() => setShowReturnModal(false)}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg"
               >
-                Cancel
+                {t('Cancel', 'ሰርዝ')}
               </button>
               <button
                 onClick={handleConfirmReturn}
@@ -664,7 +824,7 @@ export default function PropertyClearanceRequests() {
                     : 'bg-rose-600 hover:bg-rose-700 text-white'
                 }`}
               >
-                Confirm Return
+                {t('Confirm Return', 'መመለሱን አረጋግጥ')}
               </button>
             </div>
 

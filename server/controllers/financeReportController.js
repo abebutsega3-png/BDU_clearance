@@ -45,6 +45,7 @@ const buildFilterQuery = (query = {}, dateField = "createdAt") => {
   const { campus, department, clearanceReason, status } = query;
   const { startDate, endDate } = getPeriodDates(query);
   const filter = {};
+  const conditions = [];
 
   if (startDate || endDate) {
     filter[dateField] = {};
@@ -54,20 +55,49 @@ const buildFilterQuery = (query = {}, dateField = "createdAt") => {
     }
   }
 
-  if (campus) filter.campus = campus;
-  if (department) filter.department = department;
-  if (clearanceReason) filter.clearanceReason = clearanceReason;
+  if (campus) {
+    conditions.push({
+      $or: [
+        { campus },
+        { "employee.campus": campus },
+      ],
+    });
+  }
+  if (department) {
+    conditions.push({
+      $or: [
+        { department },
+        { "department.name": department },
+        { "employee.department": department },
+      ],
+    });
+  }
+  if (clearanceReason) {
+    conditions.push({
+      $or: [
+        { clearanceType: clearanceReason },
+        { clearanceReason },
+        { reason: clearanceReason },
+      ],
+    });
+  }
 
   if (status) {
     const statuses = toStatusList(status);
-    const statusOr = [
-      { financeStatus: { $in: statuses } },
-      { status: { $in: statuses } },
-      { overallStatus: { $in: statuses } },
-    ];
-    filter.$and = [{ $or: statusOr }];
+    conditions.push({
+      $or: [
+        { financeStatus: { $in: statuses } },
+        {
+          $and: [
+            { $or: [{ financeStatus: { $exists: false } }, { financeStatus: null }, { financeStatus: "" }] },
+            { status: { $in: statuses } },
+          ],
+        },
+      ],
+    });
   }
 
+  if (conditions.length) filter.$and = conditions;
   return filter;
 };
 
@@ -162,7 +192,7 @@ export const getPendingClearancesReport = async (req, res) => {
         { overallStatus: { $in: ["Pending", "Under Review", "In Progress"] } },
       ],
     })
-      .select("requestId requestNumber employeeName employeeId department clearanceReason financeStatus status overallStatus createdAt")
+      .select("requestId requestNumber employeeName employeeId department clearanceType clearanceReason reason financeStatus status overallStatus createdAt")
       .sort({ createdAt: 1 });
 
     const now = new Date();
@@ -205,7 +235,7 @@ export const getFinanceHistoryReport = async (req, res) => {
       ],
     })
       .select(
-        "requestId requestNumber employeeName employeeId department clearanceReason financeStatus status overallStatus financialObligation financeReviewedByName financeReviewedAt financeReferenceNumber financeRemarks"
+        "requestId requestNumber employeeName employeeId department clearanceType clearanceReason reason financeStatus status overallStatus financialObligation financeReviewedByName financeReviewedAt financeReferenceNumber financeRemarks"
       )
       .sort({ financeReviewedAt: -1, createdAt: -1 });
 

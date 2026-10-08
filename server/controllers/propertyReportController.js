@@ -2,6 +2,29 @@ import ClearanceRequest from '../models/clearance.js';
 import Asset from '../models/propertyAsset.js';
 import Employee from '../models/employee.js';
 import Notification from '../models/Notification.js';
+import { propertyOfficeWorkflowFilter } from '../utils/clearanceWorkflow.js';
+
+const normalizeText = (value) => {
+  if (value && typeof value === 'object') return String(value.name || value.departmentName || value.label || '').trim();
+  return String(value || '').trim();
+};
+
+const normalizeComparable = (value) => normalizeText(value).toLowerCase();
+const normalizeAssetReportStatus = (value) => {
+  const status = normalizeComparable(value);
+  if (status === 'damaged') return 'Damaged';
+  if (status === 'lost') return 'Lost';
+  return 'Outstanding';
+};
+
+const isPropertyStageRequest = (request) => {
+  const propertyOfficeName = (value) => normalizeComparable(value).includes('property');
+  return (Array.isArray(request.requiredOffices) && request.requiredOffices.some(propertyOfficeName))
+    || (Array.isArray(request.workflow) && request.workflow.some((step) => propertyOfficeName(step.office || step.name)))
+    || Boolean(request.propertyReviewedAt || request.propertyReviewedBy || request.propertyStatus);
+};
+
+const isOutstandingAsset = (asset) => !['returned', 'available', 'in store', 'cleared'].includes(normalizeComparable(asset.status));
 
 const normalizeStatus = (request) => {
   const propertyStatus = String(request.propertyStatus || '').trim().toLowerCase();
@@ -66,75 +89,144 @@ const getPeriodDates = (reportPeriod, periodValue, fromDate, toDate) => {
 };
 
 const matchesEmployee = (employee, department, campus, employeeSearch) => {
-  if (department && department !== 'All' && employee?.department !== department) return false;
-  if (campus && campus !== 'All' && employee?.campus !== campus) return false;
+  if (department && department !== 'All' && normalizeComparable(employee?.department) !== normalizeComparable(department)) return false;
+  if (campus && campus !== 'All' && normalizeComparable(employee?.campus) !== normalizeComparable(campus)) return false;
   if (employeeSearch) {
     const term = employeeSearch.toLowerCase();
-    if (!employee?.fullName?.toLowerCase().includes(term) && !employee?.employeeId?.toLowerCase().includes(term)) return false;
+    if (!normalizeComparable(employee?.fullName).includes(term) && !normalizeComparable(employee?.employeeId).includes(term)) return false;
   }
   return true;
 };
 
 export const getPropertyClearanceReport = async (req, res) => {
   try {
-    const { reportType = 'Property Clearance Summary', reportPeriod = 'Custom Date Range', periodValue = '', fromDate: requestedFromDate, toDate: requestedToDate, status = 'All', department = 'All', campus = 'All' } = req.query;
+    const {
+      reportType = 'Property Clearance Summary',
+      reportPeriod = 'Custom Date Range',
+      periodValue = '',
+      fromDate: requestedFromDate,
+      toDate: requestedToDate,
+      status = 'All',
+      department = 'All',
+      campus = 'All'
+    } = req.query;
     const period = getPeriodDates(reportPeriod, periodValue, requestedFromDate, requestedToDate);
     const { fromDate, toDate } = period;
     const [requests, assets, employees] = await Promise.all([
-      ClearanceRequest.find({}).sort({ createdAt: -1 }).lean(),
+      ClearanceRequest.find(propertyOfficeWorkflowFilter).sort({ createdAt: -1 }).lean(),
       Asset.find({}).lean(),
       Employee.find({}).select('employeeId fullName department position campus').lean()
     ]);
-    const employeeById = new Map(employees.map((employee) => [employee.employeeId, employee]));
+    const employeeById = new Map(employees.map((employee) => [normalizeComparable(employee.employeeId), employee]));
+    const assetsByEmployee = new Map();
+    assets.forEach((asset) => {
+      const employeeId = normalizeComparable(asset.employeeId);
+      if (!employeeId || employeeId === 'n/a') return;
+      const employeeAssets = assetsByEmployee.get(employeeId) || [];
+      employeeAssets.push(asset);
+      assetsByEmployee.set(employeeId, employeeAssets);
+    });
+    const requestById = new Map(requests.map((request) => [request.requestId, request]));
     const filteredRequests = requests.filter((request) => {
-      const employee = employeeById.get(request.employeeId);
+      const employee = employeeById.get(normalizeComparable(request.employeeId));
       const requestStatus = normalizeStatus(request);
-      return inDateRange(request.requestDate || request.submittedDate || request.createdAt, fromDate, toDate)
+      return isPropertyStageRequest(request)
+        && inDateRange(request.requestDate || request.submittedDate || request.createdAt, fromDate, toDate)
         && (status === 'All' || requestStatus === status)
         && matchesEmployee(employee || request, department, campus, '');
     });
 
     if (reportType === 'Outstanding Property Report') {
       const data = assets
-        .filter((asset) => asset.status === 'Outstanding' && inDateRange(asset.assignedDate || asset.createdAt, fromDate, toDate))
+        .filter((asset) => isOutstandingAsset(asset) && inDateRange(asset.assignedDate || asset.createdAt, fromDate, toDate))
         .map((asset) => {
-          const employee = employeeById.get(asset.employeeId);
-          const request = requests.find((item) => item.requestId === asset.clearanceRequestId);
+          const employee = employeeById.get(normalizeComparable(asset.employeeId));
+          const request = requestById.get(asset.clearanceRequestId);
+          const assetStatus = String(asset.status || 'Outstanding');
+          const reportStatus = normalizeAssetReportStatus(assetStatus);
           return {
             employeeName: employee?.fullName || asset.employeeName || 'Unknown Employee',
             employeeId: employee?.employeeId || asset.employeeId || 'N/A',
-            department: employee?.department || asset.department || 'N/A',
+            department: normalizeText(employee?.department || asset.department) || 'N/A',
             requestId: asset.clearanceRequestId || request?.requestId || 'N/A',
+            requestDate: asset.assignedDate || asset.createdAt,
+            clearanceReason: request?.reason || request?.clearanceReason || request?.clearanceType || 'N/A',
             propertyName: asset.assetName || 'Unknown Property',
-            propertyStatus: asset.status,
+            propertyStatus: reportStatus,
             clearanceStatus: request ? normalizeStatus(request) : 'N/A',
             date: asset.assignedDate || asset.createdAt,
-            campus: employee?.campus || asset.campus || 'N/A'
+            campus: employee?.campus || asset.campus || 'N/A',
+            assetsCount: 1,
+            assignedAssetsCount: 1,
+            outstandingItemsCount: 1,
+            outstandingItems: [{
+              assetId: asset.assetId || 'N/A',
+              assetName: asset.assetName || 'Unknown Property',
+              status: assetStatus,
+              condition: asset.condition || 'N/A'
+            }],
+            returnedItemsCount: 0,
+            lastHandoverVoucher: asset.handoverVoucher || '',
+            totalRequestValue: Number(asset.purchaseValue) || 0
           };
         })
-        .filter((asset) => matchesEmployee(asset, department, campus, ''));
-      return res.json({ success: true, reportType, reportPeriod, periodValue, period, data });
+        .filter((asset) => matchesEmployee(asset, department, campus, '')
+          && (status === 'All' || normalizeComparable(asset.propertyStatus) === normalizeComparable(status)
+            || normalizeComparable(asset.clearanceStatus) === normalizeComparable(status)));
+      return res.json({
+        success: true,
+        reportType,
+        reportPeriod,
+        periodValue,
+        period,
+        summary: {
+          totalRequests: data.length,
+          approved: data.filter((item) => item.clearanceStatus === 'Approved' || item.clearanceStatus === 'Completed').length,
+          returned: data.filter((item) => item.clearanceStatus === 'Returned').length,
+          pending: data.filter((item) => item.clearanceStatus === 'Pending').length,
+          underReview: data.filter((item) => item.clearanceStatus === 'Under Review').length,
+          outstandingAssets: data.length
+        },
+        data
+      });
     }
 
     const data = filteredRequests.map((request) => {
-      const employee = employeeById.get(request.employeeId);
-      const requestAssets = assets.filter((asset) => asset.employeeId === request.employeeId);
+      const employee = employeeById.get(normalizeComparable(request.employeeId));
+      const requestAssets = assetsByEmployee.get(normalizeComparable(request.employeeId)) || [];
+      const returnedAssets = requestAssets.filter((asset) => normalizeComparable(asset.status) === 'returned');
+      const assignedAssets = requestAssets.filter(isOutstandingAsset);
+      const voucherAssets = [...requestAssets]
+        .filter((asset) => asset.handoverVoucher)
+        .sort((left, right) => new Date(right.returnDate || right.assignedDate || right.updatedAt || 0) - new Date(left.returnDate || left.assignedDate || left.updatedAt || 0));
+      const outstandingItems = assignedAssets.map((asset) => ({
+        assetId: asset.assetId || 'N/A',
+        assetName: asset.assetName || 'Unknown Asset',
+        status: asset.status || 'Outstanding',
+        condition: asset.condition || 'N/A'
+      }));
       return {
         requestId: request.requestId,
         requestDate: request.requestDate || request.submittedDate || request.createdAt,
-        clearanceReason: request.clearanceReason,
+        clearanceReason: request.reason || request.clearanceReason || request.clearanceType || 'N/A',
         propertyStatus: normalizeStatus(request),
         clearanceStatus: normalizeStatus(request),
         reviewedBy: request.reviewedBy || 'Property Officer',
         reviewedAt: request.reviewedAt,
         comment: request.officerComment || '',
         returnReason: request.returnReason || '',
-        employeeName: employee?.fullName || request.employeeName || 'Unknown Employee',
+        employeeName: employee?.fullName || request.employeeName || normalizeText(request.employee) || 'Unknown Employee',
         employeeId: employee?.employeeId || request.employeeId,
-        department: employee?.department || request.department || 'N/A',
+        department: normalizeText(employee?.department || request.department) || 'N/A',
         position: employee?.position || request.position || 'N/A',
         campus: employee?.campus || request.campus || 'N/A',
-        assetsCount: requestAssets.length
+        assetsCount: requestAssets.length,
+        assignedAssetsCount: assignedAssets.length,
+        outstandingItemsCount: outstandingItems.length,
+        outstandingItems,
+        returnedItemsCount: returnedAssets.length,
+        lastHandoverVoucher: request.propertyHandoverVoucher || request.lastHandoverVoucher || request.handoverVoucher || voucherAssets[0]?.handoverVoucher || '',
+        totalRequestValue: requestAssets.reduce((total, asset) => total + (Number(asset.purchaseValue) || 0), 0)
       };
     });
 

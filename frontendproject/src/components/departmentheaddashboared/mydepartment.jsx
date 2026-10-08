@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { CarFront, Mail, Phone, Search, Users, X } from 'lucide-react';
+import { CarFront, ChevronLeft, ChevronRight, Mail, Phone, Search, Users, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+const PAGE_SIZE = 10;
 
 const statusLabel = (status) => status === 'In Progress' ? 'Under Review' : status || 'No Request';
 const statusClass = (status) => ({
@@ -24,6 +26,8 @@ export default function MyDepartment() {
 	const [position, setPosition] = useState('All');
 	const [employmentStatus, setEmploymentStatus] = useState('All');
 	const [clearanceStatus, setClearanceStatus] = useState('All');
+	const [page, setPage] = useState(1);
+	const [pageSize, setPageSize] = useState(PAGE_SIZE);
 	const [error, setError] = useState('');
 	const [loading, setLoading] = useState(true);
 
@@ -38,7 +42,7 @@ export default function MyDepartment() {
 
 	const employees = department.employees || [];
 	const positions = [...new Set(employees.map((employee) => employee.position).filter(Boolean))];
-	const filteredEmployees = useMemo(() => employees.filter((employee) => {
+	const filteredEmployees = employees.filter((employee) => {
 		const clearance = statusLabel(employee.clearance?.status);
 		const term = search.trim().toLowerCase();
 		const searchableText = [employee.fullName, employee.employeeId, employee.position]
@@ -47,7 +51,9 @@ export default function MyDepartment() {
 			&& (position === 'All' || employee.position === position)
 			&& (employmentStatus === 'All' || employee.status === employmentStatus)
 			&& (clearanceStatus === 'All' || clearance === clearanceStatus);
-	}), [employees, search, position, employmentStatus, clearanceStatus]);
+	});
+	const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / pageSize));
+	const paginatedEmployees = filteredEmployees.slice((page - 1) * pageSize, page * pageSize);
 	const active = employees.filter((employee) => employee.status === 'Active').length;
 	const onClearance = employees.filter((employee) => employee.clearance).length;
 	const withVehicle = employees.filter((employee) => employee.assignedVehicle).length;
@@ -74,22 +80,22 @@ export default function MyDepartment() {
 					<div className="flex items-center gap-2">
 						<Users size={18} className="text-teal-700" />
 						<h2 className="text-base font-bold text-slate-900">Employee Directory</h2>
-						<span className="ml-auto text-xs text-slate-500">{filteredEmployees.length} shown</span>
+						<span className="ml-auto text-xs text-slate-500">{filteredEmployees.length} employees</span>
 					</div>
 					<div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 						<label className="relative sm:col-span-2 xl:col-span-1">
 							<span className="sr-only">Search by name, employee ID, or position</span>
 							<input
 								value={search}
-								onChange={(event) => setSearch(event.target.value)}
+								onChange={(event) => { setSearch(event.target.value); setPage(1); }}
 								placeholder="Name, employee ID, or position"
 								className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 pr-9 text-sm outline-none focus:border-teal-600"
 							/>
 							<Search size={15} className="absolute right-3 top-2.5 text-slate-400" />
 						</label>
-						<Select label="Position" value={position} onChange={setPosition} options={['All', ...positions]} />
-						<Select label="Employment Status" value={employmentStatus} onChange={setEmploymentStatus} options={['All', 'Active', 'Inactive']} />
-						<Select label="Clearance Status" value={clearanceStatus} onChange={setClearanceStatus} options={['All', 'No Request', 'Pending', 'Under Review', 'Approved', 'Returned', 'Cleared', 'Completed']} />
+						<Select label="Position" value={position} onChange={(value) => { setPosition(value); setPage(1); }} options={['All', ...positions]} />
+						<Select label="Employment Status" value={employmentStatus} onChange={(value) => { setEmploymentStatus(value); setPage(1); }} options={['All', 'Active', 'Inactive']} />
+						<Select label="Clearance Status" value={clearanceStatus} onChange={(value) => { setClearanceStatus(value); setPage(1); }} options={['All', 'No Request', 'Pending', 'Under Review', 'Approved', 'Returned', 'Cleared', 'Completed']} />
 					</div>
 				</div>
 
@@ -109,7 +115,7 @@ export default function MyDepartment() {
 						</thead>
 						<tbody className="divide-y divide-slate-100">
 							{loading && <tr><td colSpan="8" className="px-4 py-10 text-center text-slate-500">Loading employees...</td></tr>}
-							{!loading && filteredEmployees.map((employee) => {
+							{!loading && paginatedEmployees.map((employee) => {
 								const vehicle = employee.assignedVehicle;
 								return (
 									<tr key={employee._id} className="hover:bg-slate-50">
@@ -132,6 +138,37 @@ export default function MyDepartment() {
 							{!loading && !filteredEmployees.length && <tr><td colSpan="8" className="px-4 py-10 text-center text-slate-500">No employees match these filters.</td></tr>}
 						</tbody>
 					</table>
+				</div>
+				<div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<nav aria-label="Employee directory pages" className="flex flex-wrap items-center gap-2">
+						<button
+							type="button"
+							onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+							disabled={page === 1 || loading}
+							aria-label="Previous page"
+							className="inline-flex h-[60px] items-center gap-2 rounded-lg border border-slate-200 px-6 text-base font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+						><ChevronLeft size={18} />Previous</button>
+						<span className="px-3 text-base font-medium text-slate-600" aria-live="polite">Page {page} of {totalPages}</span>
+						<button
+							type="button"
+							onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
+							disabled={page === totalPages || loading}
+							aria-label="Next page"
+							className="inline-flex h-[60px] items-center gap-2 rounded-lg bg-[#8ba8f8] px-6 text-base font-medium text-white hover:bg-[#7898ef] disabled:cursor-not-allowed disabled:opacity-50"
+						>Next<ChevronRight size={18} /></button>
+					</nav>
+					<label className="flex items-center gap-3 text-base text-slate-600">
+						Show
+						<select
+							value={pageSize}
+							onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}
+							disabled={loading}
+							aria-label="Employees per page"
+							className="h-[60px] w-[74px] rounded-lg border border-slate-200 bg-white px-4 text-base text-slate-700 outline-none focus:border-blue-400"
+						>
+							{[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+						</select>
+					</label>
 				</div>
 			</section>
 

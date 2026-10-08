@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { FaBuilding, FaGlobe, FaToggleOn } from 'react-icons/fa';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 export default function AddDepartment() {
   const navigate = useNavigate();
@@ -77,6 +78,7 @@ export default function AddDepartment() {
   };
 
   return (
+    <AdminTranslatedView>
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto bg-white p-6 rounded-xl shadow-sm border border-gray-200">
         <h2 className="text-lg font-semibold text-gray-800 mb-6 border-b pb-3">Add New Department</h2>
@@ -243,5 +245,6 @@ export default function AddDepartment() {
         </form>
       </div>
     </div>
+    </AdminTranslatedView>
   );
 }

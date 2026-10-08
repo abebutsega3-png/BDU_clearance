@@ -4,6 +4,7 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Employee from '../models/employee.js';
 import Department from '../models/department.js';
+import { isDepartmentHead } from '../utils/roleHelpers.js';
 import {
   DEFAULT_REQUIRED_OFFICES,
   buildRequiredOfficeWorkflow,
@@ -255,12 +256,16 @@ const getOfficeProgress = (clearance) => {
 };
 
 const getClearances = async (_req, res) => {
+	if (mongoose.connection.readyState !== 1) {
+		return res.status(503).json({
+			success: false,
+			message: 'Database unavailable. Please check the MongoDB connection and try again.',
+		});
+	}
+
 	try {
 		const role = String(_req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ');
 		const workflowFilter = {};
-		if (role === 'hr officer' || role === 'hr') {
-			workflowFilter.initialHRStatus = { $in: [null, 'Pending', 'Under Review', 'Returned'] };
-		}
 		if (role === 'finance officer') {
 			workflowFilter.departmentStatus = 'Approved';
 		}
@@ -277,11 +282,20 @@ const getClearances = async (_req, res) => {
 		if (role === 'department head') workflowFilter.initialHRStatus = 'Approved';
 		const roleVisibility = officeVisibility[role] || {};
 		const query = Object.keys(roleVisibility).length ? { ...workflowFilter, ...roleVisibility } : workflowFilter;
-		const clearances = await Clearance.find(query).sort({ createdAt: -1 }).lean();
+		const clearances = await Clearance.find(query)
+			.sort({ createdAt: -1 })
+			.maxTimeMS(15000)
+			.lean();
 		return res.status(200).json({ success: true, clearances });
 	} catch (error) {
 		console.error('Error in getClearances:', error);
-		return res.status(500).json({ success: false, message: 'Server error while fetching clearances.' });
+		const timedOut = error.code === 50 || (error.name === 'MongooseError' && /timed out/i.test(error.message));
+		return res.status(timedOut ? 503 : 500).json({
+			success: false,
+			message: timedOut
+				? 'Clearance query timed out. Please check the MongoDB connection and try again.'
+				: 'Unable to fetch clearance requests from the database.',
+		});
 	}
 };
 
@@ -474,7 +488,10 @@ const getMyClearances = async (req, res) => {
 
 const getClearance = async (req, res) => {
 	try {
-		const clearance = await Clearance.findOne({ $or: [{ _id: req.params.id }, { requestId: req.params.id }] }).lean();
+		const requestFilter = mongoose.isValidObjectId(req.params.id)
+			? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
+			: { requestId: req.params.id };
+		const clearance = await Clearance.findOne(requestFilter).maxTimeMS(15000).lean();
 		if (!clearance) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
 		const role = String(req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ');
 		const officeByRole = {
@@ -696,8 +713,7 @@ const updateClearance = async (req, res) => {
 		const hasDepartmentDecision = Boolean(departmentDecision);
 		if (hasExplicitDepartmentDecision) delete requestUpdates.departmentDecision;
 		if (hasDepartmentDecision) {
-			const role = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-			if (role !== 'departmenthead') return res.status(403).json({ success: false, message: 'Department Head access is required.' });
+			if (!isDepartmentHead(req.user?.role)) return res.status(403).json({ success: false, message: 'Department Head access is required.' });
 			const departmentRequestFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };

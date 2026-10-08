@@ -1,459 +1,364 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { Link, useLocation } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, CheckCircle, Eye, EyeOff, Loader2, LockKeyhole, Save, ShieldCheck, Upload } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
-import {
-  User,
-  Briefcase,
-  Phone,
-  Lock,
-  Save,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-  ShieldAlert,
-  Upload
-} from 'lucide-react';
+import UniversitySeal from '../UniversitySeal';
 
-const formatDate = (value) => {
-  if (!value) return 'Not provided';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB');
-};
-
-const formatDateTime = (value) => {
-  if (!value) return 'Not provided';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Not provided' : date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-};
+const authConfig = () => ({
+  headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+});
 
 export default function LibraryProfile() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
+  const location = useLocation();
   const userId = user?._id || user?.id || localStorage.getItem('userId') || '';
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [changingPass, setChangingPass] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [toast, setToast] = useState({ type: '', message: '' });
-  const [loadError, setLoadError] = useState('');
-
-  // Read-only + Editable State
   const [profile, setProfile] = useState({
-    fullName: user?.name || 'Library Officer',
-    employeeId: user?.employeeId || 'Not assigned',
-    gender: 'Not provided',
-    dateOfBirth: 'Not provided',
-    department: user?.department || 'Library',
-    position: user?.role || 'Library Officer',
-    campus: 'Main (Peda) Campus',
-    employeeStatus: 'Active',
-    employmentDate: 'Not provided',
+    fullName: user?.name || '',
     email: user?.email || '',
-    phoneNumber: '',
-    alternativePhone: '',
-    profilePhoto: '',
-    username: user?.username || user?.email || '',
-    role: 'Library Officer',
-    accountStatus: 'Active',
-    accountCreated: '',
-    lastLogin: '',
-    passwordChangedAt: '',
-    twoFactorEnabled: false
+    role: user?.position || user?.role || 'Library Officer',
+    department: user?.department || 'Library',
+    phoneNumber: user?.phoneNumber || '',
+    profileImage: user?.profileImage || ''
   });
-
-  // Security (Password Change) State
   const [passwords, setPasswords] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: ''
   });
+  const [visiblePasswords, setVisiblePasswords] = useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false
+  });
+  const [loading, setLoading] = useState(Boolean(userId));
+  const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const showSecurity = location.hash === '#security';
 
-  // Fetch Profile Info
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (!userId) {
-        setLoading(false);
-        return;
-      }
+    if (!userId) return undefined;
 
+    let active = true;
+    const fetchProfile = async () => {
       try {
         setLoading(true);
-        const res = await axios.get(`/api/profile/${userId}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
-        });
-        const userData = res.data?.data || res.data || {};
-
-        setProfile((prev) => ({
-          ...prev,
-          fullName: userData.name || prev.fullName,
-          employeeId: userData.employeeId || prev.employeeId,
-          gender: userData.gender || prev.gender,
-          dateOfBirth: userData.dateOfBirth ? formatDate(userData.dateOfBirth) : prev.dateOfBirth,
-          department: userData.department || prev.department,
-          position: userData.position || user?.role || prev.position,
-          campus: userData.campus || prev.campus,
-          employeeStatus: userData.status || prev.employeeStatus,
-          employmentDate: userData.dateJoined ? formatDate(userData.dateJoined) : prev.employmentDate,
-          email: userData.email || prev.email,
-          phoneNumber: userData.phoneNumber || prev.phoneNumber,
-          alternativePhone: userData.alternativePhone || prev.alternativePhone,
-          profilePhoto: userData.profileImage || userData.profilePhoto || prev.profilePhoto,
-          username: userData.username || userData.email || prev.username,
-          role: 'Library Officer',
-          accountStatus: userData.status || prev.accountStatus,
-          accountCreated: userData.createdAt || userData.dateJoined || prev.accountCreated,
-          lastLogin: userData.lastLogin || prev.lastLogin,
-          passwordChangedAt: userData.passwordChangedAt || prev.passwordChangedAt,
-          twoFactorEnabled: Boolean(userData.twoFactorEnabled)
+        const response = await axios.get(`/api/profile/${userId}`, authConfig());
+        const data = response.data?.data || response.data || {};
+        if (!active) return;
+        setProfile((current) => ({
+          ...current,
+          fullName: data.name || current.fullName,
+          email: data.email || current.email,
+          role: data.position || user?.role || current.role,
+          department: data.department || current.department,
+          phoneNumber: data.phoneNumber || current.phoneNumber,
+          profileImage: data.profileImage || data.profilePhoto || current.profileImage
         }));
-      } catch (err) {
-        setLoadError(err.response?.data?.message || 'Unable to load your profile.');
+      } catch (error) {
+        if (active) setMessage({ type: 'error', text: error.response?.data?.message || 'Unable to load your profile.' });
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchProfile();
+    return () => {
+      active = false;
+    };
   }, [userId, user?.role]);
 
-  const showToast = (type, message) => {
-    setToast({ type, message });
-    setTimeout(() => setToast({ type: '', message: '' }), 4000);
-  };
-
-  // Image Upload Handler
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
-    const input = e.target;
+  const handlePhotoUpload = (event) => {
+    const file = event.currentTarget.files?.[0];
+    const input = event.currentTarget;
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      showToast('error', 'Please select a valid image file.');
+      setMessage({ type: 'error', text: 'Please select a valid image file.' });
+      input.value = '';
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      showToast('error', 'Profile photo must be smaller than 2 MB.');
+      setMessage({ type: 'error', text: 'Profile photo must be smaller than 2 MB.' });
+      input.value = '';
       return;
     }
+
     const reader = new FileReader();
-    reader.onloadend = async () => {
+    reader.onload = async () => {
+      if (typeof reader.result !== 'string') {
+        setMessage({ type: 'error', text: 'The selected image could not be read.' });
+        input.value = '';
+        return;
+      }
+
+      setUploadingPhoto(true);
+      setMessage({ type: '', text: '' });
       try {
-        setUploadingPhoto(true);
-        const response = await axios.put(`/api/profile/${userId}`, { profileImage: reader.result }, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
-        });
-        const updated = response.data?.data || {};
-        setProfile((prev) => ({ ...prev, profilePhoto: updated.profileImage || reader.result }));
-        showToast('success', 'Profile photo uploaded successfully.');
-      } catch (err) {
-        showToast('error', err.response?.data?.message || 'Unable to upload profile photo.');
+        const response = await axios.put(`/api/profile/${userId}`, { profileImage: reader.result }, authConfig());
+        const profileImage = response.data?.data?.profileImage || reader.result;
+        setProfile((current) => ({ ...current, profileImage }));
+        updateUser({ profileImage });
+        setMessage({ type: 'success', text: 'Profile photo updated successfully.' });
+      } catch (error) {
+        setMessage({ type: 'error', text: error.response?.data?.message || 'Unable to update your profile photo.' });
       } finally {
         setUploadingPhoto(false);
         input.value = '';
       }
     };
+    reader.onerror = () => {
+      setMessage({ type: 'error', text: 'The selected image could not be read.' });
+      input.value = '';
+    };
     reader.readAsDataURL(file);
   };
 
-  // Profile Form Save
-  const handleSaveProfile = async (e) => {
-    e.preventDefault();
+  const handleSaveProfile = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setMessage({ type: '', text: '' });
     try {
-      setSaving(true);
-      const payload = {
+      const response = await axios.put(`/api/profile/${userId}`, {
         name: profile.fullName,
         email: profile.email,
         phoneNumber: profile.phoneNumber,
-        alternativePhone: profile.alternativePhone,
-        gender: profile.gender,
-        dateOfBirth: profile.dateOfBirth,
-        profileImage: profile.profilePhoto,
-        campus: profile.campus
+        profileImage: profile.profileImage
+      }, authConfig());
+      const updated = response.data?.data || {};
+      const updatedProfile = {
+        ...profile,
+        fullName: updated.name || profile.fullName,
+        email: updated.email || profile.email,
+        phoneNumber: updated.phoneNumber || profile.phoneNumber,
+        profileImage: updated.profileImage || profile.profileImage
       };
-
-      await axios.put(`/api/profile/${userId}`, payload, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+      setProfile(updatedProfile);
+      updateUser({
+        name: updatedProfile.fullName,
+        email: updatedProfile.email,
+        profileImage: updatedProfile.profileImage
       });
-      showToast('success', 'Profile information updated successfully!');
-      setEditing(false);
-    } catch (err) {
-      showToast('error', err.response?.data?.message || err.response?.data?.error || 'Failed to update profile.');
+      setMessage({ type: 'success', text: 'Profile changes saved successfully.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Unable to save profile changes.' });
     } finally {
       setSaving(false);
     }
   };
 
-  // Password Change Handler
-  const handleChangePassword = async (e) => {
-    e.preventDefault();
+  const handleChangePassword = async (event) => {
+    event.preventDefault();
     if (passwords.newPassword !== passwords.confirmPassword) {
-      showToast('error', 'New passwords do not match!');
+      setMessage({ type: 'error', text: 'New passwords do not match.' });
+      return;
+    }
+    if (passwords.newPassword.length < 6) {
+      setMessage({ type: 'error', text: 'New password must be at least 6 characters.' });
       return;
     }
 
+    setChangingPassword(true);
+    setMessage({ type: '', text: '' });
     try {
-      setChangingPass(true);
-      await axios.patch(`/api/profile/${userId}/password`, passwords, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
-      });
-      showToast('success', 'Password updated successfully!');
-      setProfile((prev) => ({ ...prev, passwordChangedAt: new Date().toISOString() }));
+      await axios.patch(`/api/profile/${userId}/password`, {
+        currentPassword: passwords.currentPassword,
+        newPassword: passwords.newPassword
+      }, authConfig());
       setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    } catch (err) {
-      showToast('error', err.response?.data?.message || 'Failed to change password.');
+      setMessage({ type: 'success', text: 'Password updated successfully.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || 'Unable to change your password.' });
     } finally {
-      setChangingPass(false);
+      setChangingPassword(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50 text-slate-500">
-        <Loader2 className="animate-spin mr-2" size={20} />
-        <span>Loading Profile...</span>
+      <div className="flex min-h-[calc(100vh-56px)] items-center justify-center bg-slate-50 text-slate-500">
+        <Loader2 className="mr-2 animate-spin" size={20} />
+        <span>Loading profile...</span>
       </div>
     );
   }
 
-  if (loadError) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6"><div className="max-w-md rounded-xl border border-rose-200 bg-white p-6 text-center shadow-sm"><AlertCircle className="mx-auto mb-3 text-rose-600" size={24} /><p className="font-semibold text-rose-800">{loadError}</p><button type="button" onClick={() => window.location.reload()} className="mt-4 rounded bg-teal-700 px-4 py-2 font-semibold text-white hover:bg-teal-800">Retry</button></div></div>;
-  }
-
   return (
-    <div className="p-6 bg-slate-50 min-h-screen text-xs text-slate-700">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <main className="min-h-[calc(100vh-56px)] bg-slate-50 p-4 text-slate-800 sm:p-6 lg:p-8">
+      <div className={`mx-auto ${showSecurity ? 'flex min-h-[calc(100vh-104px)] max-w-5xl items-center justify-center' : 'max-w-2xl'}`}>
+        {!showSecurity && <div className="mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">Account</p>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900">Profile</h1>
+          <p className="mt-1 text-sm text-slate-500">Your authenticated Library Officer account details.</p>
+        </div>}
 
-        {/* Header Toast Notification */}
-        {toast.message && (
+        {message.text && !showSecurity && (
           <div
-            className={`p-3 rounded-xl border flex items-center space-x-2 font-medium ${
-              toast.type === 'success'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                : 'bg-red-50 border-red-200 text-red-800'
+            role="status"
+            className={`mb-4 flex items-center gap-2 rounded-lg border p-3 text-sm ${
+              message.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : 'border-rose-200 bg-rose-50 text-rose-800'
             }`}
           >
-            {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-            <span>{toast.message}</span>
+            {message.type === 'success' ? <CheckCircle size={17} /> : <AlertCircle size={17} />}
+            <span>{message.text}</span>
           </div>
         )}
 
-        {/* 📷 Profile Photo Header Card */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-32 w-32 rounded-full bg-slate-100 border-2 border-teal-600 flex items-center justify-center overflow-hidden shadow-inner">
-              {profile.profilePhoto ? (
-                <img src={profile.profilePhoto} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <User size={40} className="text-slate-400" />
-              )}
+        {showSecurity ? (
+          <section id="security" className="w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 shadow-lg sm:p-8">
+            <Link to="/library-office" className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-indigo-700">
+              <ArrowLeft size={16} />
+              Back to Dashboard
+            </Link>
+            <div className="mx-auto mt-5 flex h-16 w-16 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+              <ShieldCheck size={30} />
             </div>
-            <label className={`inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-sm transition-colors ${uploadingPhoto ? 'cursor-wait opacity-60' : 'cursor-pointer hover:border-teal-500 hover:bg-teal-50 hover:text-teal-700'}`}>
-              {uploadingPhoto ? <Loader2 className="animate-spin" size={15} /> : <Upload size={15} />}
-              <span>{uploadingPhoto ? 'Uploading...' : 'Change Photo'}</span>
-              <input type="file" accept="image/*" className="hidden" disabled={uploadingPhoto} onChange={handlePhotoUpload} />
-            </label>
-          </div>
-
-          <div className="text-center sm:text-left space-y-1">
-            <h1 className="text-lg font-bold text-slate-900">{profile.fullName}</h1>
-            <p className="text-xs font-semibold text-teal-700">Library Officer</p>
-            <p className="text-[11px] text-slate-500">Employee ID: {profile.employeeId} · Status: {profile.accountStatus}</p>
-            <p className="text-[11px] text-slate-500">{profile.department} • {profile.campus}</p>
-          </div>
-          <div className="ml-auto flex flex-wrap justify-center gap-2 sm:justify-end">
-            <button type="button" onClick={() => setEditing((value) => !value)} className="rounded bg-teal-700 px-3 py-2 font-semibold text-white hover:bg-teal-800">{editing ? 'Cancel' : 'Edit Profile'}</button>
-          </div>
-        </div>
-
-        {/* 1. 👤 Personal Information (Read-Only) */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center space-x-2">
-            <User size={16} className="text-teal-700" />
-            <h2 className="font-bold text-slate-900">Personal Information</h2>
-          </div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Full Name</label>
-              <input type="text" value={profile.fullName} onChange={(e) => setProfile({ ...profile, fullName: e.target.value })} disabled={!editing} className={`w-full border rounded-lg p-2 font-medium ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`} />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Employee ID</label>
-              <input type="text" value={profile.employeeId} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Gender</label>
-              <input type="text" value={profile.gender} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Date of Birth</label>
-              <input type="text" value={profile.dateOfBirth} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-          </div>
-        </div>
-
-        {/* 2. 💼 Employment Information (Read-Only) */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center space-x-2">
-            <Briefcase size={16} className="text-teal-700" />
-            <h2 className="font-bold text-slate-900">Employment Information</h2>
-            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200 flex items-center space-x-1 ml-auto">
-              <ShieldAlert size={12} />
-              <span>Managed by HR / Admin</span>
-            </span>
-          </div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Department</label>
-              <input type="text" value={profile.department} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Position</label>
-              <input type="text" value={profile.position} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Campus</label>
-              <input type="text" value={profile.campus} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Employee Status</label>
-              <input type="text" value={profile.employeeStatus} disabled className="w-full bg-slate-100 border border-slate-200 text-emerald-700 font-semibold rounded-lg p-2 cursor-not-allowed" />
-            </div>
-            <div>
-              <label className="block text-slate-500 font-medium mb-1">Employment Date</label>
-              <input type="text" value={profile.employmentDate} disabled className="w-full bg-slate-100 border border-slate-200 text-slate-600 rounded-lg p-2 cursor-not-allowed font-medium" />
-            </div>
-          </div>
-        </div>
-
-        {/* 3. 📞 Contact Information (Editable) */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Phone size={16} className="text-teal-700" />
-              <h2 className="font-bold text-slate-900">Contact Information</h2>
-            </div>
-            <span className="text-[10px] text-teal-700 font-semibold">Editable</span>
-          </div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Phone Number *</label>
-              <input
-                type="text"
-                value={profile.phoneNumber}
-                onChange={(e) => setProfile({ ...profile, phoneNumber: e.target.value })}
-                disabled={!editing}
-                className={`w-full border rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`}
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Email Address *</label>
-              <input
-                type="email"
-                value={profile.email}
-                onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                disabled={!editing}
-                className={`w-full border rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`}
-              />
-            </div>
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Alternative Phone</label>
-              <input
-                type="text"
-                value={profile.alternativePhone}
-                onChange={(e) => setProfile({ ...profile, alternativePhone: e.target.value })}
-                disabled={!editing}
-                className={`w-full border rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none ${editing ? 'border-slate-300 bg-white text-slate-800' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'}`}
-              />
-            </div>
-          </div>
-          <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
-            <button
-              onClick={handleSaveProfile}
-              disabled={saving}
-              hidden={!editing}
-              className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg font-semibold flex items-center space-x-2 transition-colors disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-              <span>Save Changes</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center space-x-2"><Briefcase size={16} className="text-teal-700" /><h2 className="font-bold text-slate-900">Account Information</h2></div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Info label="Username" value={profile.username} />
-            <Info label="Role" value="Library Officer" />
-            <Info label="Department" value="Library" />
-            <Info label="Campus" value={profile.campus} />
-            <Info label="Account Status" value={profile.accountStatus} tone="text-emerald-700" />
-            <Info label="Account Created" value={formatDate(profile.accountCreated)} />
-          </div>
-        </div>
-
-        {/* 🔐 4. Security / Change Password */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 bg-slate-50/70 border-b border-slate-200 flex items-center space-x-2">
-            <Lock size={16} className="text-teal-700" />
-            <h2 className="font-bold text-slate-900">Security - Change Password</h2>
-          </div>
-          <div className="grid grid-cols-1 gap-4 border-b border-slate-100 px-5 py-4 sm:grid-cols-3">
-            <Info label="Last Login" value={formatDateTime(profile.lastLogin)} />
-            <Info label="Password Last Changed" value={formatDateTime(profile.passwordChangedAt)} />
-            <Info label="Two-Factor Authentication" value={profile.twoFactorEnabled ? 'Enabled' : 'Not enabled'} />
-          </div>
-          <form onSubmit={handleChangePassword} className="p-5 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Current Password *</label>
-                <input
-                  type="password"
-                  required
-                  value={passwords.currentPassword}
-                  onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })}
-                  className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none"
-                />
+            <h1 className="mt-5 text-center text-2xl font-bold text-slate-900">Change Password</h1>
+            <p className="mt-1 text-center text-sm text-slate-500">You must update your password before continuing.</p>
+            {message.text && (
+              <div role="status" className={`mt-5 flex items-center gap-2 rounded-lg border p-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
+                {message.type === 'success' ? <CheckCircle size={17} /> : <AlertCircle size={17} />}
+                <span>{message.text}</span>
               </div>
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">New Password *</label>
-                <input
-                  type="password"
-                  required
-                  value={passwords.newPassword}
-                  onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
-                  className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none"
+            )}
+            <form onSubmit={handleChangePassword} className="mt-6 space-y-4">
+              {[
+                ['currentPassword', 'Current Password', 'Enter current password'],
+                ['newPassword', 'New Password', 'Enter new password'],
+                ['confirmPassword', 'Confirm New Password', 'Confirm new password']
+              ].map(([name, label, placeholder]) => (
+                <PasswordField
+                  key={name}
+                  name={name}
+                  label={label}
+                  placeholder={placeholder}
+                  value={passwords[name]}
+                  visible={visiblePasswords[name]}
+                  onChange={(value) => setPasswords((current) => ({ ...current, [name]: value }))}
+                  onToggle={() => setVisiblePasswords((current) => ({ ...current, [name]: !current[name] }))}
                 />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Confirm Password *</label>
-                <input
-                  type="password"
-                  required
-                  value={passwords.confirmPassword}
-                  onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })}
-                  className="w-full bg-white border border-slate-300 text-slate-800 rounded-lg p-2 focus:ring-1 focus:ring-teal-600 focus:outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end pt-2">
+              ))}
               <button
                 type="submit"
-                disabled={changingPass}
-                className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold flex items-center space-x-2 transition-colors disabled:opacity-50"
+                disabled={changingPassword}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
               >
-                {changingPass ? <Loader2 className="animate-spin" size={14} /> : <Lock size={14} />}
-                <span>Update Password</span>
+                {changingPassword && <Loader2 className="animate-spin" size={16} />}
+                {changingPassword ? 'Updating Password...' : 'Update Password'}
               </button>
+            </form>
+          </section>
+        ) : (
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm sm:p-7">
+            <div className="mb-7 flex flex-wrap items-center gap-4 border-b border-slate-100 pb-6">
+              {profile.profileImage ? (
+                <img
+                  src={profile.profileImage}
+                  alt="Profile"
+                  className="h-20 w-20 rounded-full border border-slate-200 object-cover"
+                />
+              ) : (
+                <UniversitySeal className="h-20 w-20 border border-slate-200 bg-white p-1" />
+              )}
+              <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 ${uploadingPhoto ? 'cursor-wait opacity-60' : ''}`}>
+                {uploadingPhoto ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
+                {uploadingPhoto ? 'Uploading...' : 'Change Profile Photo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  disabled={uploadingPhoto}
+                  onChange={handlePhotoUpload}
+                />
+              </label>
             </div>
-          </form>
-        </div>
 
+            <form onSubmit={handleSaveProfile} className="space-y-5">
+              <ProfileField
+                label="Full Name"
+                value={profile.fullName}
+                onChange={(value) => setProfile((current) => ({ ...current, fullName: value }))}
+                required
+              />
+              <ProfileField
+                label="Email Address"
+                type="email"
+                value={profile.email}
+                onChange={(value) => setProfile((current) => ({ ...current, email: value }))}
+                required
+              />
+              <ProfileField label="Role / Title" value={profile.role} disabled />
+              <ProfileField label="Department" value={profile.department} disabled />
+              <ProfileField
+                label="Phone Number"
+                type="tel"
+                value={profile.phoneNumber}
+                onChange={(value) => setProfile((current) => ({ ...current, phoneNumber: value }))}
+              />
+              <button
+                type="submit"
+                disabled={saving || uploadingPhoto}
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                {saving ? 'Saving Profile...' : 'Save Profile Changes'}
+              </button>
+            </form>
+          </section>
+        )}
       </div>
-    </div>
+    </main>
   );
 }
 
-function Info({ label, value, tone = 'text-slate-800' }) {
-  return <div><label className="block text-[10px] font-semibold text-slate-500 mb-1">{label}</label><p className={`font-semibold ${tone}`}>{value || 'Not provided'}</p></div>;
+function ProfileField({ label, value, onChange, type = 'text', disabled = false, required = false }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange?.(event.target.value)}
+        disabled={disabled}
+        required={required}
+        className={`w-full rounded-xl border px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+          disabled
+            ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+            : 'border-slate-200 bg-white text-slate-800'
+        }`}
+      />
+    </label>
+  );
+}
+
+function PasswordField({ name, label, placeholder, value, visible, onChange, onToggle }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
+      <span className="flex items-center rounded-xl border border-slate-200 bg-white px-3 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+        <LockKeyhole size={16} className="shrink-0 text-slate-400" />
+        <input
+          name={name}
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          autoComplete={name === 'currentPassword' ? 'current-password' : 'new-password'}
+          required
+          className="min-w-0 flex-1 border-0 bg-transparent px-3 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={`${visible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+          className="rounded p-1 text-slate-500 transition hover:text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500"
+        >
+          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </span>
+    </label>
+  );
 }

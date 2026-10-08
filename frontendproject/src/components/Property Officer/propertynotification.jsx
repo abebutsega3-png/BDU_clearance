@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { Trash2 } from 'lucide-react';
+import { usePropertyLanguage } from './propertyLanguage';
 
 const NOTIFICATIONS_API = 'http://localhost:3000/api/notifications';
 const PROPERTY_NOTIFICATION_TYPES = [
@@ -15,6 +16,7 @@ const PROPERTY_NOTIFICATION_TYPES = [
 ];
 
 export default function PropertyNotifications() {
+  const { t } = usePropertyLanguage();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -110,7 +112,7 @@ export default function PropertyNotifications() {
       {/* Header & Unread Counter Badge */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4">
         <div className="flex items-center space-x-2">
-          <h1 className="text-base font-bold text-slate-900">🔔 Notifications</h1>
+          <h1 className="text-base font-bold text-slate-900">🔔 {t('Notifications', 'ማሳወቂያዎች')}</h1>
           <span className="px-2 py-0.5 bg-teal-700 text-white font-bold rounded-full text-[11px]">
             {unreadCount}
           </span>
@@ -126,7 +128,7 @@ export default function PropertyNotifications() {
                 filter === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {tab}
+              {t(tab, { All: 'ሁሉም', Unread: 'ያልተነበቡ', Clearance: 'ክሊራንስ', Assets: 'ንብረቶች' }[tab])}
             </button>
           ))}
         </div>
@@ -134,10 +136,10 @@ export default function PropertyNotifications() {
 
       {/* Notifications List */}
       {loading ? (
-        <div className="text-center py-10 text-slate-500">Loading notifications...</div>
+        <div className="text-center py-10 text-slate-500">{t('Loading notifications...', 'ማሳወቂያዎችን በመጫን ላይ...')}</div>
       ) : filteredNotifications.length === 0 ? (
         <div className="text-center py-10 text-slate-400 bg-white rounded border border-slate-200">
-          No notifications found.
+          {t('No notifications found.', 'ምንም ማሳወቂያ አልተገኘም።')}
         </div>
       ) : (
         <div className="space-y-3">
@@ -180,13 +182,13 @@ export default function PropertyNotifications() {
                   onClick={() => handleActionClick(item)}
                   className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-semibold rounded shadow-sm text-[11px] transition-all whitespace-nowrap"
                 >
-                  {item.actionText || (item.relatedAssetId ? 'View Asset' : 'View Request')}
+                  {item.actionText || (item.relatedAssetId ? t('View Asset', 'ንብረት አሳይ') : t('View Request', 'ጥያቄ አሳይ'))}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDelete(item._id)}
-                  title="Delete notification"
-                  aria-label="Delete notification"
+                  title={t('Delete notification', 'ማሳወቂያውን ሰርዝ')}
+                  aria-label={t('Delete notification', 'ማሳወቂያውን ሰርዝ')}
                   className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 >
                   <Trash2 size={16} />

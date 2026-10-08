@@ -73,7 +73,8 @@ const departmentPreferenceForType = (type) => ({
   PENDING_CLEARANCE_REMINDER: ['pendingReviewReminder'],
   CLEARANCE_UPDATED: ['hrClearanceUpdate'],
   CLEARANCE_REQUEST_RETURNED: ['importantUpdates'],
-  CLEARANCE_APPROVED: ['importantUpdates'],
+  CLEARANCE_APPROVED: ['approvalNotifications'],
+  FINAL_HR_CLEARANCE_UPDATE: ['approvalNotifications'],
 }[type]);
 
 export const isDepartmentNotificationEnabled = (user, type) => {
@@ -252,6 +253,13 @@ export const getAllNotifications = async (req, res) => {
       await ensurePropertyNewRequestNotifications(req.user._id);
       await ensurePropertyPendingNotifications(req.user._id);
       filter.type = { $in: propertyNotificationTypes };
+      const preferences = req.user.notificationPreferences || {};
+      const disabledPropertyTypes = [
+        ...(preferences.newClearanceRequest === false ? ['NEW_CLEARANCE_REQUEST', 'CLEARANCE_READY_FOR_PROPERTY'] : []),
+        ...(preferences.requestResubmitted === false ? ['CLEARANCE_RESUBMITTED'] : []),
+        ...(preferences.actionRequired === false ? ['PROPERTY_PENDING_REMINDER', 'ACTION_REQUIRED', 'OBLIGATION_FOUND'] : []),
+      ];
+      if (disabledPropertyTypes.length) filter.type.$nin = disabledPropertyTypes;
     } else if (/^hr[ _]?officer$/i.test(role)) {
       filter.type = { $in: hrClearanceTypes };
     } else if (/^ict(?:[ _]?officer)?$/i.test(role)) {

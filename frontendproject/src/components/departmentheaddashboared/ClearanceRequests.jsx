@@ -838,7 +838,7 @@ export default function ClearanceRequests() {
 
                 {reviewStatus === 'Approved' && (
                   <button
-                    onClick={() => alert('Viewing clearance certificate...')}
+                    onClick={() => openDepartmentChecklist()}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors shadow-sm text-xs"
                   >
                     View Details
@@ -860,7 +860,7 @@ export default function ClearanceRequests() {
 
                 {reviewStatus === 'Completed' && (
                   <button
-                    onClick={() => alert('Viewing completed clearance details...')}
+                    onClick={() => openDepartmentChecklist()}
                     className="bg-slate-600 hover:bg-slate-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors shadow-sm text-xs"
                   >
                     View Details

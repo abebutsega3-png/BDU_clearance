@@ -1,8 +1,10 @@
 import bcrypt from 'bcrypt';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import Employee from '../models/employee.js';
 import Clearance from '../models/clearance.js';
 import Department from '../models/department.js';
+import { isDepartmentHead } from '../utils/roleHelpers.js';
 import Asset from '../models/propertyAsset.js';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -12,28 +14,27 @@ const isValidHouseNumber = (value) => /^[\p{L}\p{N}]+(?:[\s/#-]*[\p{L}\p{N}]+)*$
 const isValidGmailAddress = (value) => /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?@gmail\.com$/i.test(value);
 const isValidPhoneNumber = (value) => /^(?:09\d{8}|\+2519\d{8})$/.test(value);
 const normalizePhoneNumber = (value) => value.startsWith('+251') ? `0${value.slice(4)}` : value;
+const isValidGregorianDate = (value) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+};
+const formatLocalDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const isValidDateOfBirth = (value) => {
   if (!value) return true;
-
-  const dateOfBirth = new Date(value);
-  if (Number.isNaN(dateOfBirth.getTime())) return false;
+  if (!isValidGregorianDate(value)) return false;
 
   const today = new Date();
   const minimumDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
-  return dateOfBirth <= today && dateOfBirth <= minimumDate;
+  return value <= formatLocalDate(today) && value <= formatLocalDate(minimumDate);
 };
 const isValidEmploymentDate = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-
-  const employmentDate = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(employmentDate.getTime())) return false;
-
-  const [year, month, day] = value.split('-').map(Number);
-  if (employmentDate.getFullYear() !== year || employmentDate.getMonth() !== month - 1 || employmentDate.getDate() !== day) return false;
-
-  const today = new Date();
-  const todayValue = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return employmentDate <= todayValue;
+  if (!isValidGregorianDate(value)) return false;
+  return value <= '2025-12-31';
 };
 
 const findDepartmentByName = (name) => Department.findOne({
@@ -82,16 +83,17 @@ const addEmployee = async (req, res) => {
       });
     }
 
-    if (!isValidDateOfBirth(body.dateOfBirth)) {
-          if (!isValidEmploymentDate(body.employmentDate.trim())) {
-            return res.status(400).json({
-              success: false,
-              message: 'Employment Date must be a valid date and cannot be in the future.',
-            });
-          }
+    if (!isValidEmploymentDate(String(body.employmentDate).trim())) {
       return res.status(400).json({
         success: false,
-        message: 'Date of Birth must be valid and the employee must be at least 18 years old.',
+        message: 'Employment Date must be a valid Gregorian date no later than December 31, 2025.',
+      });
+    }
+
+    if (!isValidDateOfBirth(body.dateOfBirth)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date of Birth must be a valid Gregorian date and the employee must be at least 18 years old.',
       });
     }
 
@@ -171,19 +173,89 @@ const addEmployee = async (req, res) => {
 };
 
 const getEmployees = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database unavailable. Please check the MongoDB connection and try again.',
+    });
+  }
+
   try {
-    const employees = await Employee.find({}).select('-password').sort({ createdAt: -1 }).lean();
+    const employees = await Employee.find({})
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .maxTimeMS(15000)
+      .lean();
     return res.status(200).json({ success: true, employees });
   } catch (error) {
     console.error('Error in getEmployees:', error);
-    return res.status(500).json({ success: false, message: 'Server error while fetching employees.' });
+    const timedOut = error.code === 50 || (error.name === 'MongooseError' && /timed out/i.test(error.message));
+    return res.status(timedOut ? 503 : 500).json({
+      success: false,
+      message: timedOut
+        ? 'Employee query timed out. Please check the MongoDB connection and try again.'
+        : 'Unable to fetch employees from the database.',
+    });
+  }
+};
+
+const getEmployeeSummary = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database unavailable. Please check the MongoDB connection and try again.',
+    });
+  }
+
+  try {
+    const campuses = await Employee.aggregate([
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $eq: [{ $ifNull: ['$campus', ''] }, ''] },
+              'Unknown campus',
+              '$campus',
+            ],
+          },
+          total: { $sum: 1 },
+          active: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $toLower: { $ifNull: ['$status', ''] } }, 'active'] },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $sort: { total: -1, _id: 1 } },
+    ]).option({ maxTimeMS: 15000 });
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        totalEmployees: campuses.reduce((total, campus) => total + campus.total, 0),
+        activeEmployees: campuses.reduce((total, campus) => total + campus.active, 0),
+        campuses: campuses.map(({ _id, total }) => [_id, total]),
+      },
+    });
+  } catch (error) {
+    console.error('Error in getEmployeeSummary:', error);
+    const timedOut = error.code === 50 || (error.name === 'MongooseError' && /timed out/i.test(error.message));
+    return res.status(timedOut ? 503 : 500).json({
+      success: false,
+      message: timedOut
+        ? 'Employee summary query timed out. Please check the MongoDB connection and try again.'
+        : 'Unable to fetch employee summary from the database.',
+    });
   }
 };
 
 const getDepartmentEmployees = async (req, res) => {
   try {
-    const role = String(req.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-    if (role !== 'departmenthead') {
+    if (!isDepartmentHead(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Department Head access is required.' });
     }
 
@@ -300,10 +372,16 @@ const updateEmployee = async (req, res) => {
         message: 'House Number may contain letters, numbers, spaces, hyphens, slashes, and # only.',
       });
     }
+    if (updates.employmentDate !== undefined && !isValidEmploymentDate(String(updates.employmentDate).trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employment Date must be a valid Gregorian date no later than December 31, 2025.',
+      });
+    }
     if (updates.dateOfBirth !== undefined && !isValidDateOfBirth(updates.dateOfBirth)) {
       return res.status(400).json({
         success: false,
-        message: 'Date of Birth must be valid and the employee must be at least 18 years old.',
+        message: 'Date of Birth must be a valid Gregorian date and the employee must be at least 18 years old.',
       });
     }
     for (const field of ['phone', 'alternativePhone', 'emergencyPhone']) {
@@ -344,4 +422,4 @@ const deleteEmployee = async (req, res) => {
   }
 };
 
-export { addEmployee, getEmployees, getDepartmentEmployees, getEmployee, updateEmployee, deleteEmployee, upload };
+export { addEmployee, getEmployees, getEmployeeSummary, getDepartmentEmployees, getEmployee, updateEmployee, deleteEmployee, upload };

@@ -7,9 +7,11 @@ import {
   Award, PlusCircle, ChevronDown, Lock, AlertTriangle,
   FileBarChart, History
 } from 'lucide-react';
+import { useAdminLanguage } from './AdminLanguage';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { t } = useAdminLanguage();
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState('');
 
@@ -41,14 +43,14 @@ export default function AdminDashboard() {
   const recentEmployees = dashboard?.recentEmployees || [];
   const formatNumber = (value) => Number(value || 0).toLocaleString();
   const topCards = [
-    { title: 'Total Users', val: stats.totalUsers, sub: 'All system users', icon: <Users className="text-blue-600" size={18} />, bg: 'bg-blue-50' },
-    { title: 'Active Users', val: stats.activeUsers, sub: 'Active accounts', icon: <UserCheck className="text-emerald-600" size={18} />, bg: 'bg-emerald-50' },
-    { title: 'Inactive Users', val: stats.inactiveUsers, sub: 'Inactive accounts', icon: <UserX className="text-amber-500" size={18} />, bg: 'bg-amber-50' },
-    { title: 'Total Employees', val: stats.totalEmployees, sub: 'All employees', icon: <Users className="text-purple-600" size={18} />, bg: 'bg-purple-50' },
-    { title: 'Total Clearance Requests', val: stats.totalClearanceRequests, sub: 'All requests', icon: <FileText className="text-blue-500" size={18} />, bg: 'bg-blue-50' },
-    { title: 'Pending Requests', val: stats.pendingRequests, sub: 'Awaiting action', icon: <Clock className="text-amber-500" size={18} />, bg: 'bg-amber-50' },
-    { title: 'Completed Clearances', val: stats.completedClearances, sub: 'Successfully completed', icon: <CheckCircle2 className="text-teal-600" size={18} />, bg: 'bg-teal-50' },
-    { title: 'Rejected Requests', val: stats.rejectedRequests, sub: 'Rejected requests', icon: <XCircle className="text-red-500" size={18} />, bg: 'bg-red-50' },
+    { title: t('Total Users'), val: stats.totalUsers, sub: t('All system users'), icon: <Users className="text-blue-600" size={18} />, bg: 'bg-blue-50' },
+    { title: t('Active Users'), val: stats.activeUsers, sub: t('Active accounts'), icon: <UserCheck className="text-emerald-600" size={18} />, bg: 'bg-emerald-50' },
+    { title: t('Inactive Users'), val: stats.inactiveUsers, sub: t('Inactive accounts'), icon: <UserX className="text-amber-500" size={18} />, bg: 'bg-amber-50' },
+    { title: t('Total Employees'), val: stats.totalEmployees, sub: t('All employees'), icon: <Users className="text-purple-600" size={18} />, bg: 'bg-purple-50' },
+    { title: t('Total Clearance Requests'), val: stats.totalClearanceRequests, sub: t('All requests'), icon: <FileText className="text-blue-500" size={18} />, bg: 'bg-blue-50' },
+    { title: t('Pending Requests'), val: stats.pendingRequests, sub: t('Awaiting action'), icon: <Clock className="text-amber-500" size={18} />, bg: 'bg-amber-50' },
+    { title: t('Completed Clearances'), val: stats.completedClearances, sub: t('Successfully completed'), icon: <CheckCircle2 className="text-teal-600" size={18} />, bg: 'bg-teal-50' },
+    { title: t('Rejected Requests'), val: stats.rejectedRequests, sub: t('Rejected requests'), icon: <XCircle className="text-red-500" size={18} />, bg: 'bg-red-50' },
   ];
 
   const recentActivities = dashboard?.recentActivities?.length
@@ -64,7 +66,7 @@ export default function AdminDashboard() {
       
       {/* HEADER */}
       <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sm:px-6">
-        <h1 className="text-lg font-bold text-slate-800">System Admin Dashboard</h1>
+        <h1 className="text-lg font-bold text-slate-800">{t('System Admin Dashboard')}</h1>
         <div className="flex items-center">
           <div className="flex items-center space-x-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded text-slate-600">
             <span>{new Date().toLocaleDateString()}</span>
@@ -96,35 +98,35 @@ export default function AdminDashboard() {
           {/* User Management Overview */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800">User Management Overview</h3>
-              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">View All</a>
+              <h3 className="font-bold text-slate-800">{t('User Management Overview')}</h3>
+              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">{t('View All')}</a>
             </div>
             <div className="space-y-2.5 text-[11px]">
-              <OverviewRow icon={<Shield size={14} className="text-purple-600" />} label="System Admins" val={userManagement.systemAdmins} />
-              <OverviewRow icon={<Users size={14} className="text-blue-600" />} label="HR Officers" val={userManagement.hrOfficers} />
-              <OverviewRow icon={<Briefcase size={14} className="text-amber-500" />} label="Department Officers" val={userManagement.departmentOfficers} />
-              <OverviewRow icon={<Users size={14} className="text-emerald-500" />} label="Employees (Users)" val={userManagement.employees} />
-              <OverviewRow icon={<CheckCircle2 size={14} className="text-emerald-600" />} label="Active Accounts" val={userManagement.activeAccounts} isGreen />
-              <OverviewRow icon={<XCircle size={14} className="text-red-500" />} label="Inactive Accounts" val={userManagement.inactiveAccounts} isRed />
+              <OverviewRow icon={<Shield size={14} className="text-purple-600" />} label={t('System Admins')} val={userManagement.systemAdmins} />
+              <OverviewRow icon={<Users size={14} className="text-blue-600" />} label={t('HR Officers')} val={userManagement.hrOfficers} />
+              <OverviewRow icon={<Briefcase size={14} className="text-amber-500" />} label={t('Department Officers')} val={userManagement.departmentOfficers} />
+              <OverviewRow icon={<Users size={14} className="text-emerald-500" />} label={t('Employees (Users)')} val={userManagement.employees} />
+              <OverviewRow icon={<CheckCircle2 size={14} className="text-emerald-600" />} label={t('Active Accounts')} val={userManagement.activeAccounts} isGreen />
+              <OverviewRow icon={<XCircle size={14} className="text-red-500" />} label={t('Inactive Accounts')} val={userManagement.inactiveAccounts} isRed />
             </div>
           </div>
 
           {/* Clearance Requests Overview Chart */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800">Clearance Requests Overview</h3>
-              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">View All</a>
+              <h3 className="font-bold text-slate-800">{t('Clearance Requests Overview')}</h3>
+              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">{t('View All')}</a>
             </div>
             <div className="flex items-center space-x-4">
               <div className="w-28 h-28 rounded-full border-[14px] border-emerald-500 border-t-amber-400 border-r-blue-500 flex items-center justify-center shrink-0">
-                <span className="text-[10px] font-bold text-center">{formatNumber(stats.totalClearanceRequests)}<br/><span className="text-[8px] font-normal text-slate-400">Total</span></span>
+                <span className="text-[10px] font-bold text-center">{formatNumber(stats.totalClearanceRequests)}<br/><span className="text-[8px] font-normal text-slate-400">{t('Total')}</span></span>
               </div>
               <div className="space-y-1.5 text-[10px] flex-1">
-                <StatusRow color="bg-amber-400" label="Pending" value={stats.pendingRequests} total={stats.totalClearanceRequests} />
-                <StatusRow color="bg-blue-500" label="In Progress" value={stats.inProgressRequests} total={stats.totalClearanceRequests} />
-                <StatusRow color="bg-emerald-500" label="Completed" value={stats.completedClearances} total={stats.totalClearanceRequests} />
-                <StatusRow color="bg-red-500" label="Rejected" value={stats.rejectedRequests} total={stats.totalClearanceRequests} />
-                <StatusRow color="bg-purple-500" label="Overdue" value={stats.overdueRequests} total={stats.totalClearanceRequests} />
+                <StatusRow color="bg-amber-400" label={t('Pending')} value={stats.pendingRequests} total={stats.totalClearanceRequests} />
+                <StatusRow color="bg-blue-500" label={t('In Progress')} value={stats.inProgressRequests} total={stats.totalClearanceRequests} />
+                <StatusRow color="bg-emerald-500" label={t('Completed')} value={stats.completedClearances} total={stats.totalClearanceRequests} />
+                <StatusRow color="bg-red-500" label={t('Rejected')} value={stats.rejectedRequests} total={stats.totalClearanceRequests} />
+                <StatusRow color="bg-purple-500" label={t('Overdue')} value={stats.overdueRequests} total={stats.totalClearanceRequests} />
               </div>
             </div>
           </div>
@@ -132,16 +134,16 @@ export default function AdminDashboard() {
           {/* Organization Overview */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800">Organization Overview</h3>
-              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">View All</a>
+              <h3 className="font-bold text-slate-800">{t('Organization Overview')}</h3>
+              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">{t('View All')}</a>
             </div>
             <div className="space-y-2.5 text-[11px]">
-              <OverviewRow icon={<Building2 size={14} className="text-blue-600" />} label="Campuses" val={organization.campuses} />
-              <OverviewRow icon={<GraduationCap size={14} className="text-purple-600" />} label="Colleges / Institutes" val={organization.collegesInstitutes} />
-              <OverviewRow icon={<GitFork size={14} className="text-indigo-600" />} label="Departments" val={organization.departments} />
-              <OverviewRow icon={<Users size={14} className="text-teal-600" />} label="Sections / Teams" val={organization.sectionsTeams} />
-              <OverviewRow icon={<Briefcase size={14} className="text-amber-600" />} label="Positions" val={organization.positions} />
-              <OverviewRow icon={<Award size={14} className="text-rose-500" />} label="Job Grades" val={organization.jobGrades} />
+              <OverviewRow icon={<Building2 size={14} className="text-blue-600" />} label={t('Campuses')} val={organization.campuses} />
+              <OverviewRow icon={<GraduationCap size={14} className="text-purple-600" />} label={t('Colleges / Institutes')} val={organization.collegesInstitutes} />
+              <OverviewRow icon={<GitFork size={14} className="text-indigo-600" />} label={t('Departments')} val={organization.departments} />
+              <OverviewRow icon={<Users size={14} className="text-teal-600" />} label={t('Sections / Teams')} val={organization.sectionsTeams} />
+              <OverviewRow icon={<Briefcase size={14} className="text-amber-600" />} label={t('Positions')} val={organization.positions} />
+              <OverviewRow icon={<Award size={14} className="text-rose-500" />} label={t('Job Grades')} val={organization.jobGrades} />
             </div>
           </div>
 
@@ -153,11 +155,11 @@ export default function AdminDashboard() {
           {/* Recent System Activity */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800">Recent System Activity</h3>
-              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">View All</a>
+              <h3 className="font-bold text-slate-800">{t('Recent System Activity')}</h3>
+              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">{t('View All')}</a>
             </div>
             <div className="space-y-3">
-              {recentActivities.length === 0 && <p className="text-slate-400 py-3">No recent activity.</p>}
+              {recentActivities.length === 0 && <p className="text-slate-400 py-3">{t('No recent activity.')}</p>}
               {recentActivities.map((act, idx) => (
                 <div key={idx} className="flex items-center justify-between text-[10px]">
                   <div className="flex items-center space-x-2">
@@ -173,35 +175,35 @@ export default function AdminDashboard() {
           {/* Recently added records */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800">Recently Added</h3>
-              <button type="button" onClick={() => navigate('/admin/users')} className="text-blue-600 text-[10px] font-medium hover:underline">View Users</button>
+              <h3 className="font-bold text-slate-800">{t('Recently Added')}</h3>
+              <button type="button" onClick={() => navigate('/admin/users')} className="text-blue-600 text-[10px] font-medium hover:underline">{t('View Users')}</button>
             </div>
             <div className="space-y-2 text-[10px]">
-              {recentUsers.length === 0 && <p className="text-slate-400 py-1">No users added yet.</p>}
+              {recentUsers.length === 0 && <p className="text-slate-400 py-1">{t('No users added yet.')}</p>}
               {recentUsers.map((user) => (
                 <div key={user._id} className="flex items-center justify-between border-b border-slate-50 pb-2 last:border-none">
                   <div>
-                    <p className="font-semibold text-slate-700">{user.name || user.username || 'Unnamed user'}</p>
-                    <p className="text-slate-400">{user.role || 'No role'}</p>
+                    <p className="font-semibold text-slate-700">{user.name || user.username || t('Unnamed user')}</p>
+                    <p className="text-slate-400">{user.role || t('No role')}</p>
                   </div>
-                  <span className="text-slate-400">User</span>
+                  <span className="text-slate-400">{t('User')}</span>
                 </div>
               ))}
             </div>
             <div className="border-t border-slate-100 pt-2">
               <div className="flex justify-between items-center mb-2">
-                <h4 className="font-semibold text-slate-700">Employees</h4>
-                <button type="button" onClick={() => navigate('/admin/employees')} className="text-blue-600 text-[10px] font-medium hover:underline">View Employees</button>
+                <h4 className="font-semibold text-slate-700">{t('Employees')}</h4>
+                <button type="button" onClick={() => navigate('/admin/employees')} className="text-blue-600 text-[10px] font-medium hover:underline">{t('View Employees')}</button>
               </div>
               <div className="space-y-2 text-[10px]">
-                {recentEmployees.length === 0 && <p className="text-slate-400 py-1">No employees added yet.</p>}
+                {recentEmployees.length === 0 && <p className="text-slate-400 py-1">{t('No employees added yet.')}</p>}
                 {recentEmployees.map((employee) => (
                   <div key={employee._id} className="flex items-center justify-between border-b border-slate-50 pb-2 last:border-none">
                     <div>
                       <p className="font-semibold text-slate-700">{employee.fullName}</p>
                       <p className="text-slate-400">{employee.employeeId}</p>
                     </div>
-                    <span className="text-slate-400">Employee</span>
+                    <span className="text-slate-400">{t('Employee')}</span>
                   </div>
                 ))}
               </div>
@@ -211,30 +213,30 @@ export default function AdminDashboard() {
           {/* User Activity / Security */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-slate-800">User Activity / Security</h3>
-              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">View All</a>
+              <h3 className="font-bold text-slate-800">{t('User Activity / Security')}</h3>
+              <a href="#" className="text-blue-600 text-[10px] font-medium hover:underline">{t('View All')}</a>
             </div>
             <div className="space-y-2 text-[10px]">
-              <SecurityRow icon={<Clock size={14} className="text-amber-500" />} label="Last Login (System Admin)" val={security.lastLogin} />
-              <SecurityRow icon={<AlertTriangle size={14} className="text-red-500" />} label="Failed Login Attempts (Today)" val={security.failedLoginAttemptsToday} isBold />
-              <SecurityRow icon={<Lock size={14} className="text-blue-500" />} label="Password Reset Requests (Today)" val={security.passwordResetRequestsToday} isBold />
-              <SecurityRow icon={<UserCheck size={14} className="text-emerald-500" />} label="Recently Activated Accounts" val={security.recentlyActivatedAccounts} isBold />
-              <SecurityRow icon={<UserX size={14} className="text-rose-500" />} label="Recently Deactivated Accounts" val={security.recentlyDeactivatedAccounts} isBold />
+              <SecurityRow icon={<Clock size={14} className="text-amber-500" />} label={t('Last Login (System Admin)')} val={security.lastLogin} />
+              <SecurityRow icon={<AlertTriangle size={14} className="text-red-500" />} label={t('Failed Login Attempts (Today)')} val={security.failedLoginAttemptsToday} isBold />
+              <SecurityRow icon={<Lock size={14} className="text-blue-500" />} label={t('Password Reset Requests (Today)')} val={security.passwordResetRequestsToday} isBold />
+              <SecurityRow icon={<UserCheck size={14} className="text-emerald-500" />} label={t('Recently Activated Accounts')} val={security.recentlyActivatedAccounts} isBold />
+              <SecurityRow icon={<UserX size={14} className="text-rose-500" />} label={t('Recently Deactivated Accounts')} val={security.recentlyDeactivatedAccounts} isBold />
             </div>
           </div>
 
           {/* Quick Actions */}
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-2">Quick Actions</h3>
+            <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-2">{t('Quick Actions')}</h3>
             <div className="grid grid-cols-3 gap-2">
-              <ActionButton icon={<PlusCircle size={16} className="text-blue-600" />} title="Create User" onClick={() => navigate('/admin/add-user')} />
-              <ActionButton icon={<Users size={16} className="text-blue-600" />} title="Manage Users" onClick={() => navigate('/admin/users')} />
-              <ActionButton icon={<UserCheck size={16} className="text-emerald-600" />} title="Manage Employees" onClick={() => navigate('/admin/employees')} />
-              <ActionButton icon={<Shield size={16} className="text-purple-600" />} title="Manage Roles" onClick={() => navigate('/admin/roles-permissions')} />
-              <ActionButton icon={<Building2 size={16} className="text-blue-600" />} title="Manage Departments" onClick={() => navigate('/admin/departments')} />
-              <ActionButton icon={<GitFork size={16} className="text-amber-500" />} title="Clearance Steps" onClick={() => navigate('/admin/clearance-steps')} />
-              <ActionButton icon={<FileBarChart size={16} className="text-slate-700" />} title="View Reports" onClick={() => navigate('/admin/reports')} />
-              <ActionButton icon={<History size={16} className="text-slate-700" />} title="Audit Logs" onClick={() => navigate('/admin/audit-logs')} />
+              <ActionButton icon={<PlusCircle size={16} className="text-blue-600" />} title={t('Create User')} onClick={() => navigate('/admin/add-user')} />
+              <ActionButton icon={<Users size={16} className="text-blue-600" />} title={t('Manage Users')} onClick={() => navigate('/admin/users')} />
+              <ActionButton icon={<UserCheck size={16} className="text-emerald-600" />} title={t('Manage Employees')} onClick={() => navigate('/admin/employees')} />
+              <ActionButton icon={<Shield size={16} className="text-purple-600" />} title={t('Manage Roles')} onClick={() => navigate('/admin/roles-permissions')} />
+              <ActionButton icon={<Building2 size={16} className="text-blue-600" />} title={t('Manage Departments')} onClick={() => navigate('/admin/departments')} />
+              <ActionButton icon={<GitFork size={16} className="text-amber-500" />} title={t('Clearance Steps')} onClick={() => navigate('/admin/clearance-steps')} />
+              <ActionButton icon={<FileBarChart size={16} className="text-slate-700" />} title={t('View Reports')} onClick={() => navigate('/admin/reports')} />
+              <ActionButton icon={<History size={16} className="text-slate-700" />} title={t('Audit Logs')} onClick={() => navigate('/admin/audit-logs')} />
             </div>
           </div>
 

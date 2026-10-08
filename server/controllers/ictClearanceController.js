@@ -295,6 +295,47 @@ const getIctClearanceRequests = async (req, res) => {
   }
 };
 
+const syncReturnedIctAssets = async ({ assetsIssued, request, officerName, remarks }) => {
+  if (!Array.isArray(assetsIssued)) return;
+
+  const employeeId = String(request.employee?.employeeId || "").trim();
+  const assetActions = assetsIssued
+    .map((item) => ({
+      assetId: String(item.assetId || item.assetTag || "").trim().toUpperCase(),
+      status: item.isReturned ? "Returned" : String(item.status || "").trim(),
+    }))
+    .filter((item) => item.assetId && ["Returned", "Damaged", "Lost"].includes(item.status));
+
+  for (const action of assetActions) {
+    const asset = await ICTAsset.findOne({ assetId: action.assetId });
+    if (!asset || asset.assetStatus !== "Assigned") continue;
+
+    const assignedEmployeeId = String(asset.currentAssignment?.employeeId || "").trim();
+    if (employeeId && assignedEmployeeId && assignedEmployeeId !== employeeId) {
+      const error = new Error(`Asset ${action.assetId} is assigned to a different employee.`);
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const previousAssignment = asset.currentAssignment || {};
+    asset.assetStatus = action.status;
+    if (action.status === "Damaged" || action.status === "Lost") {
+      asset.condition = action.status;
+    }
+    asset.history.push({
+      action: "RETURNED",
+      employeeId: previousAssignment.employeeId || employeeId || "N/A",
+      employeeName: previousAssignment.employeeName || request.employee?.fullName || "N/A",
+      department: previousAssignment.department || request.employee?.department || "N/A",
+      condition: action.status === "Returned" ? asset.condition : action.status,
+      performedBy: officerName,
+      notes: `ICT clearance ${request.clearanceId}: ${action.status}. ${remarks || ""}`.trim(),
+    });
+    asset.currentAssignment = undefined;
+    await asset.save();
+  }
+};
+
 // 2. የክሊራንስ ጥያቄ ውሳኔ መስጫ (Approve / Return with Remarks)
 const processIctClearanceRequest = async (req, res) => {
   try {
@@ -323,6 +364,12 @@ const processIctClearanceRequest = async (req, res) => {
         message: "ICT clearance cannot be approved while an ICT asset is outstanding.",
       });
     }
+    if (["Approved", "Returned"].includes(finalStatus) && !String(remarks || "").trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Officer remarks are required to complete ICT clearance review.",
+      });
+    }
 
     const linkedIds = [request.clearanceId, request.requestId]
       .map((value) => String(value || '').trim())
@@ -344,6 +391,14 @@ const processIctClearanceRequest = async (req, res) => {
       });
     }
 
+    const officerName = req.user?.fullName || req.user?.name || "ICT Officer";
+    await syncReturnedIctAssets({
+      assetsIssued: Array.isArray(assetsIssued) ? assetsIssued : reviewAssets,
+      request,
+      officerName,
+      remarks,
+    });
+
     request.status = finalStatus;
     request.remarks = remarks || request.remarks || "";
     request.returnReason = returnReason || (finalStatus === "Returned" ? request.remarks : request.returnReason || "");
@@ -352,7 +407,7 @@ const processIctClearanceRequest = async (req, res) => {
     if (ictChecklist) request.ictChecklist = ictChecklist;
     request.processedBy = {
       officerId: req.user?._id || null,
-      officerName: req.user?.fullName || req.user?.name || "ICT Officer",
+      officerName,
       processedAt: new Date(),
     };
 
@@ -422,9 +477,9 @@ const processIctClearanceRequest = async (req, res) => {
       data: request,
     });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: "ውሳኔውን ማስቀመጥ አልተቻለም",
+      message: error.statusCode === 409 ? error.message : "ውሳኔውን ማስቀመጥ አልተቻለም",
       error: error.message,
     });
   }

@@ -3,6 +3,7 @@ import { ArrowRight, CalendarDays, ClipboardList, Info, Save, Send } from 'lucid
 import { useLocation, useNavigate } from 'react-router-dom';
 import { createClearance } from '../../until/clearanceHelper';
 import { fetchEmployees } from '../../until/EmployeeHelper';
+import { fetchActiveSeparationTypes } from '../../until/separationTypeHelper';
 
 const defaultRequiredOffices = ['HR Office', 'Library', 'Finance', 'Department', 'Transport Office'];
 
@@ -37,11 +38,28 @@ export default function AddClearance() {
 	const [form, setForm] = useState(initialForm);
 	const [message, setMessage] = useState('');
 	const [employees, setEmployees] = useState([]);
+	const [separationTypes, setSeparationTypes] = useState([]);
+	const [loadingSeparationTypes, setLoadingSeparationTypes] = useState(true);
 	const [requiredOffices, setRequiredOffices] = useState(defaultRequiredOffices);
 	const [submitting, setSubmitting] = useState(false);
 
 	useEffect(() => {
 		fetchEmployees().then(setEmployees).catch(() => setMessage('Unable to load employees.'));
+	}, []);
+
+	useEffect(() => {
+		fetchActiveSeparationTypes()
+			.then((types) => {
+				setSeparationTypes(types);
+				setForm((previous) => ({
+					...previous,
+					reason: types.includes(previous.reason) ? previous.reason : types[0] || '',
+				}));
+			})
+			.catch((error) => {
+				setMessage(error.response?.data?.message || error.message || 'Unable to load active separation types.');
+			})
+			.finally(() => setLoadingSeparationTypes(false));
 	}, []);
 
 	const handleChange = (event) => {
@@ -65,6 +83,10 @@ export default function AddClearance() {
 
 	const handleSubmit = async (event) => {
 		event.preventDefault();
+		if (!separationTypes.includes(form.reason)) {
+			setMessage('Select an active clearance reason before submitting.');
+			return;
+		}
 		setSubmitting(true);
 		setMessage('');
 		try {
@@ -117,7 +139,7 @@ export default function AddClearance() {
 						<section>
 							<h2 className="mb-4 flex items-center gap-3 text-[11px] font-bold text-blue-600"><span>Clearance Details</span><span className="h-px flex-1 bg-slate-200" /></h2>
 							<div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-								<Field label="Clearance Reason" required><SelectField name="reason" value={form.reason} onChange={handleChange} required><option value="">Select Reason</option><option>Resignation</option><option>Retirement</option><option>Contract End</option><option>Dismissal / Termination</option><option>Transfer to Another Institution</option><option>Internal Transfer</option><option>Study Leave</option><option>End of Temporary Assignment</option><option>Other</option></SelectField></Field>
+								<Field label="Clearance Reason" required><SelectField name="reason" value={form.reason} onChange={handleChange} required><option value="">{loadingSeparationTypes ? 'Loading reasons...' : 'Select Reason'}</option>{separationTypes.map((type) => <option key={type} value={type}>{type}</option>)}</SelectField>{!loadingSeparationTypes && separationTypes.length === 0 && <p className="mt-1 text-[10px] text-amber-700">No active separation types are available. Add one in HR Separation Types before creating a request.</p>}</Field>
 								<Field label="Last Working Date" required><DateField name="lastWorkingDate" value={form.lastWorkingDate} onChange={handleChange} required /></Field>
 								<Field label="Relieving Date (if any)"><DateField name="relievingDate" value={form.relievingDate} onChange={handleChange} /></Field>
 								<Field label="Request Date"><DateField name="requestDate" value={form.requestDate} onChange={handleChange} /></Field>

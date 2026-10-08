@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/authContext';
 import { changeMyPassword, fetchMyProfile, updateMyProfile } from '../../until/MyprofileHelper';
 import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
+import UniversitySeal from '../UniversitySeal';
 import { 
-  User, Briefcase, ShieldCheck, Lock, Clock, Edit, 
-  Upload, Bell
+  User, Briefcase, ShieldCheck, Lock, Clock, Edit,
+  Upload, Bell, ArrowLeft, Eye, EyeOff
 } from 'lucide-react';
 
 export default function UserProfile() {
   const { user, login } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const isEmployeeProfile = pathname === '/employee/profile';
-  const [activeTab, setActiveTab] = useState('personal');
+  const [activeTab, setActiveTab] = useState(() => new URLSearchParams(search).get('tab') === 'password' ? 'password' : 'personal');
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -22,13 +23,13 @@ export default function UserProfile() {
   const [photoSaving, setPhotoSaving] = useState(false);
 
   const defaultProfile = {
-    fullName: "Meseret Alemu",
+    fullName: user?.name || "HR Officer",
     employeeId: "BDU-HR-0007",
     gender: "Female",
     dateOfBirth: "April 16, 1992",
-    phoneNumber: "+251 91 234 5678",
-    email: "hr.officer@bdu.edu.et",
-    department: "Human Resources",
+    phoneNumber: user?.phoneNumber || "",
+    email: user?.email || "",
+    department: "Not assigned",
     position: "HR Officer",
     jobGrade: "Grade 8",
     employmentType: "Full Time",
@@ -39,7 +40,7 @@ export default function UserProfile() {
     workEmail: "hr.officer@bdu.edu.et",
     officeLocation: "HR Office, Room 203",
     aboutMe: "Dedicated HR professional with strong experience in employee relations, HR operations, and organizational development. Committed to supporting the university's mission by fostering a positive and productive work environment.",
-    role: "HR Officer",
+    role: user?.role || "HR Officer",
     accountStatus: "Active",
     lastLogin: "May 24, 2024 10:30 AM",
     accountCreated: "January 15, 2021"
@@ -49,20 +50,32 @@ export default function UserProfile() {
   useEffect(() => {
     if (!user?._id) return;
     fetchMyProfile(user._id).then((profile) => {
-      setUserData((current) => ({ ...current, ...profile, fullName: profile.name || profile.fullName || current.fullName, email: profile.email || current.email, role: profile.role || current.role }));
+      setUserData((current) => ({
+        ...current,
+        ...profile,
+        fullName: profile.name || profile.fullName || current.fullName,
+        email: profile.email || current.email,
+        phoneNumber: profile.phoneNumber || profile.alternativePhone || current.phoneNumber,
+        position: profile.position || profile.role || current.position,
+        department: profile.department || current.department,
+        role: profile.role || current.role,
+      }));
       setPhotoPreview(profile.profileImage || profile.avatar || '');
     }).catch(() => setMessage('Unable to load profile data.'));
   }, [user?._id]);
 
   const updateField = (field, value) => setUserData((current) => ({ ...current, [field]: value }));
-  const saveProfile = async () => {
+  const saveProfile = async (event) => {
+    event?.preventDefault?.();
     if (!user?._id) return;
     setSaving(true);
     try {
-      const response = await updateMyProfile(user._id, { name: userData.fullName, email: userData.email, department: userData.department });
+      const response = await updateMyProfile(user._id, { name: userData.fullName, email: userData.email, phoneNumber: userData.phoneNumber });
       const updated = response.data || response;
-      setUserData((current) => ({ ...current, ...updated, fullName: updated.name || updated.fullName || current.fullName }));
-      login({ ...user, ...updated, name: updated.name || userData.fullName });
+      const profile = updated.data || updated;
+      const savedProfile = { ...profile, name: profile.name || userData.fullName };
+      setUserData((current) => ({ ...current, ...savedProfile, fullName: savedProfile.name, email: savedProfile.email || current.email, phoneNumber: savedProfile.phoneNumber || current.phoneNumber }));
+      login({ ...user, ...savedProfile, name: savedProfile.name });
       setEditing(false);
       setMessage('Profile updated successfully.');
     } catch (error) {
@@ -94,8 +107,9 @@ export default function UserProfile() {
       try {
         const response = await updateMyProfile(user._id, { profileImage: image });
         const updated = response.data || response;
-        setUserData((current) => ({ ...current, ...updated }));
-        login({ ...user, ...updated, profileImage: image });
+        const profile = updated.data || updated;
+        setUserData((current) => ({ ...current, ...profile }));
+        login({ ...user, ...profile, profileImage: image });
         setMessage('Profile photo updated successfully.');
       } catch (error) {
         setMessage(error.response?.data?.message || 'Unable to update profile photo.');
@@ -106,6 +120,60 @@ export default function UserProfile() {
     reader.onerror = () => setMessage('Unable to read the selected image.');
     reader.readAsDataURL(file);
   };
+
+  if (!isEmployeeProfile) {
+    return (
+      <div className={activeTab === 'password' ? 'w-full' : 'mx-auto w-full max-w-[520px] px-4 py-7 text-slate-900 sm:px-0'}>
+        {activeTab === 'password' ? <HRPasswordPanel /> : (
+          <form onSubmit={saveProfile} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+            <div className="mb-5 border-b border-slate-100 pb-5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-indigo-600">Account</p>
+              <h1 className="mt-2 text-2xl font-bold text-slate-900">Profile</h1>
+              <p className="mt-1 text-sm text-slate-500">Your authenticated HR account details.</p>
+            </div>
+
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-100 bg-slate-50">
+                {photoPreview ? <img src={photoPreview} alt="Profile" className="h-full w-full object-cover" /> : <UniversitySeal className="h-14 w-14" />}
+              </div>
+              <label className={`inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 ${photoSaving ? 'pointer-events-none opacity-60' : ''}`}>
+                <Upload size={15} /> {photoSaving ? 'Uploading...' : 'Change Profile Photo'}
+                <input type="file" accept="image/jpeg,image/png,image/gif" onChange={handlePhotoChange} className="sr-only" disabled={photoSaving} />
+              </label>
+            </div>
+
+            <div className="space-y-4">
+              <label className="block text-sm font-medium text-slate-700">
+                Full Name
+                <input value={userData.fullName} onChange={(event) => updateField('fullName', event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Email Address
+                <input type="email" value={userData.email} onChange={(event) => updateField('email', event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Role / Title
+                <input value={userData.position || userData.role || 'HR Officer'} readOnly className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm font-normal text-slate-500" />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Department
+                <input value={userData.department || 'Not assigned'} readOnly className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm font-normal text-slate-500" />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Phone Number
+                <input type="tel" value={userData.phoneNumber} onChange={(event) => updateField('phoneNumber', event.target.value)} placeholder="Enter phone number" className="mt-1.5 block w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-normal text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </label>
+            </div>
+
+            {message && <p role="status" className="mt-4 text-sm text-slate-600">{message}</p>}
+            <button type="submit" disabled={saving} className="mt-5 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60">
+              {saving ? 'Saving...' : 'Save Profile Changes'}
+            </button>
+          </form>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 text-xs font-sans pb-10">
@@ -334,6 +402,90 @@ function ProfileField({ label, value, editing, onChange }) {
       <span className="text-slate-400 mr-2">:</span>
       {editing ? <input value={value || ''} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 font-medium text-slate-800 outline-none focus:border-blue-500" /> : <span className="font-medium text-slate-800">{value || '-'}</span>}
     </div>
+  );
+}
+
+function HRPasswordPanel() {
+  const { user } = useAuth();
+  const [values, setValues] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [visibleFields, setVisibleFields] = useState({});
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (values.newPassword !== values.confirmPassword) {
+      setMessage('New passwords do not match.');
+      return;
+    }
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const result = await changeMyPassword(user?._id, {
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+      });
+      setMessage(result.message || 'Password changed successfully.');
+      setValues({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Unable to change password.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <main className="flex min-h-[calc(100vh-72px)] items-start justify-center bg-slate-50 px-4 py-6 sm:px-6">
+      <section className="w-full max-w-md rounded-xl border border-slate-100 bg-white p-5 shadow-lg sm:p-6">
+        <Link to="/hr-office" className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 transition hover:text-indigo-700">
+          <ArrowLeft size={15} /> Back to Dashboard
+        </Link>
+        <div className="mt-4 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+            <ShieldCheck size={23} />
+          </span>
+          <h1 className="mt-3 text-lg font-bold text-slate-900">Change Password</h1>
+          <p className="mt-1 text-xs text-slate-500">Update your password to keep your account secure.</p>
+        </div>
+        <form onSubmit={submit} className="mt-5 space-y-3.5">
+          {[
+            ['currentPassword', 'Current Password', 1, 'current-password'],
+            ['newPassword', 'New Password', 6, 'new-password'],
+            ['confirmPassword', 'Confirm New Password', 6, 'new-password'],
+          ].map(([name, label, minLength, autoComplete]) => (
+            <label key={name} className="block text-[11px] font-semibold text-slate-700">
+              {label}
+              <span className="relative mt-1 block">
+                <Lock size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  name={name}
+                  type={visibleFields[name] ? 'text' : 'password'}
+                  value={values[name]}
+                  onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))}
+                  required
+                  minLength={minLength}
+                  autoComplete={autoComplete}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-10 text-xs font-medium text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setVisibleFields((current) => ({ ...current, [name]: !current[name] }))}
+                  aria-label={`${visibleFields[name] ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                >
+                  {visibleFields[name] ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </span>
+            </label>
+          ))}
+          {message && <p role="status" className={`rounded-md px-3 py-2 text-xs ${message.toLowerCase().includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{message}</p>}
+          <button type="submit" disabled={saving || !user?._id} className="mt-1 flex h-10 w-full items-center justify-center rounded-lg bg-indigo-600 px-4 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60">
+            {saving ? 'Updating Password...' : 'Update Password'}
+          </button>
+        </form>
+      </section>
+    </main>
   );
 }
 

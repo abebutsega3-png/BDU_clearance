@@ -16,11 +16,11 @@ import UniversitySeal from '../UniversitySeal';
 const menuItems = [
 	{ label: 'Dashboard', to: '/library-office', icon: LayoutDashboard },
 	{ label: 'Clearance Requests', to: '/library-office/clearance-requests', icon: ClipboardCheck },
-	{ label: 'Library Records', to: '/library-office/library-records', icon: ClipboardCheck },
+	{ label: 'Library Record Management', to: '/library-office/library-records', icon: History },
 	{ label: 'Clearance History', to: '/library-office/clearance-history', icon: History },
 	{ label: 'Reports', to: '/library-office/reports', icon: BarChart3 },
-	{ label: 'Notifications', to: '/library-office/notifications', icon: Bell },
-	{ label: 'My Profile', to: '/library-office/profile', icon: UserCircle },
+	// { label: 'Notifications', to: '/library-office/notifications', icon: Bell },
+	// { label: 'My Profile', to: '/library-office/profile', icon: UserCircle },
 	{ label: 'Settings', to: '/library-office/settings', icon: Settings },
 ];
 

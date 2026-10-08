@@ -4,6 +4,7 @@ import { Eye, EyeOff, Search, UserPlus } from 'lucide-react';
 import axios from 'axios';
 import { fetchEmployees } from '../../until/EmployeeHelper';
 import { createUser } from '../../until/UserHelper';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const inputClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 const roleOptions = [
@@ -96,6 +97,7 @@ export default function AddUser() {
 	};
 
 	return (
+		<AdminTranslatedView>
 		<main className="min-h-screen bg-white p-3 md:p-5">
 			<div className="mx-auto max-w-6xl">
 				<div className="mb-4"><p className="text-[11px] text-slate-500"><span className="text-blue-700">Dashboard</span><span className="mx-1">/</span><span className="text-blue-700">User Management</span><span className="mx-1">/</span>Add New User</p><h1 className="mt-1 text-lg font-bold text-slate-900">Add New User</h1></div>
@@ -116,6 +118,7 @@ export default function AddUser() {
 				</form>
 			</div>
 		</main>
+		</AdminTranslatedView>
 	);
 }
 

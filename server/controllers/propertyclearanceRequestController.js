@@ -161,6 +161,58 @@ export const getRequestById = async (req, res) => {
   }
 };
 
+export const updateClearanceAssetStatus = async (req, res) => {
+  try {
+    const role = String(req.user?.role || '').trim().toLowerCase();
+    if (!['property officer', 'system admin'].includes(role)) {
+      return res.status(403).json({ message: 'Only Property Officers can update clearance asset records.' });
+    }
+
+    const status = String(req.body?.status || '').trim();
+    if (!['Outstanding', 'Returned', 'Damaged'].includes(status)) {
+      return res.status(400).json({ message: 'Asset status must be Outstanding, Returned, or Damaged.' });
+    }
+
+    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId }).lean();
+    if (!request) return res.status(404).json({ message: 'Clearance request not found.' });
+    if (request.departmentStatus !== 'Approved') {
+      return res.status(409).json({ message: 'This request is waiting for Department Head approval.' });
+    }
+    const propertyStep = Array.isArray(request.workflow)
+      ? request.workflow.find((step) => String(step.office || '').toLowerCase().includes('property'))
+      : null;
+    const propertyStatus = String(request.propertyStatus || propertyStep?.status || '').trim().toLowerCase();
+    if (!['under review', 'in progress', 'review'].includes(propertyStatus)) {
+      return res.status(409).json({ message: 'Start the Property review before updating asset records.' });
+    }
+
+    const asset = await Asset.findOne({ assetId: req.params.assetId, employeeId: request.employeeId });
+    if (!asset) return res.status(404).json({ message: 'Asset record was not found for this employee.' });
+
+    asset.status = status;
+    if (status === 'Returned') asset.returnDate = new Date();
+    if (status === 'Outstanding') asset.returnDate = null;
+    if (!Array.isArray(asset.history)) asset.history = [];
+    asset.history.push({
+      date: new Date(),
+      action: `Status changed to ${status} during clearance ${request.requestId}`
+    });
+    await asset.save();
+
+    res.status(200).json({
+      success: true,
+      asset: {
+        assetId: asset.assetId,
+        assetName: asset.assetName,
+        status: asset.status,
+        condition: asset.condition
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating clearance asset status', error: error.message });
+  }
+};
+
 export const startReview = async (req, res) => {
   try {
     const request = await ClearanceRequest.findOne({ requestId: req.params.requestId });
@@ -177,17 +229,34 @@ export const startReview = async (req, res) => {
 
 export const approveClearance = async (req, res) => {
   try {
-    const { officerComment } = req.body;
+    const { officerComment, completedChecks = [] } = req.body;
     const request = await ClearanceRequest.findOne({ requestId: req.params.requestId }).lean();
     if (!request) return res.status(400).json({ message: 'Request cannot be approved' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
     const officer = await User.findById(req.user?._id).select('propertySettings').lean();
-    const checklist = officer?.propertySettings?.clearanceChecklist || [];
-    const assets = await Asset.find({ employeeId: request.employeeId }).select('status').lean();
-    const outstandingCount = assets.filter((asset) => String(asset.status).toLowerCase() === 'outstanding').length;
-    const requiresNoOutstanding = checklist.some((item) => item.enabled && ['assetsReturned', 'noOutstandingProperty', 'propertyResponsibilityCleared'].includes(item.key));
+    const propertySettings = officer?.propertySettings || {};
+    const rules = propertySettings.clearanceRules || {};
+    const checklist = propertySettings.clearanceChecklist || [];
+    const completedCheckKeys = Array.isArray(completedChecks)
+      ? [...new Set(completedChecks.filter((key) => typeof key === 'string'))]
+      : [];
+    const missingChecks = checklist.filter((item) => item.enabled && !completedCheckKeys.includes(item.key));
+    if (missingChecks.length) {
+      return res.status(400).json({ message: `Complete the required property checks before approval: ${missingChecks.map((item) => item.label).join(', ')}.` });
+    }
+    const legacyRequiresNoOutstanding = checklist.some((item) => item.enabled && ['assetsReturned', 'noOutstandingProperty', 'propertyResponsibilityCleared'].includes(item.key));
+    const requiresNoOutstanding = typeof rules.requireNoOutstandingAssets === 'boolean'
+      ? rules.requireNoOutstandingAssets
+      : legacyRequiresNoOutstanding;
+    const assets = requiresNoOutstanding
+      ? await Asset.find({ employeeId: request.employeeId }).select('status').lean()
+      : [];
+    const outstandingCount = assets.filter((asset) => String(asset.status || '').toLowerCase() !== 'returned').length;
     if (requiresNoOutstanding && outstandingCount > 0) {
       return res.status(400).json({ message: `Clearance cannot be approved while ${outstandingCount} outstanding asset(s) remain.` });
+    }
+    if (rules.requireOfficerComment && !String(officerComment || '').trim()) {
+      return res.status(400).json({ message: 'An officer comment is required before approving this clearance.' });
     }
     const workflow = Array.isArray(request.workflow) ? [...request.workflow] : [];
     const propertyStepIndex = workflow.findIndex((step) => String(step.office || '').toLowerCase().includes('property'));
@@ -207,6 +276,7 @@ export const approveClearance = async (req, res) => {
         propertyReviewedBy: approvedBy,
         reviewedAt: new Date(),
         officerComment: officerComment || 'All assets verified and returned.',
+        completedPropertyChecks: completedCheckKeys,
         checklistCompleted: true,
         currentStep: resolveNextStepAfterDecision('Property / Asset Office', 'Approved'),
         workflow

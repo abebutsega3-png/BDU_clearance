@@ -27,10 +27,32 @@ export const getAllAssets = async (req, res) => {
 
 export const registerAsset = async (req, res) => {
   try {
-    const { assetId, serialNumber, assetType, brand, model, condition, purchaseDate, campus, location, performedBy } = req.body;
+    const {
+      assetId,
+      serialNumber,
+      assetName,
+      assetType,
+      brand,
+      model,
+      notes,
+      condition,
+      purchaseDate,
+      campus,
+      location,
+      assetStatus = 'Available',
+      assignment,
+      performedBy
+    } = req.body;
+
+    if (!assetId?.trim() || !serialNumber?.trim() || !assetName?.trim()) {
+      return res.status(400).json({ success: false, message: 'Asset ID, serial number, and asset name are required.' });
+    }
+    if (assetStatus === 'Assigned' && (!assignment?.employeeId || !assignment?.employeeName || !assignment?.department || !assignment?.campus)) {
+      return res.status(400).json({ success: false, message: 'Employee assignment details are required for an assigned asset.' });
+    }
 
     const existingAsset = await ICTAsset.findOne({
-      $or: [{ assetId: assetId.toUpperCase() }, { serialNumber }]
+      $or: [{ assetId: assetId.trim().toUpperCase() }, { serialNumber: serialNumber.trim() }]
     });
 
     if (existingAsset) {
@@ -38,22 +60,48 @@ export const registerAsset = async (req, res) => {
     }
 
     const newAsset = new ICTAsset({
-      assetId: assetId.toUpperCase(),
-      serialNumber,
+      assetId: assetId.trim().toUpperCase(),
+      serialNumber: serialNumber.trim(),
+      assetName: assetName.trim(),
       assetType,
       brand,
       model,
+      notes: notes || '',
       condition: condition || 'Good',
       purchaseDate,
       campus,
       location: location || 'ICT Office',
-      assetStatus: 'Available',
+      assetStatus,
+      ...(assetStatus === 'Assigned' && {
+        currentAssignment: {
+          employeeId: assignment.employeeId,
+          employeeName: assignment.employeeName,
+          department: assignment.department,
+          campus: assignment.campus,
+          assignedDate: assignment.assignedDate || new Date(),
+          returnDueDate: assignment.returnDueDate || undefined,
+          conditionAtAssignment: condition || 'Good',
+          assignedBy: performedBy || 'ICT Officer',
+          domainAccessGranted: Boolean(assignment.domainAccessGranted),
+          remarks: assignment.remarks || ''
+        }
+      }),
       history: [{
         action: 'REGISTERED',
         condition: condition || 'Good',
         performedBy: performedBy || 'ICT Officer',
-        notes: 'Initial registration into ICT inventory.'
-      }]
+        notes: notes || 'Initial registration into ICT inventory.'
+      }, ...(assetStatus === 'Assigned'
+        ? [{
+            action: 'ASSIGNED',
+            employeeId: assignment.employeeId,
+            employeeName: assignment.employeeName,
+            department: assignment.department,
+            condition: condition || 'Good',
+            performedBy: performedBy || 'ICT Officer',
+            notes: assignment.remarks || 'Assigned to employee during registration.'
+          }]
+        : [])]
     });
 
     await newAsset.save();
@@ -65,7 +113,19 @@ export const registerAsset = async (req, res) => {
 
 export const assignAsset = async (req, res) => {
   try {
-    const { assetId, employeeId, employeeName, department, campus, conditionAtAssignment, assignedBy, remarks } = req.body;
+    const {
+      assetId,
+      employeeId,
+      employeeName,
+      department,
+      campus,
+      assignedDate,
+      returnDueDate,
+      conditionAtAssignment,
+      domainAccessGranted,
+      assignedBy,
+      remarks
+    } = req.body;
 
     const asset = await ICTAsset.findOne({ assetId: assetId.toUpperCase() });
     if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
@@ -79,9 +139,11 @@ export const assignAsset = async (req, res) => {
       employeeName,
       department,
       campus: campus || asset.campus,
-      assignedDate: new Date(),
+      assignedDate: assignedDate || new Date(),
+      returnDueDate: returnDueDate || undefined,
       conditionAtAssignment: conditionAtAssignment || 'Good',
       assignedBy: assignedBy || 'ICT Officer',
+      domainAccessGranted: Boolean(domainAccessGranted),
       remarks
     };
 

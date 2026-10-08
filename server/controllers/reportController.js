@@ -139,6 +139,8 @@ const reportRow = (clearance) => {
   const offices = officeProgress(clearance);
   const completedOffices = offices.filter((office) => completedStatuses.has(String(office.status).toLowerCase())).length;
   const currentOffice = offices.find((office) => !completedStatuses.has(String(office.status).toLowerCase()))?.office || 'Final HR Clearance';
+  const finalHRApproved = clearance.finalHRApproval || clearance.status === 'Completed';
+  const certificate = clearance.certificate && typeof clearance.certificate === 'object' ? clearance.certificate : {};
   const returnedStep = [...(clearance.workflow || []), ...(clearance.departmentClearances || [])]
     .reverse().find((step) => String(step.status || '').toLowerCase() === 'returned');
   const requestDate = clearance.requestDate || clearance.createdAt;
@@ -147,21 +149,27 @@ const reportRow = (clearance) => {
     requestId: clearance.requestId || clearance._id,
     employeeName: employeeValue(clearance, 'employeeName', 'Unknown employee'),
     employeeId: employeeValue(clearance, 'employeeId'),
-    department: typeof clearance.department === 'object' ? clearance.department.name : employeeValue(clearance, 'department'),
+    employeeEmail: employeeValue(clearance, 'email'),
+    employeePhone: employeeValue(clearance, 'phone'),
+    department: clearance.department && typeof clearance.department === 'object' ? clearance.department.name : employeeValue(clearance, 'department'),
     campus: employeeValue(clearance, 'campus'),
+    reason: clearance.reason || clearance.clearanceReason || clearance.clearanceType || 'Unspecified',
     clearanceType: clearance.clearanceType || clearance.reason || 'Resignation',
     requestDate,
     lastWorkingDate: clearance.lastWorkingDate || '-',
     status: clearance.status || 'Pending',
     currentOffice,
+    finalHRStatus: clearance.finalHRStatus || (finalHRApproved ? 'Approved' : currentOffice === 'Final HR Clearance' ? 'Pending' : 'In Progress'),
     progress: `${completedOffices}/${HR_OFFICES.length}`,
     returnedBy: returnedStep?.performedBy || returnedStep?.returnedBy || '-',
     returnedOffice: returnedStep?.office || currentOffice,
     returnedDate: returnedStep?.timestamp || returnedStep?.updatedAt || '-',
     returnReason: returnedStep?.returnReason || returnedStep?.remarks || clearance.libraryReturnReason || clearance.hrRemarks || '-',
     completionDate: clearance.status === 'Completed' ? clearance.updatedAt : '-',
-    finalHRApprovedBy: clearance.finalHRApproval ? (clearance.finalHRApprovedBy || 'HR Officer') : '-',
-    certificateStatus: clearance.certificate ? 'Generated' : 'Not generated'
+    finalHRApprovedBy: finalHRApproved ? (clearance.finalHRApprovedBy || 'HR Officer') : '-',
+    certificateStatus: certificate.issuedAt ? 'Issued' : certificate.number || certificate.generatedAt ? 'Generated' : 'Not generated',
+    certificateNumber: certificate.number || clearance.certificateNo || '',
+    certificateIssuedAt: certificate.issuedAt || certificate.generatedAt || null,
   };
 };
 

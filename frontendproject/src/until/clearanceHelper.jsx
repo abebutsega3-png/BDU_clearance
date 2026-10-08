@@ -5,7 +5,7 @@ const clearanceApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/a
 // Create axios instance with default config
 const axiosInstance = axios.create({
   baseURL: clearanceApiUrl,
-  timeout: 10000, // 10 seconds timeout
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },

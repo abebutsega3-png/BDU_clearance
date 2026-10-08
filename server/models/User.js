@@ -43,6 +43,7 @@ const userSchema = new mongoose.Schema({
         employeeInformationUpdated: { type: Boolean, default: true },
         propertyVerificationRequired: { type: Boolean, default: true },
         clearanceApproved: { type: Boolean, default: true },
+        approvalNotifications: { type: Boolean, default: true },
         clearanceReturned: { type: Boolean, default: true },
         pendingReviewReminder: { type: Boolean, default: true },
         hrClearanceUpdate: { type: Boolean, default: true },
@@ -65,15 +66,33 @@ const userSchema = new mongoose.Schema({
         location: { type: String, default: '' }
     },
     propertySettings: {
+        clearanceRules: {
+            requireNoOutstandingAssets: { type: Boolean, default: true },
+            requireOfficerComment: { type: Boolean, default: false }
+        },
         assetCategories: {
-            type: [{ name: String, enabled: { type: Boolean, default: true } }],
+            type: [{ name: { type: String, trim: true }, description: { type: String, trim: true, default: '' }, enabled: { type: Boolean, default: true } }],
             default: [
-                { name: 'Computer / Laptop', enabled: true },
-                { name: 'Monitor', enabled: true },
-                { name: 'Printer', enabled: true },
-                { name: 'Office Furniture', enabled: true },
-                { name: 'Laboratory Equipment', enabled: true },
-                { name: 'Other Equipment', enabled: true }
+                { name: 'Computer / Laptop', description: 'Computers, laptops, accessories', enabled: true },
+                { name: 'Monitor', description: 'Computer monitors and displays', enabled: true },
+                { name: 'Printer', description: 'Printers and scanners', enabled: true },
+                { name: 'Office Furniture', description: 'Tables, chairs, office furniture', enabled: true },
+                { name: 'Laboratory Equipment', description: 'University laboratory equipment', enabled: true },
+                { name: 'Other Equipment', description: 'Other university assets', enabled: true }
+            ]
+        },
+        assetStatuses: {
+            type: [{
+                name: { type: String, trim: true },
+                description: { type: String, trim: true, default: '' },
+                color: { type: String, enum: ['Blue', 'Green', 'Red', 'Orange', 'Purple'], default: 'Blue' }
+            }],
+            default: [
+                { name: 'Assigned', description: 'Still assigned to employee', color: 'Blue' },
+                { name: 'Returned', description: 'Returned to university', color: 'Green' },
+                { name: 'Missing', description: 'Not found / lost', color: 'Red' },
+                { name: 'Damaged', description: 'Damaged or broken', color: 'Orange' },
+                { name: 'Cleared', description: 'All items checked and cleared', color: 'Purple' }
             ]
         },
         clearanceChecklist: {
@@ -105,6 +124,10 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    tokenVersion: {
+        type: Number,
+        default: 0
+    },
     twoFactorEnabled: {
         type: Boolean,
         default: false
@@ -114,6 +137,10 @@ const userSchema = new mongoose.Schema({
         default: Date.now
     }
 });
+
+userSchema.index({ email: 1 }, { collation: { locale: 'en', strength: 2 } });
+userSchema.index({ username: 1 }, { collation: { locale: 'en', strength: 2 } });
+userSchema.index({ createdAt: -1, _id: -1 });
 
 userSchema.methods.matchPassword = async function (candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);

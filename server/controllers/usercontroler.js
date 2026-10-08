@@ -7,10 +7,55 @@ import { recordAuditLog } from './auditLogger.js';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const getUsers = async (_req, res) => {
+const getUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select('-password').sort({ createdAt: -1 }).lean();
-    return res.status(200).json({ success: true, users });
+    const requestedPage = Number.parseInt(typeof req.query.page === 'string' ? req.query.page : '1', 10);
+    const requestedLimit = Number.parseInt(typeof req.query.limit === 'string' ? req.query.limit : '10', 10);
+    const page = Number.isFinite(requestedPage) ? Math.max(1, requestedPage) : 1;
+    const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit)) : 10;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+    const filter = {};
+
+    if (search) {
+      const searchPattern = new RegExp(escapeRegExp(search), 'i');
+      filter.$or = [
+        { name: searchPattern },
+        { username: searchPattern },
+        { email: searchPattern },
+      ];
+    }
+    if (typeof req.query.role === 'string' && req.query.role !== 'All') {
+      filter.role = req.query.role;
+    }
+    if (typeof req.query.department === 'string' && req.query.department !== 'All Departments') {
+      filter.department = req.query.department;
+    }
+    if (typeof req.query.status === 'string' && req.query.status !== 'All') {
+      filter.status = req.query.status === 'Deactivated' ? 'Inactive' : req.query.status;
+    }
+
+    const total = await User.countDocuments(filter).maxTimeMS(5000);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const currentPage = Math.min(page, totalPages);
+    const [users, departments] = await Promise.all([
+      User.find(filter)
+        .select('username name email role department employeeId status createdAt')
+        .sort({ createdAt: -1, _id: -1 })
+        .skip((currentPage - 1) * limit)
+        .limit(limit)
+        .maxTimeMS(5000)
+        .lean(),
+      User.distinct('department').maxTimeMS(5000),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      users,
+      total,
+      page: currentPage,
+      limit,
+      departments: departments.filter((department) => typeof department === 'string' && department.trim()).sort(),
+    });
   } catch (error) {
     console.error('Error in getUsers:', error);
     return res.status(500).json({ success: false, message: 'Server error while fetching users.' });

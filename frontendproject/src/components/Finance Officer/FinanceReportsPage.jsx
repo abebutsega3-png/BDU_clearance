@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import axios from "axios";
+import * as XLSX from "xlsx";
 import {
-  FileText,
   Filter,
   Printer,
   FileSpreadsheet,
-  Download,
   AlertCircle,
   Clock,
   History,
   DollarSign,
   RefreshCw,
+  CheckCircle2,
 } from "lucide-react";
 
 // =========================================================
@@ -28,6 +28,11 @@ const getAuthConfig = () => {
   };
 };
 
+const apiGetSummaryReport = async (filters) => {
+  const res = await axios.get(`${API_URL}/summary`, { ...getAuthConfig(), params: filters });
+  return res.data;
+};
+
 const apiGetObligationsReport = async (filters) => {
   const res = await axios.get(`${API_URL}/obligations`, { ...getAuthConfig(), params: filters });
   return res.data;
@@ -41,6 +46,22 @@ const apiGetPendingReport = async (filters) => {
 const apiGetHistoryReport = async (filters) => {
   const res = await axios.get(`${API_URL}/history`, { ...getAuthConfig(), params: filters });
   return res.data;
+};
+
+const apiGetAllReports = async (filters) => {
+  const [summaryRes, obligationsRes, pendingRes, historyRes] = await Promise.all([
+    apiGetSummaryReport(filters),
+    apiGetObligationsReport(filters),
+    apiGetPendingReport(filters),
+    apiGetHistoryReport(filters),
+  ]);
+
+  return {
+    summary: summaryRes?.data || {},
+    obligations: Array.isArray(obligationsRes?.data) ? obligationsRes.data : [],
+    pending: Array.isArray(pendingRes?.data) ? pendingRes.data : [],
+    history: Array.isArray(historyRes?.data) ? historyRes.data : [],
+  };
 };
 
 const getDateInputValue = (date) => {
@@ -71,51 +92,73 @@ const getPeriodRange = (period) => {
 };
 
 const defaultPeriodRange = getPeriodRange("monthly");
+const INITIAL_FILTERS = {
+  period: "monthly",
+  ...defaultPeriodRange,
+  campus: "",
+  department: "",
+  clearanceReason: "",
+  status: "",
+};
+const getDepartmentName = (department) => {
+  if (typeof department === "string") return department;
+  return department?.name || department?.departmentName || "";
+};
 
 // =========================================================
 // 2. MAIN COMPONENT
 // =========================================================
 const FinanceReportsPage = () => {
-  const [filters, setFilters] = useState({
-    period: "monthly",
-    ...defaultPeriodRange,
-    campus: "",
-    department: "",
-    clearanceReason: "",
-    status: "",
-  });
+  const [filters, setFilters] = useState(INITIAL_FILTERS);
 
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [summaryData, setSummaryData] = useState(null);
 
   const [obligationsData, setObligationsData] = useState([]);
   const [pendingData, setPendingData] = useState([]);
   const [historyData, setHistoryData] = useState([]);
 
-  const fetchAllReports = async () => {
+  const fetchAllReports = useCallback(async (reportFilters) => {
     setLoading(true);
+    setError("");
     try {
-      const [obligationsRes, pendingRes, historyRes] = await Promise.all([
-        apiGetObligationsReport(filters),
-        apiGetPendingReport(filters),
-        apiGetHistoryReport(filters),
-      ]);
-
-      setObligationsData(obligationsRes?.data?.data || obligationsRes?.data || []);
-      setPendingData(pendingRes?.data?.data || pendingRes?.data || []);
-      setHistoryData(historyRes?.data?.data || historyRes?.data || []);
+      const reportData = await apiGetAllReports(reportFilters);
+      setSummaryData(reportData.summary);
+      setObligationsData(reportData.obligations);
+      setPendingData(reportData.pending);
+      setHistoryData(reportData.history);
     } catch (error) {
       console.error("ሪፖርቶችን መጫን አልተቻለም:", error);
-      setObligationsData([]);
-      setPendingData([]);
-      setHistoryData([]);
+      setError(error.response?.data?.message || "Unable to load finance clearance reports. Please try again.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchAllReports();
+    let cancelled = false;
+    apiGetAllReports(INITIAL_FILTERS)
+      .then((reportData) => {
+        if (cancelled) return;
+        setSummaryData(reportData.summary);
+        setObligationsData(reportData.obligations);
+        setPendingData(reportData.pending);
+        setHistoryData(reportData.history);
+      })
+      .catch((error) => {
+        console.error("ሪፖርቶችን መጫን አልተቻለም:", error);
+        if (!cancelled) {
+          setError(error.response?.data?.message || "Unable to load finance clearance reports. Please try again.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleFilterChange = (e) => {
@@ -131,11 +174,58 @@ const FinanceReportsPage = () => {
 
   const handleGenerateReport = (e) => {
     e.preventDefault();
-    fetchAllReports();
+    if (filters.period === "custom" && (!filters.startDate || !filters.endDate)) {
+      setError("Choose both a start date and an end date for a custom date range.");
+      return;
+    }
+    if (filters.period === "custom" && filters.startDate > filters.endDate) {
+      setError("The start date must be on or before the end date.");
+      return;
+    }
+    fetchAllReports(filters);
   };
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleExportExcel = () => {
+    const workbook = XLSX.utils.book_new();
+    const summaryRows = summaryData
+      ? Object.entries(summaryData).map(([metric, value]) => ({ Metric: metric, Count: value }))
+      : [];
+    const obligationRows = obligationsData.map((item) => ({
+      Employee: item.employeeName || "",
+      "Employee ID": item.employeeId || "",
+      Department: getDepartmentName(item.department),
+      "Obligation Type": item.financialObligation?.type || "",
+      "Amount Due (ETB)": item.financialObligation?.amountDue ?? 0,
+      "Balance Left (ETB)": item.financialObligation?.balance ?? 0,
+    }));
+    const pendingRows = pendingData.map((item) => ({
+      Employee: item.employeeName || "",
+      "Employee ID": item.employeeId || "",
+      Department: getDepartmentName(item.department),
+      "Request Date": item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "",
+      Status: item.financeStatus || "",
+      "Days Pending": item.daysPending ?? 0,
+    }));
+    const historyRows = historyData.map((item) => ({
+      Employee: item.employeeName || "",
+      "Employee ID": item.employeeId || "",
+      Department: getDepartmentName(item.department),
+      Decision: item.financeStatus || "",
+      "Reviewed By": item.financeReviewedByName || "",
+      "Review Date": item.financeReviewedAt ? new Date(item.financeReviewedAt).toLocaleDateString() : "",
+      "Reference Number": item.financeReferenceNumber || "",
+      Remarks: item.financeRemarks || "",
+    }));
+
+    if (summaryRows.length) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "Summary");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(obligationRows), "Obligations");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(pendingRows), "Pending");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(historyRows), "History");
+    XLSX.writeFile(workbook, "finance-clearance-reports.xlsx");
   };
 
   return (
@@ -162,7 +252,9 @@ const FinanceReportsPage = () => {
             Print
           </button>
           <button
-            onClick={() => alert("የExcel ኤክስፖርት ዝግጅት ላይ ነው")}
+            type="button"
+            onClick={handleExportExcel}
+            disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition shadow-sm"
           >
             <FileSpreadsheet size={16} />
@@ -170,6 +262,36 @@ const FinanceReportsPage = () => {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div role="alert" className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 print:hidden">
+          <span>{error}</span>
+          <button type="button" onClick={() => fetchAllReports(filters)} disabled={loading} className="font-semibold underline disabled:opacity-60">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {summaryData && (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            ["Total Requests", summaryData.total, FileSpreadsheet],
+            ["Pending", summaryData.pending, Clock],
+            ["Under Review", summaryData.underReview, RefreshCw],
+            ["Approved", summaryData.approved, CheckCircle2],
+            ["Returned", summaryData.returned, AlertCircle],
+            ["Rejected", summaryData.rejected, History],
+          ].map(([label, value, Icon]) => (
+            <div key={label} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-2 text-xs font-medium text-gray-500">
+                <span>{label}</span>
+                <Icon size={15} className="text-blue-600" />
+              </div>
+              <p className="mt-2 text-2xl font-bold text-gray-900">{value ?? 0}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Filter Form */}
       <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:hidden">
@@ -188,7 +310,7 @@ const FinanceReportsPage = () => {
             ))}
           </div>
         </div>
-        <form onSubmit={handleGenerateReport} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <form onSubmit={handleGenerateReport} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-7">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
             <input
@@ -230,6 +352,18 @@ const FinanceReportsPage = () => {
           </div>
 
           <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Campus</label>
+            <input
+              type="text"
+              name="campus"
+              value={filters.campus}
+              onChange={handleFilterChange}
+              placeholder="All campuses"
+              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Clearance Reason</label>
             <select
               name="clearanceReason"
@@ -259,6 +393,8 @@ const FinanceReportsPage = () => {
               <option value="In Progress">In Progress</option>
               <option value="Approved">Approved</option>
               <option value="Returned">Returned</option>
+              <option value="Rejected">Rejected</option>
+              <option value="Completed">Completed</option>
             </select>
           </div>
 
@@ -313,13 +449,13 @@ const FinanceReportsPage = () => {
                   <tr key={item._id} className="hover:bg-gray-50">
                     <td className="py-3 px-4 font-medium text-gray-900">{item.employeeName}</td>
                     <td className="py-3 px-4">{item.employeeId}</td>
-                    <td className="py-3 px-4">{item.department}</td>
+                    <td className="py-3 px-4">{getDepartmentName(item.department)}</td>
                     <td className="py-3 px-4">{item.financialObligation?.type || "N/A"}</td>
                     <td className="py-3 px-4 font-semibold text-gray-700">
-                      {item.financialObligation?.amountDue?.toLocaleString()} ETB
+                      {(item.financialObligation?.amountDue ?? 0).toLocaleString()} ETB
                     </td>
                     <td className="py-3 px-4 font-bold text-red-600">
-                      {item.financialObligation?.balance?.toLocaleString()} ETB
+                      {(item.financialObligation?.balance ?? 0).toLocaleString()} ETB
                     </td>
                   </tr>
                 ))
@@ -357,7 +493,7 @@ const FinanceReportsPage = () => {
                 pendingData.map((item) => (
                   <tr key={item._id} className="hover:bg-gray-50">
                     <td className="py-3 px-4 font-medium text-gray-900">{item.employeeName}</td>
-                    <td className="py-3 px-4">{item.department}</td>
+                    <td className="py-3 px-4">{getDepartmentName(item.department)}</td>
                     <td className="py-3 px-4">{new Date(item.createdAt).toLocaleDateString()}</td>
                     <td className="py-3 px-4">
                       <span
@@ -411,7 +547,7 @@ const FinanceReportsPage = () => {
                     <td className="py-3 px-3 font-medium text-gray-900">
                       {item.employeeName} ({item.employeeId})
                     </td>
-                    <td className="py-3 px-3">{item.department}</td>
+                    <td className="py-3 px-3">{getDepartmentName(item.department)}</td>
                     <td className="py-3 px-3">
                       <span
                         className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold ${

@@ -1,62 +1,130 @@
 import React, { useEffect, useState } from 'react';
-import { useAuth } from '../../context/authContext';
-import { changeMyPassword, fetchMyProfile, getMyProfileHeaders, updateMyProfile } from '../../until/MyprofileHelper';
-import { BriefcaseBusiness, Camera, KeyRound, Mail, Phone, ShieldCheck, User, UserRound } from 'lucide-react';
 import axios from 'axios';
-
-const value = (item, fallback = 'Not provided') => item || fallback;
+import { Camera } from 'lucide-react';
+import { useAuth } from '../../context/authContext';
+import { fetchMyProfile, getMyProfileHeaders, updateMyProfile } from '../../until/MyprofileHelper';
+import UniversitySeal from '../UniversitySeal';
 
 export default function DepartmentProfile() {
 	const { user, login } = useAuth();
 	const [profile, setProfile] = useState({});
-	const [editing, setEditing] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [message, setMessage] = useState('');
-	const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
-	const [passwordMessage, setPasswordMessage] = useState('');
-	const [passwordSaving, setPasswordSaving] = useState(false);
 
 	useEffect(() => {
 		if (!user?._id) return;
-		fetchMyProfile(user._id).then((data) => setProfile(data)).catch(() => setMessage('Unable to load profile information.'));
+		fetchMyProfile(user._id)
+			.then((data) => setProfile(data))
+			.catch(() => setMessage('Unable to load profile information.'));
 	}, [user?._id]);
 
 	const current = { ...user, ...profile };
 	const update = (field, nextValue) => setProfile((previous) => ({ ...previous, [field]: nextValue }));
-	const save = async () => {
+
+	const save = async (event) => {
+		event.preventDefault();
 		setSaving(true);
+		setMessage('');
 		try {
-			const response = await updateMyProfile(user._id, { name: profile.name, email: profile.email, phoneNumber: profile.phoneNumber, gender: profile.gender });
+			const response = await updateMyProfile(user._id, {
+				name: current.name,
+				email: current.email,
+				phoneNumber: current.phoneNumber,
+				gender: current.gender,
+			});
 			const updated = response.data || response;
-			setProfile(updated); login({ ...user, ...updated }); setEditing(false); setMessage('Profile updated successfully.');
-		} catch (error) { setMessage(error.response?.data?.message || 'Unable to update profile.'); } finally { setSaving(false); }
+			setProfile(updated);
+			login({ ...user, ...updated });
+			setMessage('Profile changes saved successfully.');
+		} catch (error) {
+			setMessage(error.response?.data?.message || 'Unable to save profile changes.');
+		} finally {
+			setSaving(false);
+		}
 	};
-	const changePassword = async (event) => {
-		event.preventDefault(); setPasswordMessage('');
-		if (passwords.newPassword !== passwords.confirmPassword) return setPasswordMessage('New passwords do not match.');
-		setPasswordSaving(true);
-		try { const response = await changeMyPassword(user._id, passwords); setPasswordMessage(response.message || 'Password changed successfully.'); setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' }); }
-		catch (error) { setPasswordMessage(error.response?.data?.message || 'Unable to change password.'); } finally { setPasswordSaving(false); }
-	};
+
 	const changePhoto = async (event) => {
 		const file = event.target.files?.[0];
-		if (!file || !file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) return setMessage('Choose an image up to 2MB.');
-		const reader = new FileReader(); reader.onload = async () => { try { const response = await axios.put(`http://localhost:3000/api/profile/${user._id}`, { profileImage: reader.result }, { headers: getMyProfileHeaders() }); const updated = response.data.data || response.data; setProfile(updated); login({ ...user, ...updated }); setMessage('Profile photo updated successfully.'); } catch (error) { setMessage(error.response?.data?.message || 'Unable to update profile photo.'); } }; reader.readAsDataURL(file);
+		if (!file) return;
+		if (!file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) {
+			setMessage('Choose an image up to 2MB.');
+			return;
+		}
+
+		const reader = new FileReader();
+		reader.onload = async () => {
+			try {
+				const response = await axios.put(
+					`http://localhost:3000/api/profile/${user._id}`,
+					{ profileImage: reader.result },
+					{ headers: getMyProfileHeaders() },
+				);
+				const updated = response.data.data || response.data;
+				setProfile(updated);
+				login({ ...user, ...updated });
+				setMessage('Profile photo updated successfully.');
+			} catch (error) {
+				setMessage(error.response?.data?.message || 'Unable to update profile photo.');
+			}
+		};
+		reader.readAsDataURL(file);
 	};
 
-	return <div className="space-y-5 text-slate-700">
-		<header><p className="text-xs font-semibold uppercase tracking-wide text-teal-600">Department Head Portal</p><h1 className="mt-1 text-2xl font-bold text-slate-900">My Profile</h1><p className="mt-1 text-sm text-slate-500">Manage your personal and account information.</p></header>
-		{message && <p className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800">{message}</p>}
-		<div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
-			<div className="space-y-5">
-				<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><SectionTitle icon={<User size={17} />} title="Personal Information"><div className="flex flex-col gap-5 sm:flex-row"><div className="flex shrink-0 flex-col items-center gap-2"><div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-teal-100 bg-teal-50 text-teal-700">{current.profileImage ? <img src={current.profileImage} alt="Profile" className="h-full w-full object-cover" /> : <UserRound size={42} />}</div><label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-teal-500"><Camera size={14} /> Change Photo<input type="file" accept="image/png,image/jpeg,image/gif" onChange={changePhoto} className="hidden" /></label></div><div className="grid flex-1 gap-4 sm:grid-cols-2"><Editable label="Full Name" value={current.name} editing={editing} onChange={(next) => update('name', next)} /><ReadOnly label="Employee ID" value={value(current.employeeId)} /><ReadOnly label="Gender" value={value(current.gender)} /><Editable label="Phone Number" value={current.phoneNumber} editing={editing} onChange={(next) => update('phoneNumber', next)} icon={<Phone size={14} />} /><Editable label="Email Address" value={current.email} editing={editing} onChange={(next) => update('email', next)} icon={<Mail size={14} />} /></div></div></SectionTitle><div className="mt-5 flex justify-end gap-2">{editing && <button type="button" onClick={() => setEditing(false)} className="rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold">Cancel</button>}<button type="button" onClick={editing ? save : () => setEditing(true)} disabled={saving} className="rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800">{editing ? (saving ? 'Saving...' : 'Save Profile') : 'Edit Profile'}</button></div></section>
-				<section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><SectionTitle icon={<BriefcaseBusiness size={17} />} title="Work Information"><div className="mt-4 grid gap-4 sm:grid-cols-2"><ReadOnly label="Department" value={value(current.department)} /><ReadOnly label="Position" value={value(current.position, 'Department Head')} /><ReadOnly label="Role" value={value(current.role, 'Department Head')} /><ReadOnly label="Employee Status" value={value(current.status, 'Active')} /><ReadOnly label="Date Joined" value={current.dateJoined ? new Date(current.dateJoined).toLocaleDateString() : 'Not provided'} /></div><p className="mt-4 text-xs text-slate-500">Work information is managed by HR Officer or System Admin.</p></SectionTitle></section>
-			</div>
-			<div className="space-y-5"><section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><SectionTitle icon={<ShieldCheck size={17} />} title="Account Information"><div className="mt-4 space-y-3"><ReadOnly label="Username" value={value(current.username, current.email)} /><ReadOnly label="Email" value={value(current.email)} /><ReadOnly label="Last Login" value={current.lastLogin ? new Date(current.lastLogin).toLocaleString() : 'Not provided'} /></div></SectionTitle></section><form onSubmit={changePassword} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><SectionTitle icon={<KeyRound size={17} />} title="Change Password"><div className="mt-4 space-y-3">{[['currentPassword', 'Current Password'], ['newPassword', 'New Password'], ['confirmPassword', 'Confirm New Password']].map(([field, label]) => <label key={field} className="block text-xs font-semibold text-slate-500">{label}<input required minLength={field === 'currentPassword' ? undefined : 6} type="password" value={passwords[field]} onChange={(event) => setPasswords((previous) => ({ ...previous, [field]: event.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-normal text-slate-800 outline-none focus:border-teal-600" /></label>)}</div><button type="submit" disabled={passwordSaving} className="mt-4 inline-flex items-center gap-2 rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-60"><KeyRound size={14} /> {passwordSaving ? 'Changing...' : 'Change Password'}</button>{passwordMessage && <p className="mt-2 text-xs text-slate-600">{passwordMessage}</p>}</SectionTitle></form></div>
-		</div>
-	</div>;
+	return (
+		<main className="space-y-5 bg-slate-50 px-4 py-6 text-slate-700 sm:px-6">
+			<section className="mx-auto max-w-md rounded-xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:px-6">
+				<div className="border-b border-slate-100 pb-4">
+					<p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Account</p>
+					<h1 className="mt-1 text-xl font-bold text-slate-900">Profile</h1>
+					<p className="mt-1 text-xs text-slate-500">Your authenticated account details.</p>
+				</div>
+
+				<form onSubmit={save} className="pt-4">
+					<div className="mb-5 flex items-center gap-3">
+						<div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-slate-100 bg-white">
+							{current.profileImage
+								? <img src={current.profileImage} alt="Department Head profile" className="h-full w-full object-cover" />
+								: <UniversitySeal className="h-12 w-12" />}
+						</div>
+						<label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-[11px] font-semibold text-teal-800 hover:bg-teal-100">
+							<Camera size={13} /> Change Profile Photo
+							<input type="file" accept="image/png,image/jpeg,image/gif" onChange={changePhoto} className="sr-only" />
+						</label>
+					</div>
+
+					<div className="space-y-3.5">
+						<ProfileField label="Full Name" value={current.name || ''} onChange={(value) => update('name', value)} required />
+						<ProfileField label="Email Address" type="email" value={current.email || ''} onChange={(value) => update('email', value)} required />
+						<ProfileField label="Role / Title" value={current.position || 'Department Head'} readOnly />
+						<ProfileField label="Department" value={current.department || 'Not assigned'} readOnly />
+						<ProfileField label="Phone Number" type="tel" value={current.phoneNumber || ''} onChange={(value) => update('phoneNumber', value)} placeholder="Enter phone number" />
+					</div>
+
+					{message && <p role="status" className="mt-4 rounded-md bg-teal-50 px-3 py-2 text-xs text-teal-800">{message}</p>}
+
+					<button type="submit" disabled={saving} className="mt-5 inline-flex items-center justify-center rounded-md bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60">
+						{saving ? 'Saving Profile...' : 'Save Profile Changes'}
+					</button>
+				</form>
+			</section>
+
+		</main>
+	);
 }
 
-function SectionTitle({ icon, title, children }) { return <><div className="flex items-center gap-2 border-b border-slate-100 pb-3 text-base font-bold text-slate-900"><span className="text-teal-600">{icon}</span>{title}</div>{children}</>; }
-function ReadOnly({ label, value: fieldValue }) { return <div><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-slate-800">{fieldValue}</p></div>; }
-function Editable({ label, value: fieldValue, editing, onChange, icon }) { return <label className="block text-xs text-slate-500">{label}<span className="relative mt-1 block">{icon && <span className="absolute left-3 top-2.5 text-slate-400">{icon}</span>}<input value={fieldValue || ''} readOnly={!editing} onChange={(event) => onChange(event.target.value)} className={`w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-teal-600 ${icon ? 'pl-9' : ''} ${!editing ? 'border-transparent bg-slate-50' : ''}`} /></span></label>; }
+function ProfileField({ label, value, onChange, type = 'text', placeholder, readOnly = false, required = false }) {
+	return (
+		<label className="block text-[11px] font-semibold text-slate-700">
+			{label}
+			<input
+				type={type}
+				value={value}
+				onChange={onChange ? (event) => onChange(event.target.value) : undefined}
+				placeholder={placeholder}
+				readOnly={readOnly}
+				required={required}
+				className={`mt-1 block h-9 w-full rounded-md border px-3 text-xs font-medium text-slate-800 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-50 ${readOnly ? 'border-slate-100 bg-slate-100 text-slate-500' : 'border-slate-300 bg-white'}`}
+			/>
+		</label>
+	);
+}

@@ -18,7 +18,7 @@ export const getFinanceProfile = async (req, res) => {
 
 export const updateFinanceProfile = async (req, res) => {
   try {
-    const { phoneNumber, alternativePhone, email, profilePhoto } = req.body;
+    const { phoneNumber, alternativePhone, email, profileImage, profilePhoto } = req.body;
 
     const user = await User.findById(req.user._id);
     if (!user) {
@@ -28,7 +28,9 @@ export const updateFinanceProfile = async (req, res) => {
     if (phoneNumber) user.phoneNumber = phoneNumber;
     if (alternativePhone !== undefined) user.alternativePhone = alternativePhone;
     if (email) user.email = email;
-    if (profilePhoto !== undefined) user.profilePhoto = profilePhoto;
+    if (profileImage !== undefined || profilePhoto !== undefined) {
+      user.profileImage = profileImage ?? profilePhoto;
+    }
 
     await user.save();
 

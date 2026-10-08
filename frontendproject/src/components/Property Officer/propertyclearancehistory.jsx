@@ -11,8 +11,10 @@ import {
   Loader2,
   RotateCcw,
 } from 'lucide-react';
+import { usePropertyLanguage } from './propertyLanguage';
 
 export default function PropertyClearanceHistory() {
+  const { t } = usePropertyLanguage();
   const [loading, setLoading] = useState(true);
   const [historyRecords, setHistoryRecords] = useState([]);
 
@@ -92,7 +94,7 @@ export default function PropertyClearanceHistory() {
       return (
         <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded font-bold text-[10px] inline-flex items-center space-x-1">
           <CheckCircle2 size={12} className="text-emerald-600" />
-          <span>APPROVED</span>
+          <span>{t('APPROVED', 'ጸድቋል')}</span>
         </span>
       );
     }
@@ -100,7 +102,7 @@ export default function PropertyClearanceHistory() {
       return (
         <span className="px-2.5 py-1 bg-rose-100 text-rose-800 border border-rose-200 rounded font-bold text-[10px] inline-flex items-center space-x-1">
           <XCircle size={12} className="text-rose-600" />
-          <span>RETURNED</span>
+          <span>{t('RETURNED', 'ተመልሷል')}</span>
         </span>
       );
     }
@@ -111,7 +113,7 @@ export default function PropertyClearanceHistory() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50 text-slate-500 text-xs">
         <Loader2 className="animate-spin mr-2 text-teal-600" size={18} />
-        <span>የClearance ታሪክ መረጃዎችን ከDatabase በማስገባት ላይ...</span>
+        <span>{t('Loading clearance history...', 'የክሊራንስ ታሪክ በመጫን ላይ...')}</span>
       </div>
     );
   }
@@ -124,10 +126,10 @@ export default function PropertyClearanceHistory() {
         <div>
           <h1 className="text-base font-bold text-slate-900 flex items-center space-x-2">
             <History className="text-teal-600" size={18} />
-            <span>PROPERTY CLEARANCE HISTORY</span>
+            <span>{t('PROPERTY CLEARANCE HISTORY', 'የንብረት ክሊራንስ ታሪክ')}</span>
           </h1>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            የቀድሞ Property Clearance ውሳኔዎች መዝገብ (Read-Only Audit Log)
+            {t('Record of previous property clearance decisions (read-only audit log)', 'የቀድሞ የንብረት ክሊራንስ ውሳኔዎች መዝገብ (ለማየት ብቻ)')}
           </p>
         </div>
       </div>
@@ -137,12 +139,12 @@ export default function PropertyClearanceHistory() {
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           
           <div className="md:col-span-2">
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Search</label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">{t('Search', 'ፈልግ')}</label>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
               <input
                 type="text"
-                placeholder="Search Employee / ID / Request ID..."
+                placeholder={t('Search Employee / ID / Request ID...', 'ሰራተኛ / መታወቂያ / የጥያቄ መታወቂያ ፈልግ...')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
@@ -151,45 +153,45 @@ export default function PropertyClearanceHistory() {
           </div>
 
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Campus</label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">{t('Campus', 'ግቢ')}</label>
             <select
               value={campusFilter}
               onChange={(e) => setCampusFilter(e.target.value)}
               className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none"
             >
-              <option value="All">All Campuses</option>
+              <option value="All">{t('All Campuses', 'ሁሉም ግቢዎች')}</option>
               {campuses.map((campus) => <option key={campus} value={campus}>{campus}</option>)}
             </select>
           </div>
 
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Department</label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">{t('Department', 'የስራ ክፍል')}</label>
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none"
             >
-              <option value="All">All Departments</option>
+              <option value="All">{t('All Departments', 'ሁሉም የስራ ክፍሎች')}</option>
               {departments.map((department) => <option key={department} value={department}>{department}</option>)}
             </select>
           </div>
 
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Status</label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">{t('Status', 'ሁኔታ')}</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none"
             >
-              <option value="All">All Decisions</option>
-              <option value="Approved">Approved</option>
-              <option value="Returned">Returned</option>
+              <option value="All">{t('All Decisions', 'ሁሉም ውሳኔዎች')}</option>
+              <option value="Approved">{t('Approved', 'ጸድቋል')}</option>
+              <option value="Returned">{t('Returned', 'ተመልሷል')}</option>
             </select>
           </div>
 
           <div className="flex items-end space-x-2">
             <div className="w-1/2">
-              <label className="block text-[10px] font-semibold text-slate-500 mb-1">From Date</label>
+              <label className="block text-[10px] font-semibold text-slate-500 mb-1">{t('From Date', 'ከቀን')}</label>
               <input
                 type="date"
                 value={fromDate}
@@ -198,7 +200,7 @@ export default function PropertyClearanceHistory() {
               />
             </div>
             <div className="w-1/2">
-              <label className="block text-[10px] font-semibold text-slate-500 mb-1">To Date</label>
+              <label className="block text-[10px] font-semibold text-slate-500 mb-1">{t('To Date', 'እስከ ቀን')}</label>
               <input
                 type="date"
                 value={toDate}
@@ -214,12 +216,12 @@ export default function PropertyClearanceHistory() {
               onClick={fetchClearanceHistory}
               className="flex items-center gap-1 rounded-lg bg-teal-700 px-3 py-2 text-[11px] font-semibold text-white hover:bg-teal-800"
             >
-              <Search size={13} /> Search
+              <Search size={13} /> {t('Search', 'ፈልግ')}
             </button>
             <button
               type="button"
               onClick={resetFilters}
-              title="Reset filters"
+              title={t('Reset filters', 'ማጣሪያዎችን ዳግም አስጀምር')}
               className="rounded-lg border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-50"
             >
               <RotateCcw size={14} />
@@ -234,10 +236,10 @@ export default function PropertyClearanceHistory() {
         <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
           <h2 className="font-bold text-slate-900 flex items-center space-x-2">
             <FileCheck size={16} className="text-teal-600" />
-            <span>Clearance History Records</span>
+            <span>{t('Clearance History Records', 'የክሊራንስ ታሪክ መዝገቦች')}</span>
           </h2>
           <span className="text-[11px] text-slate-500">
-            Total Records: <strong>{filteredRecords.length}</strong>
+            {t('Total Records:', 'ጠቅላላ መዝገቦች:')} <strong>{filteredRecords.length}</strong>
           </span>
         </div>
 
@@ -245,20 +247,20 @@ export default function PropertyClearanceHistory() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
-                <th className="p-3">No</th>
-                <th className="p-3">Request</th>
-                <th className="p-3">Employee</th>
-                <th className="p-3">Department</th>
-                <th className="p-3">Request Date</th>
-                <th className="p-3">Status</th>
-                <th className="p-3 text-right">Action</th>
+                <th className="p-3">{t('No', 'ቁጥር')}</th>
+                <th className="p-3">{t('Request', 'ጥያቄ')}</th>
+                <th className="p-3">{t('Employee', 'ሰራተኛ')}</th>
+                <th className="p-3">{t('Department', 'የስራ ክፍል')}</th>
+                <th className="p-3">{t('Request Date', 'የጥያቄ ቀን')}</th>
+                <th className="p-3">{t('Status', 'ሁኔታ')}</th>
+                <th className="p-3 text-right">{t('Action', 'ተግባር')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="p-8 text-center text-slate-400">
-                    ምንም የተቀመጠ የClearance ውሳኔ ታሪክ አልተገኘም።
+                    {t('No clearance decision history found.', 'ምንም የክሊራንስ ውሳኔ ታሪክ አልተገኘም።')}
                   </td>
                 </tr>
               ) : (
@@ -283,7 +285,7 @@ export default function PropertyClearanceHistory() {
                         className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded flex items-center space-x-1 text-[11px] transition-colors ml-auto border border-slate-300"
                       >
                         <Eye size={13} />
-                        <span>View</span>
+                        <span>{t('View', 'አሳይ')}</span>
                       </button>
                     </td>
                   </tr>
@@ -301,7 +303,7 @@ export default function PropertyClearanceHistory() {
             
             <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
               <h3 className="font-bold text-slate-900 text-sm">
-                Clearance History Details — {selectedRecord.requestId}
+                {t('Clearance History Details', 'የክሊራንስ ታሪክ ዝርዝሮች')} — {selectedRecord.requestId}
               </h3>
               <button
                 onClick={() => setSelectedRecord(null)}
@@ -316,52 +318,52 @@ export default function PropertyClearanceHistory() {
               {/* Employee Info */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
                 <h4 className="font-bold text-teal-700 text-[11px] uppercase border-b border-slate-200 pb-1">
-                  Employee Information
+                  {t('Employee Information', 'የሰራተኛ መረጃ')}
                 </h4>
                 <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-                  <div><span className="text-slate-400 block text-[10px]">Name</span> <strong>{selectedRecord.employeeName}</strong></div>
-                  <div><span className="text-slate-400 block text-[10px]">Employee ID</span> <span className="font-mono">{selectedRecord.employeeId}</span></div>
-                  <div><span className="text-slate-400 block text-[10px]">Department</span> {selectedRecord.department}</div>
-                  <div><span className="text-slate-400 block text-[10px]">Position</span> {selectedRecord.position}</div>
-                  <div><span className="text-slate-400 block text-[10px]">Campus</span> {selectedRecord.campus || '-'}</div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Name', 'ስም')}</span> <strong>{selectedRecord.employeeName}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Employee ID', 'የሰራተኛ መታወቂያ')}</span> <span className="font-mono">{selectedRecord.employeeId}</span></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Department', 'የስራ ክፍል')}</span> {selectedRecord.department}</div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Position', 'የስራ መደብ')}</span> {selectedRecord.position}</div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Campus', 'ግቢ')}</span> {selectedRecord.campus || '-'}</div>
                 </div>
               </div>
 
               {/* Clearance Info */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
                 <h4 className="font-bold text-teal-700 text-[11px] uppercase border-b border-slate-200 pb-1">
-                  Clearance Information
+                  {t('Clearance Information', 'የክሊራንስ መረጃ')}
                 </h4>
                 <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-                  <div><span className="text-slate-400 block text-[10px]">Clearance Type</span> <strong>{selectedRecord.clearanceType || 'Resignation'}</strong></div>
-                  <div><span className="text-slate-400 block text-[10px]">Request Date</span> <span className="font-mono">{selectedRecord.requestDate ? new Date(selectedRecord.requestDate).toLocaleDateString('en-US') : '-'}</span></div>
-                  <div className="col-span-2"><span className="text-slate-400 block text-[10px]">Reason</span> <strong>{selectedRecord.clearanceReason || selectedRecord.reason || '-'}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Clearance Type', 'የክሊራንስ አይነት')}</span> <strong>{selectedRecord.clearanceType || t('Resignation', 'ስራ መልቀቅ')}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Request Date', 'የጥያቄ ቀን')}</span> <span className="font-mono">{selectedRecord.requestDate ? new Date(selectedRecord.requestDate).toLocaleDateString('en-US') : '-'}</span></div>
+                  <div className="col-span-2"><span className="text-slate-400 block text-[10px]">{t('Reason', 'ምክንያት')}</span> <strong>{selectedRecord.clearanceReason || selectedRecord.reason || '-'}</strong></div>
                 </div>
               </div>
 
               {/* Property Verification */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
                 <h4 className="font-bold text-teal-700 text-[11px] uppercase border-b border-slate-200 pb-1">
-                  Property Verification
+                  {t('Property Verification', 'የንብረት ማረጋገጫ')}
                 </h4>
                 <div className="grid grid-cols-3 gap-2 text-center py-2 bg-white rounded border border-slate-100">
-                  <div><span className="text-slate-400 block text-[10px]">Assigned Assets</span> <strong>{selectedRecord.assetSummary.assigned}</strong></div>
-                  <div><span className="text-slate-400 block text-[10px]">Returned Assets</span> <strong className="text-emerald-600">{selectedRecord.assetSummary.returned}</strong></div>
-                  <div><span className="text-slate-400 block text-[10px]">Outstanding Assets</span> <strong className={selectedRecord.assetSummary.outstanding > 0 ? "text-rose-600" : "text-slate-600"}>{selectedRecord.assetSummary.outstanding}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Assigned Assets', 'የተመደቡ ንብረቶች')}</span> <strong>{selectedRecord.assetSummary.assigned}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Returned Assets', 'የተመለሱ ንብረቶች')}</span> <strong className="text-emerald-600">{selectedRecord.assetSummary.returned}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Outstanding Assets', 'ያልተመለሱ ንብረቶች')}</span> <strong className={selectedRecord.assetSummary.outstanding > 0 ? "text-rose-600" : "text-slate-600"}>{selectedRecord.assetSummary.outstanding}</strong></div>
                 </div>
               </div>
 
               {/* Decision Details */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2 text-xs">
                 <div className="flex justify-between items-center border-b border-slate-200 pb-1">
-                  <span className="font-bold text-teal-700 uppercase text-[11px]">Action Taken</span>
+                  <span className="font-bold text-teal-700 uppercase text-[11px]">{t('Action Taken', 'የተወሰደ እርምጃ')}</span>
                   <div>{getDecisionBadge(selectedRecord.property?.status)}</div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div><span className="text-slate-400 block text-[10px]">Reviewed By</span> <strong>{selectedRecord.property?.reviewedBy}</strong></div>
+                  <div><span className="text-slate-400 block text-[10px]">{t('Reviewed By', 'የገመገመው')}</span> <strong>{selectedRecord.property?.reviewedBy}</strong></div>
                   <div>
-                    <span className="text-slate-400 block text-[10px]">Reviewed At</span> 
+                    <span className="text-slate-400 block text-[10px]">{t('Reviewed At', 'የተገመገመበት ቀን')}</span>
                     <span className="font-mono">
                       {selectedRecord.property?.reviewedAt ? new Date(selectedRecord.property.reviewedAt).toLocaleString('en-US') : '-'}
                     </span>
@@ -370,14 +372,14 @@ export default function PropertyClearanceHistory() {
 
                 {selectedRecord.property?.status === 'Returned' ? (
                   <div className="pt-2">
-                    <span className="text-[10px] text-rose-500 font-semibold block">Return Reason:</span>
+                    <span className="text-[10px] text-rose-500 font-semibold block">{t('Return Reason:', 'የመመለሻ ምክንያት:')}</span>
                     <p className="p-2 bg-rose-50 border border-rose-200 rounded text-rose-900 font-medium mt-0.5">
                       {selectedRecord.property?.returnReason}
                     </p>
                   </div>
                 ) : (
                   <div className="pt-2">
-                    <span className="text-[10px] text-slate-400 block">Comment:</span>
+                    <span className="text-[10px] text-slate-400 block">{t('Comment:', 'አስተያየት:')}</span>
                     <p className="p-2 bg-white border border-slate-200 rounded text-slate-700 mt-0.5">
                       {selectedRecord.property?.comment}
                     </p>
@@ -387,7 +389,7 @@ export default function PropertyClearanceHistory() {
 
               {/* Action / Decision History */}
               <div className="bg-white p-3 rounded-lg border border-slate-200">
-                <h4 className="font-bold text-slate-900 text-[11px] uppercase mb-3">Action / Decision History</h4>
+                <h4 className="font-bold text-slate-900 text-[11px] uppercase mb-3">{t('Action / Decision History', 'የእርምጃ / ውሳኔ ታሪክ')}</h4>
                 <div className="border-l-2 border-teal-100 pl-4 space-y-3">
                   {(selectedRecord.actionHistory || []).map((event, index) => (
                     <div key={`${event.action}-${index}`} className="relative">
@@ -397,7 +399,7 @@ export default function PropertyClearanceHistory() {
                         {event.date ? new Date(event.date).toLocaleString('en-US') : '-'}
                         {event.officer ? ` · ${event.officer}` : ''}
                       </p>
-                      {event.reason && <p className="mt-1 text-[10px] text-rose-700">Reason: {event.reason}</p>}
+                      {event.reason && <p className="mt-1 text-[10px] text-rose-700">{t('Reason:', 'ምክንያት:')} {event.reason}</p>}
                     </div>
                   ))}
                 </div>
@@ -410,7 +412,7 @@ export default function PropertyClearanceHistory() {
                 onClick={() => setSelectedRecord(null)}
                 className="px-4 py-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded text-xs"
               >
-                Close
+                {t('Close', 'ዝጋ')}
               </button>
             </div>
 

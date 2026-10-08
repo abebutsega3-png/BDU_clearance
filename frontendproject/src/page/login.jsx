@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
+import { canAccessPathForRole, getDashboardPath } from '../until/authRoles';
 import { Eye, EyeOff, LockKeyhole, LogIn, UserRound } from 'lucide-react';
 import campusImage from '../assets/image1.png';
 import universityLogo from '../assets/image-transparent.png';
@@ -14,6 +15,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
 
   const handleLogin = async (e) => {
@@ -30,47 +32,32 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      const response = await axios.post('http://localhost:3000/api/auth/login', {
+      const response = await axios.post('/api/auth/login', {
         identifier: identifier.trim(),
         password,
+      }, {
+        timeout: 10000,
       });
 
       if (response.status === 200 && response.data?.success) {
         localStorage.setItem('token', response.data.token);
         login(response.data.user);
-        const userRole = String(response.data.user?.role || '')
-          .trim()
-          .toLowerCase()
-          .replace(/[\/_&]+/g, ' ')
-          .replace(/[-]+/g, ' ')
-          .replace(/\s+/g, ' ');
-
-        if (userRole === 'hr officer') {
-          navigate('/hr-office');
-        } else if (['admin', 'administrator', 'system admin', 'systemadministrator'].includes(userRole)) {
-          navigate('/admin');
-        } else if (userRole === 'department head' || userRole === 'departmenthead') {
-          navigate('/department-head');
-        } else if (userRole === 'finance officer' || userRole === 'finance office' || userRole === 'finance') {
-          navigate('/finance-office');
-        } else if (['library officer', 'library', 'librarian'].includes(userRole)) {
-          navigate('/library-office');
-        } else if (['ict officer', 'ict office', 'ict'].includes(userRole) || (userRole.includes('ict') && (userRole.includes('officer') || userRole.includes('office')))) {
-          navigate('/ict-office');
-        } else if (userRole.includes('transport') && userRole.includes('officer')) {
-          navigate('/transport-office');
-        } else if (userRole.includes('property') && (userRole.includes('officer') || userRole.includes('asset'))) {
-          navigate('/property');
-        } else {
-          navigate('/employee-dashboard');
-        }
+        const dashboardPath = getDashboardPath(response.data.user?.role);
+        const requestedLocation = location.state?.from;
+        const requestedPath = requestedLocation?.pathname;
+        const destination = requestedPath && canAccessPathForRole(requestedPath, response.data.user?.role)
+          ? { pathname: requestedPath, search: requestedLocation.search || '', hash: requestedLocation.hash || '' }
+          : dashboardPath || '/unauthorized';
+        navigate(destination, { replace: true });
         return;
       }
 
       setError(response.data?.message || 'Login failed. Please try again.');
     } catch (error) {
       console.error('Login failed:', error);
-      if (!error.response) {
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        setError('Login is taking too long. Please try again in a moment.');
+      } else if (!error.response) {
         setError('The login server is unavailable. Start the backend and try again.');
       } else {
         setError(error.response.data?.message || 'Invalid username/email or password.');

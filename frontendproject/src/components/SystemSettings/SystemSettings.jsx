@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Settings, Users, Shield, Bell, Lock, Building, FileCheck, Database, Save, BellRing, CheckCircle, Edit, Trash2, Plus } from 'lucide-react';
 import AdminNotificationBell from '../admindashboared/AdminNotificationBell';
+import { useAdminLanguage } from '../admindashboared/AdminLanguage';
 
 const api = 'http://localhost:3000/api/settings';
 const defaults = {
@@ -26,6 +27,7 @@ const mergeSettings = (current, incoming = {}) => ({
 });
 
 export default function SystemSettings() {
+  const { t } = useAdminLanguage();
   const [settings, setSettings] = useState(defaults);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
@@ -216,10 +218,10 @@ export default function SystemSettings() {
           <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">General Settings</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900">Edit University and System Information</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">{t('General Settings')}</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900">{t('Edit University and System Information')}</h3>
               </div>
-              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">Close</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">{t('Close')}</button>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -236,8 +238,8 @@ export default function SystemSettings() {
             </div>
 
             <div className="mt-5 flex justify-end gap-3 border-t border-slate-200 pt-4">
-              <button type="button" onClick={() => setSelectedSetting(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('Cancel')}</button>
+              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{t('Save Changes')}</button>
             </div>
           </section>
         );
@@ -247,20 +249,20 @@ export default function SystemSettings() {
           <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Clearance Settings</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900">Configure Clearance Workflow</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">{t('Clearance Settings')}</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900">{t('Configure Clearance Workflow')}</h3>
               </div>
-              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">Close</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">{t('Close')}</button>
             </div>
 
             <div className="space-y-5">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Required Clearance Offices</label>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">{t('Required Clearance Offices')}</label>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {Object.entries(form.requiredOffices).map(([key, value]) => (
                     <label key={key} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                       <input type="checkbox" checked={value} onChange={(e) => updateCheckboxGroup('requiredOffices', key, e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                      {key === 'hr' ? 'HR Office' : key === 'library' ? 'Library' : key === 'finance' ? 'Finance' : 'Department'}
+                      {t(key === 'hr' ? 'HR Office' : key === 'library' ? 'Library' : key === 'finance' ? 'Finance' : 'Department')}
                     </label>
                   ))}
                 </div>
@@ -274,8 +276,8 @@ export default function SystemSettings() {
             </div>
 
             <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">
-              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('Cancel')}</button>
+              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{t('Save Changes')}</button>
             </div>
           </section>
         );
@@ -288,7 +290,7 @@ export default function SystemSettings() {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Notification Settings</p>
                 <h3 className="mt-1 text-xl font-bold text-slate-900">Configure Notification Rules</h3>
               </div>
-              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">Close</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">{t('Close')}</button>
             </div>
 
             <div className="space-y-4">
@@ -309,8 +311,8 @@ export default function SystemSettings() {
             </div>
 
             <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">
-              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('Cancel')}</button>
+              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{t('Save Changes')}</button>
             </div>
           </section>
         );
@@ -320,10 +322,10 @@ export default function SystemSettings() {
           <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pink-700">Certificate Settings</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900">Configure Clearance Certificate</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pink-700">{t('Certificate Settings')}</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900">{t('Configure Clearance Certificate')}</h3>
               </div>
-              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">Close</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">{t('Close')}</button>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -340,8 +342,8 @@ export default function SystemSettings() {
             </div>
 
             <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">
-              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('Cancel')}</button>
+              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{t('Save Changes')}</button>
             </div>
           </section>
         );
@@ -351,10 +353,10 @@ export default function SystemSettings() {
           <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-700">Security Settings</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900">Configure Security Rules</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-700">{t('Security Settings')}</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900">{t('Configure Security Rules')}</h3>
               </div>
-              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">Close</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">{t('Close')}</button>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -369,8 +371,8 @@ export default function SystemSettings() {
             </div>
 
             <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">
-              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('Cancel')}</button>
+              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{t('Save Changes')}</button>
             </div>
           </section>
         );
@@ -380,10 +382,10 @@ export default function SystemSettings() {
           <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">Backup & Maintenance</p>
-                <h3 className="mt-1 text-xl font-bold text-slate-900">Backup and Maintenance Settings</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">{t('Backup & Maintenance')}</p>
+                <h3 className="mt-1 text-xl font-bold text-slate-900">{t('Backup and Maintenance Settings')}</h3>
               </div>
-              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">Close</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="text-sm font-medium text-slate-500 hover:text-slate-700">{t('Close')}</button>
             </div>
 
             <div className="space-y-5">
@@ -410,8 +412,8 @@ export default function SystemSettings() {
             </div>
 
             <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">
-              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+              <button type="button" onClick={() => setSelectedSetting(null)} className="mr-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('Cancel')}</button>
+              <button type="button" onClick={saveSelectedSetting} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">{t('Save Changes')}</button>
             </div>
           </section>
         );
@@ -423,13 +425,13 @@ export default function SystemSettings() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 text-xs font-sans pb-10">
-      {loading && <div className="px-6 py-2 bg-blue-50 text-blue-700">Loading settings...</div>}
+      {loading && <div className="px-6 py-2 bg-blue-50 text-blue-700">{t('Loading settings...')}</div>}
       {message && (
         <div
           role={message.type === 'error' ? 'alert' : 'status'}
           className={`px-6 py-2 ${message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}
         >
-          {message.text}
+          {t(message.text)}
         </div>
       )}
 
@@ -441,8 +443,8 @@ export default function SystemSettings() {
             </svg>
           </button>
           <div>
-            <h1 className="text-lg font-bold text-slate-800">System Settings</h1>
-            <p className="text-[11px] text-slate-400">Configure and manage the system settings and preferences</p>
+            <h1 className="text-lg font-bold text-slate-800">{t('System Settings')}</h1>
+            <p className="text-[11px] text-slate-400">{t('Configure and manage the system settings and preferences')}</p>
           </div>
         </div>
 
@@ -452,8 +454,8 @@ export default function SystemSettings() {
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-white">SA</div>
             <div className="text-right">
-              <p className="text-xs font-semibold text-slate-800">System Admin</p>
-              <p className="text-[10px] text-slate-400">System Administrator</p>
+              <p className="text-xs font-semibold text-slate-800">{t('System Admin')}</p>
+              <p className="text-[10px] text-slate-400">{t('System Administrator')}</p>
             </div>
           </div>
         </div>
@@ -539,8 +541,8 @@ export default function SystemSettings() {
               </svg>
             </div>
             <div>
-              <p className="font-bold text-slate-800">Note</p>
-              <p className="mt-1 text-xs text-slate-600">System settings apply across the entire system. Please update these settings carefully.</p>
+              <p className="font-bold text-slate-800">{t('Note')}</p>
+              <p className="mt-1 text-xs text-slate-600">{t('System settings apply across the entire system. Please update these settings carefully.')}</p>
             </div>
           </div>
         </div>
@@ -560,6 +562,7 @@ export default function SystemSettings() {
 }
 
 function SettingCard({ icon, title, description, featureList, buttonLabel, buttonClassName, accent, onClick }) {
+  const { t } = useAdminLanguage();
   const accentColors = {
     blue: 'bg-blue-50 text-blue-700',
     emerald: 'bg-emerald-50 text-emerald-700',
@@ -577,17 +580,17 @@ function SettingCard({ icon, title, description, featureList, buttonLabel, butto
             {icon}
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-800">{title}</h2>
+            <h2 className="text-base font-bold text-slate-800">{t(title)}</h2>
           </div>
         </div>
 
-        <p className="mb-3 text-xs text-slate-500">{description}</p>
+        <p className="mb-3 text-xs text-slate-500">{t(description)}</p>
 
         <ul className="space-y-2">
           {featureList.map((item) => (
             <li key={item} className="flex items-start gap-2 text-sm text-slate-700">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-slate-400" />
-              <span>{item}</span>
+              <span>{t(item)}</span>
             </li>
           ))}
         </ul>
@@ -598,7 +601,7 @@ function SettingCard({ icon, title, description, featureList, buttonLabel, butto
         onClick={onClick}
         className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition ${buttonClassName}`}
       >
-        {buttonLabel}
+        {t(buttonLabel)}
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M5 12h14M13 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -608,23 +611,25 @@ function SettingCard({ icon, title, description, featureList, buttonLabel, butto
 }
 
 function Field({ label, children }) {
+  const { t } = useAdminLanguage();
   return (
     <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-      <span className="mb-1 block">{label}</span>
+      <span className="mb-1 block">{t(label)}</span>
       {children}
     </label>
   );
 }
 
 function ToggleField({ label, checked, onToggle }) {
+  const { t } = useAdminLanguage();
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="text-sm font-medium text-slate-700">{t(label)}</span>
       <button
         type="button"
         onClick={() => onToggle(!checked)}
         className={`relative h-6 w-11 rounded-full transition ${checked ? 'bg-emerald-500' : 'bg-slate-300'}`}
-        aria-label={label}
+        aria-label={t(label)}
       >
         <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${checked ? 'left-6' : 'left-1'}`} />
       </button>
@@ -657,23 +662,25 @@ function PermissionItem({ text }) {
 }
 
 function OrgRow({ label, val }) {
+  const { t } = useAdminLanguage();
   return (
     <div className="flex items-center justify-between py-0.5 border-b border-slate-50">
-      <span className="text-slate-600">{label}</span>
+      <span className="text-slate-600">{t(label)}</span>
       <div className="flex items-center space-x-3">
         <span className="font-bold text-slate-800">{val}</span>
-        <button className="border border-slate-200 px-2 py-0.5 rounded text-[9px] font-semibold text-slate-600 hover:bg-slate-50">Manage</button>
+        <button className="border border-slate-200 px-2 py-0.5 rounded text-[9px] font-semibold text-slate-600 hover:bg-slate-50">{t('Manage')}</button>
       </div>
     </div>
   );
 }
 
 function StatusConfigRow({ color, label }) {
+  const { t } = useAdminLanguage();
   return (
     <div className="flex justify-between items-center py-0.5 border-b border-slate-50">
       <div className="flex items-center space-x-1.5">
         <span className={`w-2 h-2 rounded-full ${color}`} />
-        <span className="text-slate-700">{label}</span>
+        <span className="text-slate-700">{t(label)}</span>
       </div>
       <div className="flex gap-1 text-slate-400">
         <Edit size={10} className="hover:text-blue-600 cursor-pointer" />

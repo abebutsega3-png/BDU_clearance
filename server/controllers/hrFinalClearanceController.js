@@ -7,6 +7,23 @@ import mongoose from 'mongoose';
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
 import { sendNotificationEmail } from '../utils/emailService.js';
 
+const getDateOnlyTimestamp = (value) => {
+  if (!value) return Number.NaN;
+  const dateText = value instanceof Date
+    ? (Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10))
+    : String(value).slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
+  if (!match) return Number.NaN;
+  const [, year, month, day] = match;
+  const timestamp = Date.UTC(Number(year), Number(month) - 1, Number(day));
+  const parsed = new Date(timestamp);
+  return parsed.getUTCFullYear() === Number(year)
+    && parsed.getUTCMonth() === Number(month) - 1
+    && parsed.getUTCDate() === Number(day)
+    ? timestamp
+    : Number.NaN;
+};
+
 const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
   const department = typeof clearance.department === 'object'
     ? clearance.department?.name || clearance.department?.departmentName
@@ -45,7 +62,13 @@ export const updateInitialHRDecision = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only an HR Officer can complete Initial HR Review.' });
     }
     const { id } = req.params;
-    const { decision, remarks = '', reason = '', affectedField = '' } = req.body || {};
+    const {
+      decision,
+      remarks = '',
+      reason = '',
+      affectedField = '',
+      assessmentChecklist,
+    } = req.body || {};
     const normalizedDecision = String(decision || '').trim().toLowerCase();
     const returnReason = String(reason || remarks).trim();
     if (!['in progress', 'approved', 'returned'].includes(normalizedDecision)) {
@@ -79,12 +102,73 @@ export const updateInitialHRDecision = async (req, res) => {
     }
 
     const approved = normalizedDecision === 'approved';
+    if (assessmentChecklist !== undefined) {
+      const checklistKeys = [
+        'empInfoVerified',
+        'clearanceRequestVerified',
+        'documentVerified',
+        'employmentVerified',
+        'noDuplicateRequest',
+      ];
+      if (!assessmentChecklist || typeof assessmentChecklist !== 'object' || Array.isArray(assessmentChecklist)
+        || checklistKeys.some((key) => typeof assessmentChecklist[key] !== 'boolean')) {
+        return res.status(400).json({ success: false, message: 'All assessment checklist items must be answered.' });
+      }
+      current.assessmentChecklist = Object.fromEntries(
+        checklistKeys.map((key) => [key, assessmentChecklist[key]]),
+      );
+    }
+    if (approved && assessmentChecklist !== undefined
+      && ['empInfoVerified', 'clearanceRequestVerified', 'documentVerified', 'employmentVerified', 'noDuplicateRequest']
+        .some((key) => assessmentChecklist[key] !== true)) {
+      return res.status(400).json({ success: false, message: 'Cannot approve until all assessment checklist items pass.' });
+    }
+    if (approved) {
+      const departmentName = typeof current.department === 'object'
+        ? current.department?.departmentName || current.department?.name
+        : current.department;
+      if (!current.employeeId || !current.clearanceType || !current.reason || !current.lastWorkingDate || !departmentName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Employee, department, separation type, reason, and last working date are required before approval.',
+        });
+      }
+      const employeeRecord = await Employee.exists({ employeeId: current.employeeId });
+      if (!employeeRecord) {
+        return res.status(400).json({
+          success: false,
+          message: 'No employee record matches this employee ID. Return the request for correction.',
+        });
+      }
+      const lastWorkingDate = getDateOnlyTimestamp(current.lastWorkingDate);
+      const requestDate = getDateOnlyTimestamp(current.requestDate || current.createdAt);
+      if (Number.isNaN(lastWorkingDate) || Number.isNaN(requestDate) || lastWorkingDate < requestDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Last working date must be valid and cannot be earlier than the request date.',
+        });
+      }
+      const duplicate = current.employeeId
+        ? await Clearance.exists({
+          employeeId: current.employeeId,
+          _id: { $ne: current._id },
+          status: { $nin: ['Completed', 'Cancelled', 'Rejected'] },
+        })
+        : false;
+      if (duplicate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Another active clearance request exists for this employee.',
+        });
+      }
+    }
     current.initialHRStatus = approved ? 'Approved' : 'Returned';
     current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
     current.initialHRReviewedAt = new Date();
     const reviewerName = req.user?.fullName || req.user?.name || 'HR Officer';
     const returnRemark = String(remarks).trim();
     current.initialHRRemarks = returnRemark;
+    current.hrComment = returnRemark;
     current.initialHRReviewedBy = reviewerName;
     current.returnReason = approved ? '' : returnReason;
     current.officerComment = returnRemark;
@@ -421,6 +505,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
           position: employeeData.position,
           campus: employeeData.campus,
           employmentType: employeeData.employmentType,
+          status: employeeData.status || '',
           supervisor: employeeData.supervisor || '-',
           hireDate: employeeData.hireDate,
           lastWorkingDate: clearance.lastWorkingDate,
@@ -433,6 +518,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
           position: 'Not assigned',
           campus: 'Not assigned',
           employmentType: 'Not assigned',
+          status: '-',
           supervisor: '-',
           hireDate: '-',
           lastWorkingDate: clearance.lastWorkingDate,

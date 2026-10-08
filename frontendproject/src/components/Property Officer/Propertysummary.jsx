@@ -1,409 +1,317 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import {
-  Boxes,
-  Clock,
-  CheckCircle2,
+  Activity, AlertTriangle, BellRing, Boxes, CalendarDays, CheckCircle2,
+  ChevronRight, Clock, FileText, History, ListCheck, Loader2, RefreshCw,
   RotateCcw,
-  AlertTriangle,
-  ChevronRight,
-  FileText,
-  History,
-  Activity,
-  BarChart2,
-  Loader2,
-  ListCheck
 } from 'lucide-react';
+import { usePropertyLanguage } from './propertyLanguage';
+
+const EMPTY_DASHBOARD = {
+  summary: {
+    totalRequests: 0,
+    pendingRequests: 0,
+    underReview: 0,
+    approved: 0,
+    returned: 0,
+    outstandingAssetsCount: 0,
+  },
+  pendingRequests: [],
+  outstandingAssets: [],
+  recentActivities: [],
+};
+
+const dateText = (value, t) => {
+  if (!value) return t('Date unavailable', 'ቀኑ አይገኝም');
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return t('Date unavailable', 'ቀኑ አይገኝም');
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+};
+
+const activityTime = (value, t) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return t('Recently', 'በቅርቡ');
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (elapsedMinutes < 1) return t('Just now', 'አሁን');
+  if (elapsedMinutes < 60) return t(`${elapsedMinutes}m ago`, `${elapsedMinutes} ደቂቃ በፊት`);
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return t(`${elapsedHours}h ago`, `${elapsedHours} ሰዓት በፊት`);
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return elapsedDays < 7 ? t(`${elapsedDays}d ago`, `${elapsedDays} ቀን በፊት`) : dateText(value, t);
+};
 
 export default function PropertyDashboard() {
+  const { t } = usePropertyLanguage();
   const navigate = useNavigate();
+  const [dashboardData, setDashboardData] = useState(EMPTY_DASHBOARD);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Initial State starting empty (No hardcoded/pre-registered dummy users)
-  const [dashboardData, setDashboardData] = useState({
-    summary: {
-      totalRequests: 0,
-      pendingRequests: 0,
-      underReview: 0,
-      approved: 0,
-      returned: 0,
-      outstandingAssetsCount: 0
-    },
-    pendingRequests: [],
-    outstandingAssets: [],
-    recentActivities: []
-  });
+  const fetchDashboard = useCallback(async (backgroundRefresh = false) => {
+    if (backgroundRefresh) setRefreshing(true);
+    try {
+      const response = await axios.get('http://localhost:3000/api/property/dashboard/dashboard');
+      const payload = response.data;
+      if (!payload?.summary) throw new Error(t('The dashboard response is incomplete.', 'የዳሽቦርዱ ምላሽ ያልተሟላ ነው።'));
+      const summary = payload.summary;
+      setDashboardData({
+        ...EMPTY_DASHBOARD,
+        ...payload,
+        summary: {
+          totalRequests: Number(summary.totalRequests) || 0,
+          pendingRequests: Number(summary.pendingRequests ?? summary.pending) || 0,
+          underReview: Number(summary.underReview) || 0,
+          approved: Number(summary.approved) || 0,
+          returned: Number(summary.returned) || 0,
+          outstandingAssetsCount: Number(summary.outstandingAssetsCount ?? summary.outstandingAssets) || 0,
+        },
+        pendingRequests: Array.isArray(payload.pendingRequests) ? payload.pendingRequests : [],
+        outstandingAssets: Array.isArray(payload.outstandingAssets) ? payload.outstandingAssets : [],
+        recentActivities: Array.isArray(payload.recentActivities) ? payload.recentActivities : [],
+      });
+      setLastUpdated(new Date());
+      setError('');
+    } catch (requestError) {
+      console.error('Unable to load Property Officer dashboard:', requestError);
+      setError(requestError.response?.data?.message || requestError.message || t('Could not load dashboard information.', 'የዳሽቦርዱን መረጃ መጫን አልተቻለም።'));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [t]);
 
-  // Fetch Live Dashboard Data from API System Database
   useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        const res = await axios.get('http://localhost:3000/api/property/dashboard/dashboard');
-        if (res.data) {
-          const summary = res.data.summary || {};
-          setDashboardData({
-            ...res.data,
-            summary: {
-              totalRequests: summary.totalRequests || 0,
-              pendingRequests: summary.pendingRequests ?? summary.pending ?? 0,
-              pending: summary.pendingRequests ?? summary.pending ?? 0,
-              underReview: summary.underReview || 0,
-              approved: summary.approved || 0,
-              returned: summary.returned || 0,
-              outstandingAssets: summary.outstandingAssets || 0,
-              outstandingAssetsCount: summary.outstandingAssetsCount ?? summary.outstandingAssets ?? 0
-            }
-          });
-        }
-      } catch (err) {
-        console.error('Error fetching dashboard data from server:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchDashboard();
-  }, []);
+    const refreshTimer = window.setInterval(() => fetchDashboard(true), 60000);
+    return () => window.clearInterval(refreshTimer);
+  }, [fetchDashboard]);
+
+  const statusBreakdown = useMemo(() => {
+    const { approved, pendingRequests, underReview, returned } = dashboardData.summary;
+    const values = [
+      { label: 'Approved', value: approved, color: '#059669', textColor: 'text-emerald-700' },
+      { label: 'Pending', value: pendingRequests, color: '#f59e0b', textColor: 'text-amber-700' },
+      { label: 'Under Review', value: underReview, color: '#3b82f6', textColor: 'text-blue-700' },
+      { label: 'Returned', value: returned, color: '#f43f5e', textColor: 'text-rose-700' },
+    ];
+    const total = values.reduce((sum, item) => sum + item.value, 0);
+    let offset = 0;
+    const segments = values.map((item) => {
+      const percent = total ? item.value / total * 100 : 0;
+      const start = offset;
+      offset += percent;
+      return `${item.color} ${start}% ${offset}%`;
+    });
+    return { values, total, background: total ? `conic-gradient(${segments.join(', ')})` : '#e2e8f0' };
+  }, [dashboardData.summary]);
+
+  const { summary, pendingRequests, outstandingAssets, recentActivities } = dashboardData;
+  const cards = [
+    { label: 'Total Requests', value: summary.totalRequests, icon: ListCheck, style: 'border-slate-200 text-slate-800', iconColor: 'text-sky-600', path: '/property/clearance-requests' },
+    { label: 'Pending', value: summary.pendingRequests, icon: BellRing, style: 'border-amber-300 bg-amber-50/70 text-amber-900', iconColor: 'text-amber-600', path: '/property/clearance-requests' },
+    { label: 'Under Review', value: summary.underReview, icon: Clock, style: 'border-slate-200 text-slate-800', iconColor: 'text-slate-500', path: '/property/clearance-requests' },
+    { label: 'Approved', value: summary.approved, icon: CheckCircle2, style: 'border-emerald-200 bg-emerald-50/70 text-emerald-900', iconColor: 'text-emerald-600', path: '/property/clearance-history' },
+    { label: 'Returned', value: summary.returned, icon: RotateCcw, style: 'border-rose-200 bg-rose-50/70 text-rose-900', iconColor: 'text-rose-600', path: '/property/clearance-history' },
+    { label: 'Outstanding Assets', value: `${summary.outstandingAssetsCount} ${t('Assets', 'ንብረቶች')}`, icon: AlertTriangle, style: 'border-rose-300 bg-rose-50/60 text-rose-900', iconColor: 'text-rose-700', path: '/property/asset-records' },
+  ];
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50 text-slate-500 text-xs">
-        <Loader2 className="animate-spin mr-2" size={18} />
-        <span>የProperty Dashboard መረጃዎችን በማስገባት ላይ...</span>
+      <div className="flex min-h-[60vh] items-center justify-center text-sm text-slate-500">
+        <Loader2 className="mr-2 animate-spin" size={18} />{t('Loading Property Officer dashboard...', 'የንብረት ኦፊሰር ዳሽቦርድ በመጫን ላይ...')}
       </div>
     );
   }
 
-  const { summary, pendingRequests, outstandingAssets, recentActivities } = dashboardData;
-
   return (
-    <div className="p-6 bg-slate-50 min-h-screen text-xs text-slate-700 space-y-6">
-      
-      {/* Module Title */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-            <Boxes className="text-teal-600" size={18} />
-            <span>PROPERTY / ASSET OFFICER DASHBOARD</span>
-          </h1>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Bahir Dar University — Employee Clearance Management System
+    <main className="min-h-[calc(100vh-4rem)] space-y-4 bg-slate-50 p-3 text-xs text-slate-700 sm:p-4">
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-800">
+          <span>{error}</span>
+          <button type="button" onClick={() => fetchDashboard(true)} className="inline-flex items-center gap-1 font-semibold underline">
+            <RefreshCw size={12} /> {t('Retry', 'እንደገና ይሞክሩ')}
+          </button>
+        </div>
+      )}
+
+      <section className="relative flex min-h-[76px] items-center overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
+        <div className="pointer-events-none absolute inset-0 opacity-60" style={{ backgroundImage: 'linear-gradient(110deg, rgba(255,255,255,.98) 8%, rgba(240,247,250,.78) 58%, rgba(224,239,245,.6)), repeating-linear-gradient(35deg, transparent 0 26px, rgba(148,163,184,.12) 27px 28px), repeating-linear-gradient(145deg, transparent 0 42px, rgba(148,163,184,.1) 43px 44px)' }} />
+        <div className="relative z-10 min-w-0">
+          <div className="flex items-center gap-2">
+            <Boxes className="shrink-0 text-teal-700" size={17} />
+            <h1 className="text-sm font-bold text-slate-900 sm:text-base">{t('PROPERTY / ASSET OFFICER DASHBOARD', 'የንብረት ኦፊሰር ዳሽቦርድ')}</h1>
+          </div>
+          <p className="mt-1 text-[10px] text-slate-600 sm:text-[11px]">{t('Bahir Dar University · Employee Clearance Management System', 'ባህር ዳር ዩኒቨርሲቲ · የሰራተኞች ክሊራንስ አስተዳደር ስርዓት')}</p>
+          <p className="mt-1 flex items-center gap-1 text-[9px] text-slate-500">
+            <CalendarDays size={10} /> {dateText(new Date(), t)}
+            <span className="ml-1 inline-flex items-center gap-1 text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{t('System Online', 'ስርዓቱ በመስመር ላይ ነው')}</span>
           </p>
         </div>
-      </div>
+      </section>
 
-      {/* 1. 📊 SUMMARY CARDS (Live Dynamic Stats from DB) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="font-semibold text-[11px]">Total Requests</span>
-            <ListCheck size={15} className="text-slate-400" />
-          </div>
-          <p className="text-xl font-bold text-slate-900">{summary.totalRequests}</p>
-        </div>
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+        {cards.map(({ label, value, icon: Icon, style, iconColor, path }) => (
+          <button key={label} type="button" onClick={() => navigate(path)} className={`group min-h-[78px] rounded-xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${style}`}>
+            <span className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold leading-tight">{t(label, ({ 'Total Requests': 'ጠቅላላ ጥያቄዎች', Pending: 'በመጠባበቅ ላይ', 'Under Review': 'በግምገማ ላይ', Approved: 'ጸድቋል', Returned: 'ተመልሷል', 'Outstanding Assets': 'ያልተመለሱ ንብረቶች' })[label])}</span>
+              <Icon size={14} className={`shrink-0 ${iconColor}`} />
+            </span>
+            <span className="mt-2 block text-lg font-bold leading-none">{value}</span>
+            <span className="mt-2 block h-1 overflow-hidden rounded-full bg-white/70">
+              <span className="block h-full w-2/3 rounded-full bg-current opacity-25 transition-all group-hover:w-full" />
+            </span>
+          </button>
+        ))}
+      </section>
 
-        <div className="bg-white p-3.5 rounded-xl border border-amber-200 shadow-sm space-y-1 bg-amber-50/20">
-          <div className="flex items-center justify-between text-amber-700">
-            <span className="font-semibold text-[11px]">Pending Requests</span>
-            <Clock size={15} />
-          </div>
-          <p className="text-xl font-bold text-amber-900">{summary.pendingRequests}</p>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-sm space-y-1 bg-blue-50/20">
-          <div className="flex items-center justify-between text-blue-700">
-            <span className="font-semibold text-[11px]">Under Review</span>
-            <Clock size={15} />
-          </div>
-          <p className="text-xl font-bold text-blue-900">{summary.underReview}</p>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-sm space-y-1 bg-emerald-50/20">
-          <div className="flex items-center justify-between text-emerald-700">
-            <span className="font-semibold text-[11px]">Approved</span>
-            <CheckCircle2 size={15} />
-          </div>
-          <p className="text-xl font-bold text-emerald-900">{summary.approved}</p>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-rose-200 shadow-sm space-y-1 bg-rose-50/20">
-          <div className="flex items-center justify-between text-rose-700">
-            <span className="font-semibold text-[11px]">Returned</span>
-            <RotateCcw size={15} />
-          </div>
-          <p className="text-xl font-bold text-rose-900">{summary.returned}</p>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-purple-200 shadow-sm space-y-1 bg-purple-50/20">
-          <div className="flex items-center justify-between text-purple-700">
-            <span className="font-semibold text-[11px]">Outstanding Assets</span>
-            <AlertTriangle size={15} />
-          </div>
-          <p className="text-xl font-bold text-purple-900">{summary.outstandingAssetsCount} Assets</p>
-        </div>
-      </div>
-
-      {/* Main Grid Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* LEFT COLUMN */}
-        <div className="lg:col-span-2 space-y-6">
-
-          {/* 2. 📋 PENDING CLEARANCE REQUESTS TABLE */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="font-bold text-slate-900 flex items-center space-x-2">
-                <Clock size={15} className="text-amber-600" />
-                <span>Pending Clearance Requests</span>
-              </h2>
-              <button
-                onClick={() => navigate('/property/clearance-requests')}
-                className="text-teal-700 hover:text-teal-800 font-semibold flex items-center space-x-0.5 text-[11px]"
-              >
-                <span>View All</span>
-                <ChevronRight size={13} />
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
-                    <th className="p-3">Request ID</th>
-                    <th className="p-3">Employee</th>
-                    <th className="p-3">Department</th>
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3 text-right">Action</th>
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(250px,1fr)]">
+        <div className="space-y-3">
+          <DashboardTable
+            title={t('Pending Clearance Requests', 'በመጠባበቅ ላይ ያሉ የክሊራንስ ጥያቄዎች')}
+            icon={Clock}
+            iconColor="text-amber-600"
+            actionLabel={t('View All', 'ሁሉንም ይመልከቱ')}
+            onAction={() => navigate('/property/clearance-requests')}
+          >
+            <table className="w-full min-w-[620px] text-left">
+              <thead className="bg-slate-50 text-[10px] text-slate-600">
+                <tr>{['Request ID', 'Employee', 'Department', 'Date', 'Status', 'Action'].map((label) => <th key={label} className="px-2.5 py-2 font-semibold">{t(label, ({ 'Request ID': 'የጥያቄ መለያ', Employee: 'ሰራተኛ', Department: 'ዲፓርትመንት', Date: 'ቀን', Status: 'ሁኔታ', Action: 'ተግባር' })[label])}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {pendingRequests.length ? pendingRequests.map((request) => (
+                  <tr key={request._id || request.requestId} className="hover:bg-slate-50">
+                    <td className="px-2.5 py-2 font-mono text-[9px] font-semibold text-slate-700">{request.requestId}</td>
+                    <td className="px-2.5 py-2 font-medium text-slate-800">{request.employeeName}</td>
+                    <td className="px-2.5 py-2 text-slate-600">{request.department}</td>
+                    <td className="whitespace-nowrap px-2.5 py-2 text-slate-600">{dateText(request.date, t)}</td>
+                    <td className="px-2.5 py-2"><span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-semibold text-amber-800">{t(request.status || 'Pending', ({ Pending: 'በመጠባበቅ ላይ', Approved: 'ጸድቋል', Returned: 'ተመልሷል', 'Under Review': 'በግምገማ ላይ', Completed: 'ተጠናቋል' })[request.status || 'Pending'])}</span></td>
+                    <td className="px-2.5 py-2 text-right">
+                      <button type="button" onClick={() => navigate('/property/clearance-requests')} className="inline-flex items-center gap-1 rounded bg-teal-700 px-2.5 py-1.5 text-[9px] font-semibold text-white hover:bg-teal-800"><FileText size={11} />{t('View', 'ይመልከቱ')}</button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {pendingRequests.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="p-4 text-center text-slate-400">
-                        በሲስተሙ የተመዘገበ የጸደቀ ወይም የሚጠበቅ የPending Clearance ጥያቄ የለም።
-                      </td>
-                    </tr>
-                  ) : (
-                    pendingRequests.map((req) => (
-                      <tr key={req._id || req.requestId} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-3 font-semibold text-teal-700">{req.requestId}</td>
-                        <td className="p-3 font-medium text-slate-800">{req.employeeName}</td>
-                        <td className="p-3 text-slate-600">{req.department}</td>
-                        <td className="p-3 text-slate-500">{req.date}</td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-semibold text-[10px]">
-                            {req.status}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => navigate('/property/clearance-requests')}
-                            className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded flex items-center space-x-1 text-[11px] transition-colors ml-auto"
-                          >
-                            <FileText size={12} />
-                            <span>View</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                )) : <tr><td colSpan="6" className="px-3 py-5 text-center text-slate-400">{t('There are no pending clearance requests.', 'በመጠባበቅ ላይ ያሉ የክሊራንስ ጥያቄዎች የሉም።')}</td></tr>}
+              </tbody>
+            </table>
+          </DashboardTable>
 
-          {/* 3. ⚠️ OUTSTANDING ASSETS TABLE */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 bg-purple-50/50 border-b border-purple-100 flex items-center justify-between">
-              <h2 className="font-bold text-slate-900 flex items-center space-x-2">
-                <AlertTriangle size={15} className="text-purple-600" />
-                <span>Outstanding Assets (Unreturned University Property)</span>
-              </h2>
-              <button
-                onClick={() => navigate('/property/asset-records')}
-                className="text-purple-700 hover:text-purple-800 font-semibold flex items-center space-x-0.5 text-[11px]"
-              >
-                <span>View All</span>
-                <ChevronRight size={13} />
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
-                    <th className="p-3">Employee</th>
-                    <th className="p-3">Asset</th>
-                    <th className="p-3">Asset ID</th>
-                    <th className="p-3 text-right">Status</th>
+          <DashboardTable
+            title={t('Outstanding Assets (Unreturned University Property)', 'ያልተመለሱ ንብረቶች (ያልተመለሱ የዩኒቨርሲቲ ንብረቶች)')}
+            icon={AlertTriangle}
+            iconColor="text-rose-600"
+            actionLabel={t('View All', 'ሁሉንም ይመልከቱ')}
+            onAction={() => navigate('/property/asset-records')}
+          >
+            <table className="w-full min-w-[540px] text-left">
+              <thead className="bg-slate-50 text-[10px] text-slate-600">
+                <tr>{['Employee', 'Asset', 'Asset ID', 'Status'].map((label) => <th key={label} className="px-2.5 py-2 font-semibold">{t(label, ({ Employee: 'ሰራተኛ', Asset: 'ንብረት', 'Asset ID': 'የንብረት መለያ', Status: 'ሁኔታ' })[label])}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {outstandingAssets.length ? outstandingAssets.map((asset) => (
+                  <tr key={asset._id || asset.assetId} className="hover:bg-slate-50">
+                    <td className="px-2.5 py-2 font-medium text-slate-800">{asset.employeeName}</td>
+                    <td className="px-2.5 py-2 font-medium text-slate-700">{asset.assetName}</td>
+                    <td className="px-2.5 py-2 font-mono text-slate-500">{asset.assetId}</td>
+                    <td className="px-2.5 py-2"><span className="rounded-full bg-rose-100 px-2 py-1 text-[9px] font-semibold text-rose-800">{t(asset.status || 'Outstanding', ({ Outstanding: 'ያልተመለሰ', Damaged: 'የተበላሸ' })[asset.status || 'Outstanding'])}</span></td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {outstandingAssets.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" className="p-4 text-center text-slate-400">
-                        በሲስተሙ ያልተመለሱ የንብረት ዝርዝሮች አልተገኙም።
-                      </td>
-                    </tr>
-                  ) : (
-                    outstandingAssets.map((asset) => (
-                      <tr key={asset._id || asset.assetId} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-3 font-medium text-slate-800">{asset.employeeName}</td>
-                        <td className="p-3 font-semibold text-slate-700">{asset.assetName}</td>
-                        <td className="p-3 font-mono text-slate-500">{asset.assetId}</td>
-                        <td className="p-3 text-right">
-                          <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded font-semibold text-[10px]">
-                            {asset.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
+                )) : <tr><td colSpan="4" className="px-3 py-5 text-center text-slate-400">{t('No outstanding asset records were found.', 'ያልተመለሱ የንብረት መዝገቦች አልተገኙም።')}</td></tr>}
+              </tbody>
+            </table>
+          </DashboardTable>
         </div>
 
-        {/* RIGHT COLUMN */}
-        <div className="space-y-6">
-
-          {/* 4. 📊 CLEARANCE STATUS OVERVIEW */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <div className="flex items-center space-x-2 border-b border-slate-100 pb-2">
-              <BarChart2 size={16} className="text-teal-700" />
-              <h2 className="font-bold text-slate-900">Clearance Status Overview</h2>
-            </div>
-
-            <div className="space-y-3 font-medium">
-              <div>
-                <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-slate-700 font-semibold">Approved</span>
-                  <span className="text-emerald-700 font-bold">{summary.approved}</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: summary.totalRequests > 0 ? `${(summary.approved / summary.totalRequests) * 100}%` : '0%' }}
-                  ></div>
+        <aside className="space-y-3">
+          <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <PanelHeading icon={Boxes} title={t('Clearance Status', 'የክሊራንስ ሁኔታ')} />
+            <div className="flex items-center justify-center gap-4 py-3">
+              <div className="relative grid h-28 w-28 shrink-0 place-items-center rounded-full" style={{ background: statusBreakdown.background }}>
+                <div className="grid h-[76px] w-[76px] place-items-center rounded-full bg-white text-center">
+                  <span><strong className="block text-lg leading-none text-slate-800">{summary.totalRequests}</strong><span className="mt-1 block text-[9px] text-slate-500">{t('Requests', 'ጥያቄዎች')}</span></span>
                 </div>
               </div>
-
-              <div>
-                <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-slate-700 font-semibold">Pending</span>
-                  <span className="text-amber-700 font-bold">{summary.pendingRequests}</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-amber-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: summary.totalRequests > 0 ? `${(summary.pendingRequests / summary.totalRequests) * 100}%` : '0%' }}
-                  ></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-slate-700 font-semibold">Returned</span>
-                  <span className="text-rose-700 font-bold">{summary.returned}</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-rose-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: summary.totalRequests > 0 ? `${(summary.returned / summary.totalRequests) * 100}%` : '0%' }}
-                  ></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-[11px] mb-1">
-                  <span className="text-slate-700 font-semibold">Under Review</span>
-                  <span className="text-blue-700 font-bold">{summary.underReview}</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-blue-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: summary.totalRequests > 0 ? `${(summary.underReview / summary.totalRequests) * 100}%` : '0%' }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 5. 🕒 RECENT ACTIVITY FEED */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <div className="flex items-center space-x-2 border-b border-slate-100 pb-2">
-              <Activity size={16} className="text-teal-700" />
-              <h2 className="font-bold text-slate-900">Recent Activity</h2>
-            </div>
-
-            <div className="space-y-3">
-              {recentActivities.length === 0 ? (
-                <p className="text-slate-400 text-[11px] text-center py-2">ምንም ቅርብ ጊዜ የተከናወነ ክንውን የለም።</p>
-              ) : (
-                recentActivities.map((act) => (
-                  <div key={act._id || act.id} className="flex items-start space-x-3 p-2 rounded-lg bg-slate-50 border border-slate-100">
-                    <div className="mt-0.5">
-                      {act.type === 'Approved' ? (
-                        <CheckCircle2 size={15} className="text-emerald-600" />
-                      ) : act.type === 'Returned' ? (
-                        <RotateCcw size={15} className="text-rose-600" />
-                      ) : (
-                        <Clock size={15} className="text-blue-600" />
-                      )}
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="font-semibold text-slate-800">{act.action}</p>
-                      <p className="text-[10px] text-slate-400">{act.timeAgo}</p>
-                    </div>
+              <div className="space-y-2">
+                {statusBreakdown.values.map((item) => (
+                  <div key={item.label} className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="min-w-[65px] text-[10px] text-slate-600">{t(item.label, ({ Approved: 'ጸድቋል', Pending: 'በመጠባበቅ ላይ', 'Under Review': 'በግምገማ ላይ', Returned: 'ተመልሷል' })[item.label])}</span>
+                    <strong className={`text-[10px] ${item.textColor}`}>{item.value}</strong>
+                    <span className="text-[9px] text-slate-400">{statusBreakdown.total ? Math.round(item.value / statusBreakdown.total * 100) : 0}%</span>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
             </div>
-          </div>
+          </section>
 
-          {/* 6. ⚡ QUICK ACTIONS */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-            <h2 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Quick Actions</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => navigate('/property/clearance-requests')}
-                className="p-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 font-semibold rounded-lg border border-amber-200 text-center transition-colors flex flex-col items-center justify-center space-y-1"
-              >
-                <Clock size={14} className="text-amber-700" />
-                <span>Pending Requests</span>
-              </button>
-
-              <button
-                onClick={() => navigate('/property/asset-records')}
-                className="p-2.5 bg-purple-50 hover:bg-purple-100 text-purple-900 font-semibold rounded-lg border border-purple-200 text-center transition-colors flex flex-col items-center justify-center space-y-1"
-              >
-                <AlertTriangle size={14} className="text-purple-700" />
-                <span>Outstanding Assets</span>
-              </button>
-
-              <button
-                onClick={() => navigate('/property/clearance-history')}
-                className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold rounded-lg border border-slate-200 text-center transition-colors flex flex-col items-center justify-center space-y-1"
-              >
-                <History size={14} className="text-slate-700" />
-                <span>Clearance History</span>
-              </button>
-
-              <button
-                onClick={() => navigate('/property/reports')}
-                className="p-2.5 bg-teal-50 hover:bg-teal-100 text-teal-900 font-semibold rounded-lg border border-teal-200 text-center transition-colors flex flex-col items-center justify-center space-y-1"
-              >
-                <FileText size={14} className="text-teal-700" />
-                <span>Reports</span>
+          <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <PanelHeading icon={Activity} title={t('Recent Activity', 'የቅርብ ጊዜ እንቅስቃሴ')} />
+              <button type="button" onClick={() => fetchDashboard(true)} disabled={refreshing} title={t('Refresh dashboard', 'ዳሽቦርዱን ያድሱ')} className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+                <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
               </button>
             </div>
-          </div>
-        </div>
+            <div className="mt-2 space-y-2">
+              {recentActivities.length ? recentActivities.map((activity) => (
+                <div key={activity._id || activity.id} className="flex items-start gap-2 rounded-lg bg-slate-50 p-2">
+                  <ActivityIcon type={activity.type} />
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 text-[10px] font-medium text-slate-700">{activity.action || t('Property record updated', 'የንብረት መዝገብ ተዘምኗል')}</p>
+                    <p className="mt-1 text-[9px] text-slate-400">{activityTime(activity.timeAgo, t)}</p>
+                  </div>
+                </div>
+              )) : <p className="py-3 text-center text-[10px] text-slate-400">{t('No recent activity to show.', 'ለማሳየት የቅርብ ጊዜ እንቅስቃሴ የለም።')}</p>}
+            </div>
+            {lastUpdated && <p className="mt-2 text-right text-[9px] text-slate-400">{t('Updated', 'የተዘመነው')} {activityTime(lastUpdated, t)}</p>}
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <PanelHeading icon={ChevronRight} title={t('Quick Actions', 'ፈጣን እርምጃዎች')} />
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <QuickAction icon={Clock} label={t('Pending Requests', 'በመጠባበቅ ላይ ያሉ ጥያቄዎች')} color="amber" onClick={() => navigate('/property/clearance-requests')} />
+              <QuickAction icon={AlertTriangle} label={t('Outstanding Assets', 'ያልተመለሱ ንብረቶች')} color="rose" onClick={() => navigate('/property/asset-records')} />
+              <QuickAction icon={History} label={t('Clearance History', 'የክሊራንስ ታሪክ')} color="slate" onClick={() => navigate('/property/clearance-history')} />
+              <QuickAction icon={FileText} label={t('Reports', 'ሪፖርቶች')} color="teal" onClick={() => navigate('/property/reports')} />
+            </div>
+          </section>
+        </aside>
       </div>
-    </div>
+    </main>
+  );
+}
+
+function DashboardTable({ title, icon: Icon, iconColor, actionLabel, onAction, children }) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
+        <h2 className="flex items-center gap-2 text-[11px] font-bold text-slate-800"><Icon size={14} className={iconColor} />{title}</h2>
+        <button type="button" onClick={onAction} className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-semibold text-teal-700 hover:text-teal-900">{actionLabel}<ChevronRight size={12} /></button>
+      </div>
+      <div className="overflow-x-auto">{children}</div>
+    </section>
+  );
+}
+
+function PanelHeading({ icon: Icon, title }) {
+  return <h2 className="flex items-center gap-2 text-[11px] font-bold text-slate-800"><Icon size={14} className="text-teal-700" />{title}</h2>;
+}
+
+function ActivityIcon({ type }) {
+  if (type === 'Approved') return <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-600" />;
+  if (type === 'Returned') return <RotateCcw size={13} className="mt-0.5 shrink-0 text-rose-600" />;
+  return <Clock size={13} className="mt-0.5 shrink-0 text-blue-600" />;
+}
+
+function QuickAction({ icon: Icon, label, color, onClick }) {
+  const styles = {
+    amber: 'border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100',
+    rose: 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100',
+    slate: 'border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100',
+    teal: 'border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100',
+  };
+  return (
+    <button type="button" onClick={onClick} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg border p-2 text-center text-[9px] font-semibold transition ${styles[color]}`}>
+      <Icon size={13} />{label}
+    </button>
   );
 }

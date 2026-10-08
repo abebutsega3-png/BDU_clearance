@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import UniversitySeal from '../UniversitySeal';
+import { useAdminLanguage } from './AdminLanguage';
 import { 
   FaTachometerAlt, 
   FaUsers, 
@@ -18,6 +19,7 @@ import {
 } from 'react-icons/fa';
 
 const AdminSidebar = () => {
+  const { t } = useAdminLanguage();
   const navigationItems = [
     { label: 'Dashboard', path: '/admin', icon: FaTachometerAlt, end: true },
     { label: 'Users', path: '/admin/users', icon: FaUsers },
@@ -36,9 +38,9 @@ const AdminSidebar = () => {
       <div className="flex items-center gap-3 border-b border-slate-800 px-3 pb-3 pt-4 text-sm font-bold tracking-wider text-white">
         <UniversitySeal className="h-10 w-10" />
         <div>
-          BAHIR DAR UNIVERSITY
+          {t('BAHIR DAR UNIVERSITY')}
         <span className="mt-1 block text-[10px] font-normal text-slate-400">
-          EMPLOYEE CLEARANCE MANAGEMENT
+          {t('EMPLOYEE CLEARANCE MANAGEMENT')}
         </span>
         </div>
       </div>
@@ -53,7 +55,7 @@ const AdminSidebar = () => {
             className={({ isActive }) => `${isActive ? 'bg-teal-600 text-white' : 'hover:bg-slate-800 hover:text-white'} flex items-center space-x-3 rounded-md px-3 py-2.5 transition duration-150`}
           >
             <Icon className="text-base" />
-            <span>{label}</span>
+            <span>{t(label)}</span>
           </NavLink>
         ))}
       </nav>

@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { BarChart3, ClipboardCheck, FileText, History, LayoutDashboard, LogOut, UserCircle, Users } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
 import UniversitySeal from '../UniversitySeal';
+import { useDepartmentLanguage } from './DepartmentLanguage';
 
 const navigation = [
 	{ label: 'Dashboard', to: '/department-head', icon: LayoutDashboard },
@@ -17,14 +18,15 @@ const navigation = [
 
 const DepartmentSidebar = ({ onNavigate }) => {
 	const { user, logout } = useAuth();
+	const { t } = useDepartmentLanguage();
 
 	return (
 		<aside className="fixed left-0 top-0 z-50 flex h-screen w-72 flex-col bg-slate-900 text-white shadow-xl">
 			<div className="flex h-20 items-center border-b border-slate-700 px-6">
 				<UniversitySeal />
 				<div className="ml-3 min-w-0">
-					<h1 className="truncate text-lg font-bold">Clearance System</h1>
-					<p className="text-xs text-slate-400">Department Head</p>
+					<h1 className="truncate text-lg font-bold">{t('Clearance System')}</h1>
+					<p className="text-xs text-slate-400">{t('Department Head')}</p>
 				</div>
 			</div>
 
@@ -38,7 +40,7 @@ const DepartmentSidebar = ({ onNavigate }) => {
 						className={({ isActive }) => `mb-1 flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm transition ${isActive ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
 					>
 						<Icon size={19} />
-						<span>{label}</span>
+						<span>{t(label)}</span>
 					</NavLink>
 				))}
 
@@ -48,7 +50,7 @@ const DepartmentSidebar = ({ onNavigate }) => {
 					className={({ isActive }) => `mb-1 flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm transition ${isActive ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
 				>
 					<UserCircle size={19} />
-					<span>My Profile</span>
+					<span>{t('My Profile')}</span>
 				</NavLink>
 			</nav>
 
@@ -56,7 +58,7 @@ const DepartmentSidebar = ({ onNavigate }) => {
 				<div className="mb-3 truncate px-4 text-xs text-slate-400">{user?.name || 'Department Head'}</div>
 				<button type="button" onClick={logout} className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-slate-300 transition hover:bg-red-600 hover:text-white">
 					<LogOut size={19} />
-					<span>Logout</span>
+					<span>{t('Logout')}</span>
 				</button>
 			</div>
 		</aside>

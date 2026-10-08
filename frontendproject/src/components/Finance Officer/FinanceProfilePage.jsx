@@ -1,20 +1,11 @@
-import React, { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import {
-  User,
-  Briefcase,
-  ShieldCheck,
-  KeyRound,
-  Edit3,
-  Lock,
-  X,
-  Camera,
-} from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Camera, Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound, X } from "lucide-react";
+import { useAuth } from "../../context/authContext";
 
-// =========================================================
-// 1. INLINE API SERVICE HANDLERS
-// =========================================================
 const API_URL = "http://localhost:3000/api/finance/profile";
+const MAX_PROFILE_IMAGE_SIZE = 2 * 1024 * 1024;
 
 const getAuthConfig = () => {
   const token = localStorage.getItem("token");
@@ -38,19 +29,23 @@ const apiChangePassword = async (data) => {
   return res.data;
 };
 
-// =========================================================
-// 2. MAIN PROFILE COMPONENT
-// =========================================================
 const FinanceProfilePage = () => {
+  const [searchParams] = useSearchParams();
+  const { updateUser } = useAuth();
+  const photoInputRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false,
+  });
   const [editForm, setEditForm] = useState({
     phoneNumber: "",
     alternativePhone: "",
     email: "",
-    profilePhoto: "",
+    profileImage: "",
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -58,63 +53,94 @@ const FinanceProfilePage = () => {
     confirmPassword: "",
   });
   const [message, setMessage] = useState({ type: "", text: "" });
-
-  const safeText = (value, fallback = "N/A") => {
-    if (value === null || value === undefined || value === "") return fallback;
-    return value;
-  };
-
-  const fetchProfile = async () => {
-    try {
-      setLoading(true);
-      const res = await apiGetFinanceProfile();
-      const user = res?.data || {};
-      setProfile(user);
-      setEditForm({
-        phoneNumber: user.phoneNumber || "",
-        alternativePhone: user.alternativePhone || "",
-        email: user.email || "",
-        profilePhoto: user.profileImage || user.profilePhoto || "",
-      });
-    } catch (error) {
-      console.error("Failed to load profile:", error);
-      setMessage({
-        type: "error",
-        text: error.response?.data?.message || "Profile could not be loaded.",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const isChangePasswordPage = searchParams.get("action") === "change-password";
 
   useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setLoading(true);
+        const res = await apiGetFinanceProfile();
+        const user = res?.data || {};
+        setProfile(user);
+        setEditForm({
+          phoneNumber: user.phoneNumber || "",
+          alternativePhone: user.alternativePhone || "",
+          email: user.email || "",
+          profileImage: user.profileImage || user.profilePhoto || "",
+        });
+      } catch (error) {
+        console.error("Failed to load profile:", error);
+        setMessage({
+          type: "error",
+          text: error.response?.data?.message || "Profile could not be loaded.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchProfile();
   }, []);
 
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
+  const handlePhotoChange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setMessage({ type: "error", text: "Choose a valid image file." });
+      return;
+    }
+    if (file.size > MAX_PROFILE_IMAGE_SIZE) {
+      setMessage({ type: "error", text: "Choose an image smaller than 2 MB." });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setEditForm((current) => ({ ...current, profileImage: reader.result }));
+        setMessage({ type: "", text: "" });
+      } else {
+        setMessage({ type: "error", text: "The selected image could not be read." });
+      }
+    };
+    reader.onerror = () => {
+      setMessage({ type: "error", text: "The selected image could not be read." });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleProfileSubmit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
     try {
-      const payload = {
+      const res = await apiUpdateFinanceProfile({
         phoneNumber: editForm.phoneNumber,
         alternativePhone: editForm.alternativePhone,
         email: editForm.email,
-        profilePhoto: editForm.profilePhoto,
-      };
-
-      const res = await apiUpdateFinanceProfile(payload);
-      setProfile(res.data || profile);
-      setMessage({ type: "success", text: "Profile updated successfully." });
-      setIsEditOpen(false);
+        profileImage: editForm.profileImage,
+      });
+      const updatedProfile = res?.data || { ...profile, ...editForm };
+      setProfile(updatedProfile);
+      updateUser({
+        email: updatedProfile.email,
+        profileImage: updatedProfile.profileImage,
+        profilePhoto: updatedProfile.profileImage,
+      });
+      setMessage({ type: "success", text: "Profile changes saved successfully." });
     } catch (error) {
       setMessage({
         type: "error",
-        text: error.response?.data?.message || "Unable to update profile.",
+        text: error.response?.data?.message || "Unable to save profile changes.",
       });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handlePasswordSubmit = async (e) => {
-    e.preventDefault();
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault();
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       setMessage({ type: "error", text: "New password and confirmation do not match." });
       return;
@@ -126,7 +152,6 @@ const FinanceProfilePage = () => {
         newPassword: passwordForm.newPassword,
       });
       setMessage({ type: "success", text: "Password updated successfully." });
-      setIsPasswordOpen(false);
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
     } catch (error) {
       setMessage({
@@ -138,7 +163,7 @@ const FinanceProfilePage = () => {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-[60vh] items-center justify-center">
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-500 shadow-sm">
           Loading finance profile information...
         </div>
@@ -146,343 +171,209 @@ const FinanceProfilePage = () => {
     );
   }
 
-  const displayName = safeText(profile?.name || profile?.fullName, "Abebe Kebede");
-  const department = safeText(profile?.department, "Finance");
-  const position = safeText(profile?.position, "Finance Officer");
-  const employeeId = safeText(profile?.employeeId, "EMP-2023-1025");
-  const role = safeText(profile?.role, "Finance Officer");
-  const status = safeText(profile?.status || profile?.accountStatus, "Active");
-  const username = safeText(profile?.username, "finance.officer");
-  const campus = safeText(profile?.campus, "Main Campus");
+  const displayName = profile?.name || profile?.fullName || "Finance Officer";
+  const role = profile?.position || profile?.role || "Finance Officer";
+  const department = profile?.department || "Finance";
+
+  if (isChangePasswordPage) {
+    const passwordFields = [
+      { key: "currentPassword", label: "Current Password", placeholder: "Enter current password" },
+      { key: "newPassword", label: "New Password", placeholder: "Enter new password" },
+      { key: "confirmPassword", label: "Confirm New Password", placeholder: "Confirm new password" },
+    ];
+
+    return (
+      <div className="flex min-h-[calc(100vh-5rem)] items-center justify-center bg-slate-50 px-4 py-8">
+        <section className="w-full max-w-md rounded-xl border border-slate-100 bg-white p-6 shadow-lg sm:p-8">
+          <Link
+            to="/finance-office"
+            className="mb-5 inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 transition hover:text-indigo-600"
+          >
+            <ArrowLeft size={13} /> Back to Dashboard
+          </Link>
+
+          <div className="mb-5 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+              <ShieldCheck size={21} />
+            </div>
+            <h1 className="text-lg font-bold text-slate-900">Change Password</h1>
+            <p className="mt-1 text-[11px] text-slate-500">You must update your password before continuing.</p>
+          </div>
+
+          {message.text && (
+            <div
+              role={message.type === "error" ? "alert" : "status"}
+              className={`mb-4 rounded-lg border px-3 py-2 text-[11px] font-medium ${
+                message.type === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-red-200 bg-red-50 text-red-700"
+              }`}
+            >
+              {message.text}
+            </div>
+          )}
+
+          <form onSubmit={handlePasswordSubmit} className="space-y-3">
+            {passwordFields.map(({ key, label, placeholder }) => {
+              const FieldIcon = passwordVisible[key] ? EyeOff : Eye;
+              return (
+                <label key={key} className="block text-[10px] font-semibold text-slate-700">
+                  {label}
+                  <span className="mt-1 flex items-center rounded-md border border-slate-200 px-2.5 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
+                    <LockKeyhole size={13} className="shrink-0 text-slate-400" />
+                    <input
+                      type={passwordVisible[key] ? "text" : "password"}
+                      value={passwordForm[key]}
+                      onChange={(event) => setPasswordForm((current) => ({ ...current, [key]: event.target.value }))}
+                      placeholder={placeholder}
+                      autoComplete={key === "currentPassword" ? "current-password" : "new-password"}
+                      className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-[11px] font-normal text-slate-700 outline-none placeholder:text-slate-400"
+                      required
+                    />
+                    <button
+                      type="button"
+                      aria-label={`${passwordVisible[key] ? "Hide" : "Show"} ${label.toLowerCase()}`}
+                      onClick={() => setPasswordVisible((current) => ({ ...current, [key]: !current[key] }))}
+                      className="shrink-0 p-1 text-slate-400 transition hover:text-slate-600"
+                    >
+                      <FieldIcon size={14} />
+                    </button>
+                  </span>
+                </label>
+              );
+            })}
+
+            <button
+              type="submit"
+              className="w-full rounded-md bg-indigo-600 px-4 py-2.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+            >
+              Update Password
+            </button>
+          </form>
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 text-slate-800">
-      <div className="mx-auto max-w-6xl">
-        {/* Top Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <User className="text-blue-600" size={24} />
-            <h1 className="text-xl font-bold text-slate-800">My Profile</h1>
+    <div className="min-h-[calc(100vh-5rem)] bg-slate-50 px-4 py-8 text-slate-800 sm:px-6">
+      <div className="mx-auto max-w-2xl">
+        <form onSubmit={handleProfileSubmit} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-6 py-5 sm:px-8">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-indigo-500">Account</p>
+            <h1 className="mt-1 text-xl font-bold text-slate-900">Profile</h1>
+            <p className="mt-1 text-xs text-slate-500">Your authenticated finance office account details.</p>
           </div>
-          <span className="text-xs text-slate-500">Home &gt; Profile</span>
-        </div>
 
-        {message.text && (
-          <div
-            className={`mb-4 flex items-center justify-between rounded-lg border p-4 text-sm font-medium ${
-              message.type === "success"
-                ? "border-green-200 bg-green-100 text-green-800"
-                : "border-red-200 bg-red-100 text-red-800"
-            }`}
-          >
-            <span>{message.text}</span>
-            <button onClick={() => setMessage({ type: "", text: "" })}>
-              <X size={16} />
-            </button>
-          </div>
-        )}
+          <div className="space-y-4 px-6 py-5 sm:px-8">
+            {message.text && (
+              <div
+                role="status"
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-xs font-medium ${
+                  message.type === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-red-200 bg-red-50 text-red-700"
+                }`}
+              >
+                <span>{message.text}</span>
+                <button type="button" aria-label="Dismiss message" onClick={() => setMessage({ type: "", text: "" })}>
+                  <X size={15} />
+                </button>
+              </div>
+            )}
 
-        {/* Main Grid Layout matching the image */}
-        <div className="grid gap-6 md:grid-cols-[280px_1fr]">
-          {/* Left Sidebar Profile Card */}
-          <aside className="h-fit rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-col items-center text-center">
-              <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 shadow-inner">
-                {profile?.profileImage || profile?.profilePhoto ? (
-                  <img
-                    src={profile.profileImage || profile.profilePhoto}
-                    alt={displayName}
-                    className="h-full w-full object-cover"
-                  />
+            <div className="flex items-center gap-3">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-50">
+                {editForm.profileImage ? (
+                  <img src={editForm.profileImage} alt={`${displayName} profile`} className="h-full w-full object-cover" />
                 ) : (
-                  <User size={56} className="text-slate-400" />
+                  <UserRound size={28} className="text-slate-400" />
                 )}
               </div>
-              <h2 className="mt-4 text-base font-bold text-slate-900">{displayName}</h2>
-              <p className="text-xs text-slate-500">{position}</p>
-              
-              <button 
-                onClick={() => setIsEditOpen(true)} 
-                className="mt-4 flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition"
-              >
-                <Camera size={14} /> Change Photo
-              </button>
-
-              <div className="mt-6 w-full rounded-lg bg-blue-50/60 p-3.5 text-left text-xs italic leading-relaxed text-slate-600 border border-blue-100">
-                &ldquo;Committed to transparent and efficient financial clearance process.&rdquo;
+              <div>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                  className="sr-only"
+                  aria-label="Choose profile photo"
+                />
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  <Camera size={13} /> Change Profile Photo
+                </button>
+                <p className="mt-1 text-[10px] text-slate-400">Image files up to 2 MB</p>
               </div>
             </div>
-          </aside>
 
-          {/* Right Content Sections */}
-          <div className="space-y-4">
-            {/* 1. Personal Information */}
-            <section className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between bg-slate-50 px-4 py-3 border-b border-slate-200">
-                <div className="flex items-center gap-2 font-bold text-slate-800">
-                  <User size={16} className="text-blue-600" />
-                  <span className="text-sm">Personal Information</span>
-                </div>
-                <button 
-                  onClick={() => setIsEditOpen(true)} 
-                  className="flex items-center gap-1 rounded border border-blue-300 bg-white px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition"
-                >
-                  <Edit3 size={12} /> Edit
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6 p-4 text-xs">
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Full Name:</span>
-                  <span className="font-semibold text-slate-800">{displayName}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Employee ID:</span>
-                  <span className="font-semibold text-slate-800">{employeeId}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Email:</span>
-                  <span className="font-semibold text-slate-800">{safeText(profile?.email, "N/A")}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Phone Number:</span>
-                  <span className="font-semibold text-slate-800">{safeText(profile?.phoneNumber, "N/A")}</span>
-                </div>
-              </div>
-            </section>
+            <label className="block text-[11px] font-semibold text-slate-700">
+              Full Name
+              <input
+                type="text"
+                value={displayName}
+                readOnly
+                className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-700 outline-none"
+              />
+            </label>
 
-            {/* 2. Work Information */}
-            <section className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 bg-slate-50 px-4 py-3 border-b border-slate-200 font-bold text-slate-800">
-                <Briefcase size={16} className="text-blue-600" />
-                <span className="text-sm">Work Information</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6 p-4 text-xs">
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Role:</span>
-                  <span className="font-semibold text-slate-800">{role}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Department:</span>
-                  <span className="font-semibold text-slate-800">{department}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Position:</span>
-                  <span className="font-semibold text-slate-800">{position}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Campus:</span>
-                  <span className="font-semibold text-slate-800">{campus}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4 items-center">
-                  <span className="w-28 text-slate-500">Status:</span>
-                  <span className="inline-flex rounded-full bg-green-100 px-2.5 py-0.5 text-[10px] font-semibold text-green-700">
-                    {status}
-                  </span>
-                </div>
-              </div>
-            </section>
+            <label className="block text-[11px] font-semibold text-slate-700">
+              Email Address
+              <input
+                type="email"
+                required
+                value={editForm.email}
+                onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))}
+                className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-700 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </label>
 
-            {/* 3. Account Information */}
-            <section className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 bg-slate-50 px-4 py-3 border-b border-slate-200 font-bold text-slate-800">
-                <KeyRound size={16} className="text-blue-600" />
-                <span className="text-sm">Account Information</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-6 p-4 text-xs">
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Username:</span>
-                  <span className="font-semibold text-slate-800">{username}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Email:</span>
-                  <span className="font-semibold text-slate-800">{safeText(profile?.email, "N/A")}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4">
-                  <span className="w-28 text-slate-500">Role:</span>
-                  <span className="font-semibold text-slate-800">{role}</span>
-                </div>
-                <div className="flex justify-between md:justify-start gap-4 items-center">
-                  <span className="w-28 text-slate-500">Account Status:</span>
-                  <span className="inline-flex rounded-full bg-green-100 px-2.5 py-0.5 text-[10px] font-semibold text-green-700">
-                    {status}
-                  </span>
-                </div>
-              </div>
-            </section>
+            <label className="block text-[11px] font-semibold text-slate-700">
+              Role / Title
+              <input
+                type="text"
+                value={role}
+                readOnly
+                className="mt-1 block w-full rounded-md border border-slate-100 bg-slate-100 px-3 py-2 text-xs font-normal text-slate-500 outline-none"
+              />
+            </label>
 
-            {/* 4. Security Section */}
-            <section className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between bg-slate-50 px-4 py-3 border-b border-slate-200">
-                <div className="flex items-center gap-2 font-bold text-slate-800">
-                  <ShieldCheck size={16} className="text-blue-600" />
-                  <span className="text-sm">Security</span>
-                </div>
-                <button
-                  onClick={() => setIsPasswordOpen(true)}
-                  className="flex items-center gap-1.5 rounded border border-blue-300 bg-white px-3 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition"
-                >
-                  <Lock size={12} /> Change Password
-                </button>
-              </div>
-              <div className="flex items-center justify-between p-4 text-xs">
-                <span className="text-slate-500">Password:</span>
-                <span className="font-semibold tracking-widest text-slate-700">********</span>
-              </div>
-            </section>
+            <label className="block text-[11px] font-semibold text-slate-700">
+              Department
+              <input
+                type="text"
+                value={department}
+                readOnly
+                className="mt-1 block w-full rounded-md border border-slate-100 bg-slate-100 px-3 py-2 text-xs font-normal text-slate-500 outline-none"
+              />
+            </label>
 
-            {/* Bottom Action Buttons */}
-            <div className="flex justify-end gap-3 pt-2">
-              <button 
-                onClick={() => setIsEditOpen(true)} 
-                className="flex items-center gap-1.5 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition"
+            <label className="block text-[11px] font-semibold text-slate-700">
+              Phone Number
+              <input
+                type="tel"
+                value={editForm.phoneNumber}
+                onChange={(event) => setEditForm((current) => ({ ...current, phoneNumber: event.target.value }))}
+                placeholder="Enter phone number"
+                className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-normal text-slate-700 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-md bg-indigo-600 px-4 py-2 text-[11px] font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <Edit3 size={14} /> Edit Profile
-              </button>
-              <button 
-                onClick={fetchProfile} 
-                className="rounded bg-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-300 transition"
-              >
-                Cancel
+                {saving ? "Saving..." : "Save Profile Changes"}
               </button>
             </div>
           </div>
-        </div>
+        </form>
       </div>
-
-      {/* Edit Profile Modal */}
-      {isEditOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between border-b pb-3">
-              <h3 className="text-lg font-bold text-slate-900">Edit Profile</h3>
-              <button onClick={() => setIsEditOpen(false)}>
-                <X size={18} className="text-slate-500" />
-              </button>
-            </div>
-
-            <form onSubmit={handleEditSubmit} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Phone Number</label>
-                <input
-                  type="text"
-                  value={editForm.phoneNumber}
-                  onChange={(e) => setEditForm({ ...editForm, phoneNumber: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Alternative Phone</label>
-                <input
-                  type="text"
-                  value={editForm.alternativePhone}
-                  onChange={(e) => setEditForm({ ...editForm, alternativePhone: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Email Address</label>
-                <input
-                  type="email"
-                  value={editForm.email}
-                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Profile Photo URL</label>
-                <input
-                  type="text"
-                  value={editForm.profilePhoto}
-                  onChange={(e) => setEditForm({ ...editForm, profilePhoto: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="https://example.com/photo.jpg"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsEditOpen(false)}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Change Password Modal */}
-      {isPasswordOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between border-b pb-3">
-              <h3 className="text-lg font-bold text-slate-900">Change Password</h3>
-              <button onClick={() => setIsPasswordOpen(false)}>
-                <X size={18} className="text-slate-500" />
-              </button>
-            </div>
-
-            <form onSubmit={handlePasswordSubmit} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Current Password</label>
-                <input
-                  type="password"
-                  value={passwordForm.currentPassword}
-                  onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">New Password</label>
-                <input
-                  type="password"
-                  value={passwordForm.newPassword}
-                  onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Confirm New Password</label>
-                <input
-                  type="password"
-                  value={passwordForm.confirmPassword}
-                  onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-blue-500 focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsPasswordOpen(false)}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  Update Password
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

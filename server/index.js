@@ -1,7 +1,10 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import connectToDB from './db/db.js';
+import { fileURLToPath } from 'node:url';
+
+dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
 
 // Authentication & Core Routers
 import authRouter from './routes/auth.js';
@@ -21,6 +24,8 @@ import publicHomeRouter from './routes/publicHomeRoutes.js';
 // Clearance Routers
 import clearanceRouter from './routes/clearance.js';
 import clearanceStepRouter from './routes/clearanceStep.js';
+import hrAssessmentRouter from './routes/hrAssessmentRoutes.js';
+import hrSeparationTypeRouter from './routes/HRseparationTypeRoutes.js';
 import hrFinalClearanceRouter from './routes/hrfinalclearance.js';
 import departmentClearanceRouter from './routes/departmentclearanceRoutes.js';
 
@@ -86,6 +91,8 @@ app.use('/api/transport', transportDashboardRouter);
 // 2. Clearance Routes
 app.use('/api/clearance', clearanceRouter);
 app.use('/api/clearance-steps', clearanceStepRouter);
+app.use('/api/hr', hrAssessmentRouter);
+app.use('/api/separation-types', hrSeparationTypeRouter);
 app.use('/api/hr-final-clearance', hrFinalClearanceRouter);
 app.use('/api/clearance-requests', departmentClearanceRouter);
 
@@ -150,4 +157,7 @@ const startServer = async () => {
   });
 };
 
-startServer();
+void startServer().catch((error) => {
+  console.error('Server startup failed:', error.message);
+  process.exitCode = 1;
+});

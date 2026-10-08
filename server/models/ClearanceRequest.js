@@ -47,6 +47,14 @@ const ClearanceRequestSchema = new mongoose.Schema(
     returnedAt: { type: Date },
     returnedReason: { type: String, default: '' },
     returnedRemark: { type: String, default: '' },
+    assessmentChecklist: {
+      empInfoVerified: { type: Boolean, default: false },
+      clearanceRequestVerified: { type: Boolean, default: false },
+      documentVerified: { type: Boolean, default: false },
+      employmentVerified: { type: Boolean, default: false },
+      noDuplicateRequest: { type: Boolean, default: false },
+    },
+    hrComment: { type: String, default: '' },
     affectedField: { type: String, default: '' },
     reviewedAt: { type: Date },
     ictClearance: {

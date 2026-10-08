@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchNotifications } from '../../until/NotificationHelper';
+import { useAdminLanguage } from './AdminLanguage';
 
 export default function AdminNotificationBell() {
   const navigate = useNavigate();
+  const { t } = useAdminLanguage();
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -26,8 +28,8 @@ export default function AdminNotificationBell() {
       type="button"
       onClick={() => navigate('/admin/notifications')}
       className="relative rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-      aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
-      title="Open notifications"
+      aria-label={`${t('Notifications')}${unreadCount ? `, ${unreadCount} ${t('unread')}` : ''}`}
+      title={t('Open notifications')}
     >
       <Bell size={18} />
       {unreadCount > 0 && (

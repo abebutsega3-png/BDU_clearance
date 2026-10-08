@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { FiSave, FiX, FiBriefcase } from 'react-icons/fi';
+import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 export default function AddPosition() {
   const navigate = useNavigate();
@@ -81,6 +82,7 @@ export default function AddPosition() {
   };
 
   return (
+    <AdminTranslatedView>
     <main className="min-h-screen bg-slate-50 px-4 py-6 md:px-6 lg:px-8">
       <div className="mx-auto max-w-[1200px]">
         <div className="mb-5 flex items-center justify-between gap-3">
@@ -225,5 +227,6 @@ export default function AddPosition() {
         </div>
       </div>
     </main>
+    </AdminTranslatedView>
   );
 }

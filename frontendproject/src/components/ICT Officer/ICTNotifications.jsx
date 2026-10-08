@@ -75,6 +75,7 @@ const ICTNotifications = () => {
       const payload = response.data?.data ?? response.data?.notifications ?? response.data ?? [];
       const normalized = Array.isArray(payload) ? payload.map(normalizeNotification) : [];
       setNotifications(normalized);
+      window.dispatchEvent(new Event('ict-notifications-updated'));
     } catch (error) {
       console.error('Unable to load ICT notifications:', error);
       setNotifications([]);

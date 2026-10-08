@@ -1,4 +1,6 @@
 import React from "react";
+import { Link } from "react-router-dom";
+import { useHRLanguage } from "./HRLanguage";
 
 function SummaryCard({
   icon: Icon,
@@ -7,8 +9,10 @@ function SummaryCard({
   note,
   iconClass,
   linkText,
-  onClick,
+  to,
 }) {
+  const { t } = useHRLanguage();
+
   return (
     <div
       className="
@@ -55,7 +59,7 @@ function SummaryCard({
               text-slate-500
             "
           >
-            {title}
+            {t(title)}
           </p>
 
           {/* VALUE */}
@@ -83,14 +87,13 @@ function SummaryCard({
               text-slate-400
             "
           >
-            {note}
+            {t(note)}
           </p>
 
           {/* LINK */}
           {linkText && (
-            <button
-              type="button"
-              onClick={onClick}
+            <Link
+              to={to}
               className="
                 mt-1.5
                 whitespace-nowrap
@@ -101,8 +104,8 @@ function SummaryCard({
                 hover:underline
               "
             >
-              {linkText} →
-            </button>
+              {t(linkText)} →
+            </Link>
           )}
 
         </div>

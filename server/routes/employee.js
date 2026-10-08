@@ -3,6 +3,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 import {
 	addEmployee,
 	getEmployees,
+	getEmployeeSummary,
 	getEmployee,
 	updateEmployee,
 	deleteEmployee,
@@ -12,6 +13,7 @@ import {
 
 const router = express.Router();
 
+router.get('/summary', authMiddleware, getEmployeeSummary);
 router.get('/', authMiddleware, getEmployees);
 router.get('/department', authMiddleware, getDepartmentEmployees);
 router.get('/:id', authMiddleware, getEmployee);

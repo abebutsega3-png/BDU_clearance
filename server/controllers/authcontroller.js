@@ -20,42 +20,46 @@ const login = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username/email and password are required' });
     }
 
-    const escapedIdentifier = normalizedIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({
       $or: [
         { email: normalizedIdentifier },
-        { username: { $regex: `^${escapedIdentifier}$`, $options: 'i' } },
+        { username: normalizedIdentifier },
       ],
-    });
+    })
+      .select('_id name username email employeeId role department password tokenVersion notificationPreferences.emailNotifications')
+      .collation({ locale: 'en', strength: 2 })
+      .maxTimeMS(5000)
+      .lean();
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      await recordAuditLog({
+      void recordAuditLog({
         req,
         user: user || null,
         action: 'FAILED_LOGIN',
         module: 'Authentication',
         description: `Failed login attempt for ${normalizedIdentifier}.`,
-      });
+      }).catch((error) => console.error('Failed-login audit log failed:', error.message));
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
     const token = jwt.sign(
-      { _id: user._id, role: user.role },
+      { _id: user._id, role: user.role, tokenVersion: user.tokenVersion || 0 },
       process.env.JWT_KEY,
       { expiresIn: '10d' }
     );
 
-    // Update lastLogin
     const loginTimestamp = new Date();
-    user.lastLogin = loginTimestamp;
-    await user.save();
+    void User.updateOne(
+      { _id: user._id },
+      { $set: { lastLogin: loginTimestamp } }
+    ).catch((error) => console.error('Login timestamp update failed:', error.message));
 
-    await recordAuditLog({
+    void recordAuditLog({
       req,
       user,
       action: 'LOGIN',
       module: 'Authentication',
       description: `${user.name || user.username} logged in successfully.`,
-    });
+    }).catch((error) => console.error('Login audit log failed:', error.message));
 
     void sendNotificationEmail({
       recipient: user,
@@ -89,34 +93,24 @@ const login = async (req, res) => {
 };
 
 const verify = async (req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'Database unavailable. Please start MongoDB and try again.',
-      });
-    }
-
-    const authorization = req.headers.authorization;
-    const token = authorization?.startsWith('Bearer ')
-      ? authorization.slice(7)
-      : null;
-
-    if (!token) {
-      return res.status(401).json({ success: false, message: 'Missing token' });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_KEY);
-    const user = await User.findById(decoded._id).select('_id name username email employeeId role department');
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    return res.status(200).json({ success: true, user });
-  } catch (error) {
-    return res.status(401).json({ success: false, message: 'Invalid token' });
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Authenticated user was not found.' });
   }
+
+  return res.status(200).json({
+    success: true,
+    user: {
+      _id: user._id,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      employeeId: user.employeeId,
+      role: user.role,
+      department: user.department,
+      profileImage: user.profileImage,
+    },
+  });
 };
 
 const getProfile = async (req, res) => {

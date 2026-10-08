@@ -3,6 +3,7 @@ import ICTSummaryDashboard from '../components/ICT Officer/ICTSummaryDashboard';
 import ICTSidebar from '../components/ICT Officer/ict sidbare';
 import ICTNavbar from '../components/ICT Officer/ictnavbar';
 import { getICTOfficerSettings, applyICTOfficerTheme } from '../components/ICT Officer/ICTSettings';
+import { ICTLanguageProvider } from '../components/ICT Officer/ICTLanguage';
 
 const ICTOfficerDashboard = ({ children }) => {
   useEffect(() => {
@@ -14,6 +15,7 @@ const ICTOfficerDashboard = ({ children }) => {
   const isDark = settings.appearance.theme === 'Dark';
 
   return (
+    <ICTLanguageProvider>
     <div className={`min-h-screen ${isDark ? 'ict-dark-theme bg-slate-900' : 'bg-slate-100'}`}>
       <style>{`
         .ict-dark-theme {
@@ -66,6 +68,7 @@ const ICTOfficerDashboard = ({ children }) => {
         <main className="p-4 sm:p-5 lg:p-6">{children || <ICTSummaryDashboard />}</main>
       </div>
     </div>
+    </ICTLanguageProvider>
   );
 };
 

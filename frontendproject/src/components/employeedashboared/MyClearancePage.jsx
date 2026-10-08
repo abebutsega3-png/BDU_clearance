@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../../context/authContext';
 import { createClearance, fetchClearances, updateClearance } from '../../until/MyclearanceHelper';
 import { computeClearanceProgress, getClearanceRequestStatus } from '../../until/clearanceProgress';
+import { fetchActiveSeparationTypes } from '../../until/separationTypeHelper';
 import EmployeeNavbar from './employeenavbar';
 import EmployeeSidebar from './employeesidbar';
 
@@ -46,6 +47,8 @@ export default function MyClearancePage() {
   const isEmployeeRoute = pathname.startsWith('/employee/');
   const [menuOpen, setMenuOpen] = useState(false);
   const [requests, setRequests] = useState([]);
+  const [separationTypes, setSeparationTypes] = useState([]);
+  const [loadingSeparationTypes, setLoadingSeparationTypes] = useState(true);
   const [employeeProfile, setEmployeeProfile] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,8 +62,8 @@ export default function MyClearancePage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [formData, setFormData] = useState({
-    clearanceReason: 'Resignation',
-    reason: 'I am resigning from my position.',
+    clearanceReason: '',
+    reason: '',
     remark: 'Thank you.',
     lastWorkingDate: defaultLastWorkingDate,
     file: null,
@@ -76,6 +79,21 @@ export default function MyClearancePage() {
   const phone = profile.phone || profile.phoneNumber || '';
   const campus = profile.campus || '';
   const college = profile.college || profile.institute || profile.collegeInstitute || '';
+
+  useEffect(() => {
+    fetchActiveSeparationTypes()
+      .then((types) => {
+        setSeparationTypes(types);
+        setFormData((current) => ({
+          ...current,
+          clearanceReason: types.includes(current.clearanceReason) ? current.clearanceReason : types[0] || '',
+        }));
+      })
+      .catch((requestError) => {
+        setError(requestError.response?.data?.message || requestError.message || 'Unable to load active separation types.');
+      })
+      .finally(() => setLoadingSeparationTypes(false));
+  }, []);
 
   useEffect(() => {
     const profileId = user?._id || user?.id;
@@ -139,6 +157,14 @@ export default function MyClearancePage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (!separationTypes.includes(formData.clearanceReason)) {
+      setError('Select an active clearance type before submitting your request.');
+      return;
+    }
+    if (!formData.reason.trim()) {
+      setError('Please enter the reason for your clearance request.');
+      return;
+    }
     if (!formData.lastWorkingDate) {
       setError('Last working date is required.');
       return;
@@ -168,7 +194,7 @@ export default function MyClearancePage() {
         setRequests((current) => [response.clearance, ...current]);
         setMessage('Clearance request submitted successfully.');
         setFormData({
-          clearanceReason: 'Resignation',
+          clearanceReason: separationTypes[0] || '',
           reason: '',
           remark: '',
           lastWorkingDate: defaultLastWorkingDate,
@@ -276,20 +302,16 @@ export default function MyClearancePage() {
             <form id="clearance-form" onSubmit={handleSubmit} className="space-y-4 p-5">
               <div>
                 <label className="mb-2 block text-[12px] font-semibold text-slate-700">Clearance Type <span className="text-red-500">*</span></label>
-                <select name="clearanceReason" value={formData.clearanceReason} onChange={handleInputChange} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500">
-                  <option>Resignation</option>
-                  <option>Retirement</option>
-                  <option>Transfer to Another Institution</option>
-                  <option>Internal Transfer</option>
-                  <option>Study Leave</option>
-                  <option>Contract End</option>
-                  <option>Other</option>
+                <select name="clearanceReason" value={formData.clearanceReason} onChange={handleInputChange} required disabled={loadingSeparationTypes || separationTypes.length === 0} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-100">
+                  <option value="">{loadingSeparationTypes ? 'Loading clearance types...' : 'Select Clearance Type'}</option>
+                  {separationTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
+                {!loadingSeparationTypes && separationTypes.length === 0 && <p className="mt-1 text-[11px] text-amber-700">No active clearance types are available. Please contact HR.</p>}
               </div>
 
               <div>
                 <label className="mb-2 block text-[12px] font-semibold text-slate-700">Reason <span className="text-red-500">*</span></label>
-                <textarea name="reason" value={formData.reason} onChange={handleInputChange} rows={3} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500" placeholder="I am resigning from my position." />
+                <textarea name="reason" value={formData.reason} onChange={handleInputChange} rows={3} required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500" placeholder="Explain your reason for requesting clearance." />
               </div>
 
               <div>

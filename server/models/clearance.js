@@ -40,6 +40,10 @@ const clearanceSchema = new mongoose.Schema({
 	libraryStatus: { type: String, enum: ['Pending', 'In Progress', 'Completed', 'Returned', 'Rejected'], default: 'Pending' },
 	libraryVerificationResult: { type: String, enum: ['Clear', 'Not Clear', ''], default: '' },
 	libraryChecklist: { type: [mongoose.Schema.Types.Mixed], default: [] },
+	materials: { type: [mongoose.Schema.Types.Mixed], default: [] },
+	borrowedItemsStatus: { type: String, enum: ['Clear', 'Not Clear'], default: 'Clear' },
+	outstandingFineAmount: { type: Number, min: 0, default: 0 },
+	outstandingFineStatus: { type: String, enum: ['Clear', 'Not Clear'], default: 'Clear' },
 	libraryComment: { type: String, default: '' },
 	libraryReturnReason: { type: String, default: '' },
 	libraryReviewedBy: { type: String, default: '' },
@@ -61,6 +65,15 @@ const clearanceSchema = new mongoose.Schema({
 	departmentClearances: { type: [mongoose.Schema.Types.Mixed], default: [] },
 	outstandingItems: { type: [String], default: [] },
 	checklistCompleted: { type: Boolean, default: false },
+	assessmentChecklist: {
+		empInfoVerified: { type: Boolean, default: false },
+		clearanceRequestVerified: { type: Boolean, default: false },
+		documentVerified: { type: Boolean, default: false },
+		employmentVerified: { type: Boolean, default: false },
+		noDuplicateRequest: { type: Boolean, default: false },
+	},
+	hrComment: { type: String, default: '' },
+	returnReason: { type: String, default: '' },
 	certificate: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { timestamps: true, strict: false });
 
