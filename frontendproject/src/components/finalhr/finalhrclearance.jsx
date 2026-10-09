@@ -31,13 +31,47 @@ const normalizeStatus = (status) => {
   if (upper === 'READY FOR CERTIFICATE') {
     return 'READY FOR CERTIFICATE';
   }
-  if (['IN PROGRESS', 'UNDER REVIEW', 'RETURNED'].includes(upper)) {
-    return 'IN PROGRESS';
-  }
   return 'PENDING';
 };
 
+const normalizeOfficeName = (office) => {
+  const name = String(office || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (name.includes('department')) return 'departmenthead';
+  if (name.includes('finance')) return 'financeoffice';
+  if (name.includes('property') || name.includes('asset')) return 'propertyassetoffice';
+  if (name.includes('library')) return 'library';
+  if (name.includes('ict')) return 'ictoffice';
+  if (name.includes('transport')) return 'transportoffice';
+  return name;
+};
+
 const getOfficeProgress = (request) => {
+  const hasAssignedDepartments = request?.manualRoutingEnabled === true
+    || (Array.isArray(request?.assignedDepartments) && request.assignedDepartments.length > 0);
+  if (hasAssignedDepartments) {
+    const assignedDepartments = Array.isArray(request?.assignedDepartments) ? request.assignedDepartments : [];
+    const reviewEntries = [
+      ...(Array.isArray(request?.departmentClearances) ? request.departmentClearances : []),
+      ...(Array.isArray(request?.workflow) ? request.workflow : []),
+    ];
+    return assignedDepartments.map((office) => {
+      const matchingEntries = reviewEntries.filter((entry) => normalizeOfficeName(
+        entry?.name || entry?.office || entry?.department,
+      ) === normalizeOfficeName(office));
+      const entry = [...matchingEntries].reverse().find((item) => (
+        ['approved', 'completed', 'cleared'].includes(String(item?.status || '').toLowerCase())
+      )) || [...matchingEntries].reverse().find((item) => item?.status) || {};
+      return {
+        ...entry,
+        name: office,
+        status: entry.status || entry.state || entry.approvalStatus || 'Pending',
+        clearedBy: entry.clearedBy || entry.approvedBy || entry.reviewedBy || entry.performedBy || '-',
+        clearedDate: entry.clearedDate || entry.completedAt || entry.reviewedAt || entry.updatedAt || '-',
+        remarks: entry.remarks || entry.comment || entry.returnReason || '',
+      };
+    });
+  }
+
   if (Array.isArray(request?.departmentClearances)) {
     return request.departmentClearances.map((office) => ({
       ...office,
@@ -72,12 +106,17 @@ const getOfficeProgress = (request) => {
 
 const getProgressInfo = (request) => {
   const departmentClearances = getOfficeProgress(request);
-  const totalDepartments = Number.isFinite(Number(request?.totalDepartments))
+  const hasAssignedDepartments = request?.manualRoutingEnabled === true
+    || (Array.isArray(request?.assignedDepartments) && request.assignedDepartments.length > 0);
+  const totalDepartments = hasAssignedDepartments
+    ? (Array.isArray(request?.assignedDepartments) ? request.assignedDepartments.length : 0)
+    : Number.isFinite(Number(request?.totalDepartments))
     ? Number(request.totalDepartments)
     : departmentClearances.length;
-  const approvedCount = Number.isFinite(Number(request?.completedDepartments))
+  const approvedCount = !hasAssignedDepartments && Number.isFinite(Number(request?.completedDepartments))
     ? Number(request.completedDepartments)
     : departmentClearances.filter((item) => ['approved', 'completed', 'cleared'].includes(String(item.status || '').toLowerCase())).length;
+  const completedCount = Math.min(approvedCount, totalDepartments);
 
   const normalizedStatus = normalizeStatus(request?.overallStatus || request?.status);
   const noOfficesReady = totalDepartments === 0
@@ -87,23 +126,21 @@ const getProgressInfo = (request) => {
   let statusLabel = 'PENDING';
   if (normalizedStatus === 'CERTIFICATE ISSUED') {
     statusLabel = 'CERTIFICATE ISSUED';
-  } else if (approvedCount === totalDepartments && (totalDepartments > 0 || noOfficesReady)) {
-    statusLabel = 'READY FOR CERTIFICATE';
-  } else if (approvedCount > 0 || ['IN PROGRESS', 'RETURNED', 'UNDER REVIEW'].includes(normalizedStatus)) {
-    statusLabel = 'IN PROGRESS';
+  } else if (completedCount === totalDepartments && (totalDepartments > 0 || noOfficesReady)) {
+    statusLabel = 'APPROVED';
   }
 
   return {
     departmentClearances,
-    completed: approvedCount,
+    completed: completedCount,
     total: totalDepartments,
-    progress: `${approvedCount}/${totalDepartments}`,
+    progress: `${completedCount}/${totalDepartments}`,
     hasOffices: totalDepartments > 0,
     percentage: totalDepartments === 0
       ? (noOfficesReady ? 100 : 0)
-      : Math.min(100, (approvedCount / totalDepartments) * 100),
+      : Math.min(100, (completedCount / totalDepartments) * 100),
     status: statusLabel,
-    statusType: statusLabel === 'READY FOR CERTIFICATE' ? 'ready' : statusLabel === 'CERTIFICATE ISSUED' ? 'issued' : statusLabel === 'IN PROGRESS' ? 'progress' : 'pending',
+    statusType: statusLabel === 'APPROVED' ? 'ready' : statusLabel === 'CERTIFICATE ISSUED' ? 'issued' : 'pending',
   };
 };
 
@@ -112,6 +149,21 @@ const formatDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const authConfig = () => ({
+  suppressAutomaticLogout: true,
+  headers: { Authorization: `******'token') || ''}` },
+});
+
+const getFinalHRErrorMessage = (error, fallback) => {
+  if (error.response?.status === 401) {
+    const message = error.response?.data?.message;
+    if (/expired|invalid/i.test(message || '')) return 'The saved sign-in token has expired or is invalid. Sign in again to continue.';
+    if (/revoked/i.test(message || '')) return 'Your sign-in was revoked. Sign in again to continue.';
+    return message || 'The server did not receive a valid sign-in token. Sign in again to continue.';
+  }
+  return error.response?.data?.message || error.message || fallback;
 };
 
 export default function HRFinalClearance() {
@@ -185,6 +237,10 @@ export default function HRFinalClearance() {
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const visibleRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
+  const maxAssignedOfficeCount = requests.reduce(
+    (maximum, request) => Math.max(maximum, getProgressInfo(request).total),
+    0,
+  );
 
   useEffect(() => {
     setPage(1);
@@ -234,17 +290,25 @@ export default function HRFinalClearance() {
   const handleGenerateCertificate = async () => {
     const requestId = selectedRequest?.requestId || selectedRequest?._id;
     if (!requestId) return;
+    if (!localStorage.getItem('token')) {
+      setDecisionError('No sign-in token is stored in this browser. Please sign in again before generating a certificate.');
+      return;
+    }
 
     try {
       setCertificateSaving(true);
       setDecisionError('');
-      const { data } = await axios.post(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`);
+      const { data } = await axios.post(
+        `http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`,
+        {},
+        authConfig(),
+      );
       navigate('/hr-office/certificates', {
         replace: true,
         state: { generatedCertificateNo: data?.certificate?.number || '' },
       });
     } catch (error) {
-      setDecisionError(error.response?.data?.message || 'Unable to generate certificate.');
+      setDecisionError(getFinalHRErrorMessage(error, 'Unable to generate certificate.'));
     } finally {
       setCertificateSaving(false);
     }
@@ -269,13 +333,30 @@ export default function HRFinalClearance() {
         decision: 'Completed',
         checklistCompleted: true,
         remarks: 'All required offices cleared and final HR verification completed.',
-      });
-      setSelectedRequest(data?.clearance || { ...selectedRequest, status: 'Completed', finalHRApproval: true, checklistCompleted: true });
+      }, authConfig());
+      const approvedClearance = data?.clearance || { ...selectedRequest, status: 'Completed', finalHRApproval: true, checklistCompleted: true };
+      setSelectedRequest(approvedClearance);
       setRequests((previous) => previous.map((request) => request.requestId === requestId
         ? { ...request, status: 'Completed', overallStatus: 'CERTIFICATE ISSUED', finalHRApproval: true }
         : request));
+      const { data: certificateData } = await axios.post(
+        `http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`,
+        {},
+        authConfig(),
+      );
+      const { data: detailsData } = await axios.get(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}`);
+      navigate('/hr-office/certificate-preview', {
+        state: {
+          clearance: {
+            ...(detailsData?.clearance || approvedClearance),
+            certificate: certificateData?.certificate || approvedClearance.certificate,
+          },
+          fromDetails: true,
+          autoDownload: true,
+        },
+      });
     } catch (error) {
-      setDecisionError(error.response?.data?.message || 'Unable to complete final HR approval.');
+      setDecisionError(getFinalHRErrorMessage(error, 'Unable to complete final HR approval.'));
     } finally {
       setDecisionSaving(false);
     }
@@ -349,8 +430,7 @@ export default function HRFinalClearance() {
                 className="appearance-none rounded-md border border-slate-200 bg-white px-3 py-2.5 pr-9 text-[12px] text-slate-700 focus:border-sky-400 focus:outline-none"
               >
                 <option value="All Status">All Status</option>
-                <option value="IN PROGRESS">In Progress</option>
-                <option value="READY FOR CERTIFICATE">Ready for Certificate</option>
+                <option value="APPROVED">Approved</option>
                 <option value="CERTIFICATE ISSUED">Certificate Issued</option>
                 <option value="PENDING">Pending</option>
               </select>
@@ -413,18 +493,27 @@ export default function HRFinalClearance() {
                         <td className="px-4 py-4 text-slate-600">{formatDate(request.requestDate || request.createdAt)}</td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-1.5">
-                            {Array.from({ length: info.total }).map((_, dotIndex) => (
-                              <span
-                                key={`${request._id || request.requestId}-dot-${dotIndex}`}
-                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
-                                  dotIndex < Number(info.progress.split('/')[0])
-                                    ? 'border-emerald-200 bg-emerald-500 text-white'
-                                    : 'border-slate-200 bg-slate-100 text-slate-400'
-                                }`}
-                              >
-                                {dotIndex < Number(info.progress.split('/')[0]) ? '✓' : ''}
-                              </span>
-                            ))}
+                            {info.departmentClearances.map((office, dotIndex) => {
+                              const officeStatus = String(office.status || 'Pending').toLowerCase();
+                              const approved = ['approved', 'completed', 'cleared'].includes(officeStatus);
+                              const returned = ['returned', 'rejected'].includes(officeStatus);
+                              return (
+                                <span
+                                  key={`${request._id || request.requestId}-dot-${dotIndex}`}
+                                  title={`${office.name}: ${office.status || 'Pending'}`}
+                                  aria-label={`${office.name}: ${office.status || 'Pending'}`}
+                                  className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
+                                    approved
+                                      ? 'border-emerald-200 bg-emerald-500 text-white'
+                                      : returned
+                                        ? 'border-rose-200 bg-rose-500 text-white'
+                                        : 'border-amber-200 bg-amber-400 text-white'
+                                  }`}
+                                >
+                                  {approved ? '✓' : returned ? '!' : ''}
+                                </span>
+                              );
+                            })}
                             <span className="ml-2 text-slate-500">
                               {info.hasOffices ? `${info.progress} Approved` : 'No additional offices assigned'}
                             </span>
@@ -581,7 +670,7 @@ export default function HRFinalClearance() {
                       <div className="mt-5 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-[11px]">
                         <span className="font-semibold text-slate-600">Overall Progress</span>
                         <span className="font-bold text-slate-800">
-                          {selectedProgress.hasOffices ? `${selectedProgress.progress} Offices Approved` : 'No additional offices assigned'}
+                          {selectedProgress.hasOffices ? `${selectedProgress.progress} Offices Approved (${Math.round(selectedProgress.percentage)}%)` : 'No additional offices assigned'}
                         </span>
                       </div>
                     </div>
@@ -599,15 +688,25 @@ export default function HRFinalClearance() {
                       </div>
                       {decisionError && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-[11px] text-red-700">{decisionError}</div>}
                       <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={handleFinalHRApproval}
-                          disabled={!certificateReady || hrApproved || decisionSaving}
-                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#0e63d6] px-3 py-2.5 text-[11px] font-bold text-white hover:bg-[#0d56b8] disabled:cursor-not-allowed disabled:opacity-50"
+                        <div
+                          title={!certificateReady ? 'Cannot issue clearance until all assigned departments approve.' : undefined}
+                          className="w-full"
                         >
-                          <CheckCircle2 size={14} />
-                          {decisionSaving ? 'Approving...' : hrApproved ? 'Final HR Approved' : certificateReady ? 'Approve Final HR Clearance' : `Awaiting ${selectedProgress.completed}/${selectedProgress.total} office approvals`}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={handleFinalHRApproval}
+                            disabled={!certificateReady || hrApproved || decisionSaving}
+                            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#0e63d6] px-3 py-2.5 text-[11px] font-bold text-white hover:bg-[#0d56b8] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <CheckCircle2 size={14} />
+                            {decisionSaving ? 'Approving & generating...' : hrApproved ? 'Final HR Approved' : certificateReady ? 'Issue Final Clearance & Generate Certificate' : `Awaiting ${selectedProgress.completed}/${selectedProgress.total} office approvals`}
+                          </button>
+                        </div>
+                        {!certificateReady && (
+                          <p className="text-[10px] text-amber-700">
+                            Cannot issue clearance until all assigned departments approve.
+                          </p>
+                        )}
                         <button
                           type="button"
                           onClick={() => navigate('/hr-office/certificate-preview', { state: { clearance: selectedRequest, fromDetails: true } })}
@@ -637,7 +736,7 @@ export default function HRFinalClearance() {
                         </span>
                       </div>
                       <div className="h-2.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${selectedProgress.percentage}%` }} /></div>
-                      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2">
                         {selectedProgress.departmentClearances.map((office, index) => (
                           <div key={`progress-${office.name || office.department || 'office'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-center text-[10px]">
                             <div className="font-medium text-slate-600">{office.name || office.department || 'Office'}</div>
@@ -661,7 +760,7 @@ export default function HRFinalClearance() {
           </div>
 
           <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-[11px] text-sky-800">
-            <strong>Note:</strong> HR can review from 1/5 approved offices. Certificate actions are available only after 5/5 offices are approved and Final HR approval is completed.
+            <strong>Note:</strong> Each request is measured against the offices selected for that employee in HR Workflow{maxAssignedOfficeCount > 0 ? ` (up to ${maxAssignedOfficeCount} assigned office${maxAssignedOfficeCount === 1 ? '' : 's'} in the current list)` : ''}. Final clearance and certificate actions are available only after all assigned offices approve.
           </div>
         </main>
       </div>

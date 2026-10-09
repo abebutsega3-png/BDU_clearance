@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useState } from 'react';
 import axios from 'axios';
 import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Download, Eye, Printer, X } from 'lucide-react';
 import universityLogo from '../../assets/image.png';
@@ -14,57 +15,106 @@ const formatDate = (value, fallback = '—') => {
 };
 
 const displayValue = (value, fallback = '—') => value || fallback;
-const isGenericApprover = (value, officeName) => {
-  const normalizedValue = String(value || '').trim().toLowerCase();
-  const normalizedOffice = String(officeName || '').trim().toLowerCase();
-  if (!normalizedValue || normalizedValue === '-' || normalizedValue === '—') return true;
-  if (!normalizedValue.includes('officer') && !normalizedValue.includes('head')) return false;
-  return normalizedOffice.includes('finance') && normalizedValue.includes('finance')
-    || normalizedOffice.includes('property') && (normalizedValue.includes('property') || normalizedValue.includes('asset'))
-    || normalizedOffice.includes('ict') && normalizedValue.includes('ict')
-    || normalizedOffice.includes('library') && normalizedValue.includes('library')
-    || normalizedOffice.includes('department') && normalizedValue.includes('department');
+const getCertificateErrorMessage = (error, fallback) => {
+  if (error.response?.status === 401) {
+    const message = error.response?.data?.message;
+    if (/expired|invalid/i.test(message || '')) return 'The saved sign-in token has expired or is invalid. Sign in again to continue.';
+    if (/revoked/i.test(message || '')) return 'Your sign-in was revoked. Sign in again to continue.';
+    return message || 'The server did not receive a valid sign-in token. Sign in again to continue.';
+  }
+  return error.response?.data?.message || error.message || fallback;
+};
+const authConfig = () => ({
+  suppressAutomaticLogout: true,
+  headers: { Authorization: `******'token') || ''}` },
+});
+const displayReviewerName = (value) => {
+  const name = String(value || '').trim();
+  const roleLabels = /^(hr(?: officer)?|finance officer|department head|library officer|property(?:\s*\/\s*asset)? officer|ict officer|transport officer)$/i;
+  return !name || name === '-' || name === '—' || roleLabels.test(name) ? '—' : name;
+};
+const normalizeOfficeName = (value) => {
+  const name = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (name.includes('department')) return 'departmenthead';
+  if (name.includes('finance')) return 'financeoffice';
+  if (name.includes('property') || name.includes('asset')) return 'propertyassetoffice';
+  if (name.includes('library')) return 'library';
+  if (name.includes('ict')) return 'ictoffice';
+  if (name.includes('transport')) return 'transportoffice';
+  if (name.includes('finalhr') || name === 'hroffice') return 'finalhrclearance';
+  return name;
 };
 
 const getOfficeSummary = (clearance) => {
-  const departmentWorkflowApproval = Array.isArray(clearance?.workflow)
-    ? clearance.workflow.find((step) => /department/i.test(step?.office || step?.name || '') && ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(step?.status || '').toUpperCase()))
-    : null;
+  const requiredOffices = clearance?.manualRoutingEnabled
+    ? clearance.assignedDepartments
+    : clearance?.requiredOffices;
+  const assignedOffices = (Array.isArray(requiredOffices) && requiredOffices.length
+    ? requiredOffices
+    : clearance?.manualRoutingEnabled
+      ? []
+      : ['Finance Office', 'Library', 'Property / Asset Office', 'ICT Office', 'Transport Office'])
+    .filter((office) => office
+      && normalizeOfficeName(office) !== 'departmenthead'
+      && normalizeOfficeName(office) !== 'finalhrclearance');
   const offices = [
-    { name: 'HR Office', status: 'APPROVED', approvedBy: clearance?.initialHRReviewedBy || clearance?.finalHROfficer || clearance?.hrManagerName, approvalDate: clearance?.initialHRReviewedAt || clearance?.finalHRApprovalDate },
-    { name: 'Library', status: 'CLEARED', approvedBy: clearance?.libraryReviewedBy, approvalDate: clearance?.libraryReviewedAt },
-    { name: 'Finance', status: 'CLEARED', approvedBy: clearance?.financeReviewedBy, approvalDate: clearance?.financeReviewedAt },
-    { name: 'Property Management', status: 'CLEARED', approvedBy: clearance?.propertyReviewedBy, approvalDate: clearance?.propertyReviewedAt },
-    { name: 'ICT Center', status: 'CLEARED', approvedBy: clearance?.ictReviewedBy, approvalDate: clearance?.ictReviewedAt },
-    { name: 'Department', status: 'CLEARED', approvedBy: clearance?.departmentReviewedBy || clearance?.departmentClearance?.reviewedBy || departmentWorkflowApproval?.reviewedBy || departmentWorkflowApproval?.approvedBy, approvalDate: clearance?.departmentReviewedAt || clearance?.departmentClearance?.reviewedAt || departmentWorkflowApproval?.reviewedAt || departmentWorkflowApproval?.approvedAt },
+    {
+      name: 'HR Office',
+      status: clearance?.initialHRStatus === 'Approved' ? 'APPROVED' : clearance?.initialHRStatus || 'PENDING',
+      approvedBy: clearance?.initialHRReviewedBy || clearance?.finalHROfficer || clearance?.hrManagerName,
+      approvalDate: clearance?.initialHRReviewedAt || clearance?.finalHRApprovalDate,
+    },
+    { name: 'Department Head', status: clearance?.departmentStatus || 'PENDING', approvedBy: clearance?.departmentReviewedBy, approvalDate: clearance?.departmentReviewedAt },
+    ...assignedOffices.map((name) => ({ name })),
   ];
+  const reviewSteps = [
+    ...(Array.isArray(clearance?.workflow) ? clearance.workflow : []),
+    ...(Array.isArray(clearance?.history) ? clearance.history : []),
+    ...(Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : []),
+  ];
+  const officeStatusFields = {
+    financeoffice: ['financeStatus', 'financeReviewedBy', 'financeReviewedAt'],
+    library: ['libraryStatus', 'libraryReviewedBy', 'libraryReviewedAt'],
+    propertyassetoffice: ['propertyStatus', 'propertyReviewedBy', 'propertyReviewedAt'],
+    ictoffice: ['ictStatus', 'ictReviewedBy', 'ictReviewedAt'],
+    transportoffice: ['transportStatus', 'transportReviewedBy', 'transportReviewedAt'],
+  };
 
-  const departmentClearances = Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : [];
-
-  if (departmentClearances.length) {
-    return offices.map((office) => {
-      const match = departmentClearances.find((item) => {
-        const name = String(item?.name || item?.department || '').toLowerCase();
-        return name.includes(office.name.toLowerCase().split(' ')[0]) || office.name.toLowerCase().includes(name);
-      });
-
-      const matchedApprover = match?.approvedBy || match?.reviewedBy || match?.performedBy || match?.officerName || match?.clearedBy;
-      const directApprover = isGenericApprover(office.approvedBy, office.name) ? '' : office.approvedBy;
-      return {
-        ...office,
-        status: match && ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(match.status || '').toUpperCase()) ? 'APPROVED' : office.status,
-        approvedBy: directApprover || matchedApprover || '—',
-        approvalDate: office.approvalDate || match?.approvedAt || match?.completedAt || match?.reviewedAt || match?.timestamp || match?.updatedAt || '',
-      };
-    });
-  }
-
-  return offices.map((office) => ({
-    ...office,
-    status: ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(office.status || '').toUpperCase()) ? 'APPROVED' : String(office.status || '').toUpperCase(),
-    approvedBy: office.approvedBy || '—',
-    approvalDate: office.approvalDate || '',
-  }));
+  return offices.map((office) => {
+    const matchingSteps = reviewSteps.filter((step) => normalizeOfficeName(step?.name || step?.office || step?.department)
+      === normalizeOfficeName(office.name));
+    const match = [...matchingSteps].reverse().find((step) => ['APPROVED', 'CLEARED', 'COMPLETED'].includes(String(step?.status || '').toUpperCase()))
+      || [...matchingSteps].reverse().find((step) => step?.status)
+      || {};
+    const mappedFields = officeStatusFields[normalizeOfficeName(office.name)] || [];
+    const status = normalizeOfficeName(office.name) === 'departmenthead'
+      ? clearance?.departmentStatus
+      : mappedFields.length
+        ? clearance?.[mappedFields[0]]
+        : '';
+    const reviewerCandidates = [
+      office.approvedBy,
+      mappedFields.length ? clearance?.[mappedFields[1]] : '',
+      match?.approvedBy,
+      match?.reviewedBy,
+      match?.clearedBy,
+      match?.performedBy,
+      match?.officerName,
+    ];
+    const approvedBy = reviewerCandidates
+      .map(displayReviewerName)
+      .find((name) => name !== '—') || '—';
+    const approvalDate = office.approvalDate || (mappedFields.length ? clearance?.[mappedFields[2]] : '');
+    const resolvedStatus = status && !['pending', ''].includes(String(status).toLowerCase())
+      ? status
+      : match?.status || office.status || 'PENDING';
+    return {
+      ...office,
+      status: String(resolvedStatus).toUpperCase(),
+      approvedBy,
+      approvalDate: approvalDate || match?.approvedAt || match?.completedAt || match?.reviewedAt || match?.timestamp || match?.updatedAt || '',
+    };
+  });
 };
 
 export default function CertificatePreview() {
@@ -75,6 +125,8 @@ export default function CertificatePreview() {
   const [issuing, setIssuing] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [certificateImage, setCertificateImage] = useState('');
+  const [detailsLoaded, setDetailsLoaded] = useState(false);
+  const autoDownloadStarted = useRef(false);
   const requestId = clearance.requestId || clearance._id;
 
   const officeSummary = useMemo(() => getOfficeSummary(clearance), [clearance]);
@@ -89,19 +141,33 @@ export default function CertificatePreview() {
   const lastWorkingDate = clearance.lastWorkingDate || clearance.expectedLastWorkingDate || employee.lastWorkingDate;
   const completedDate = clearance.completedDate || clearance.finalHRApprovalDate || (clearance.status === 'Completed' ? clearance.updatedAt : null);
   const collegeInstitute = displayValue(clearance.collegeInstitute || clearance.college || clearance.institute);
-  const finalOfficer = displayValue(clearance.hrManagerName || clearance.finalHROfficer, 'Final HR Officer');
+  const finalOfficer = displayReviewerName(
+    clearance.finalHRReviewedBy || clearance.certificate?.generatedBy || clearance.hrManagerName || clearance.finalHROfficer,
+  );
+  const finalOfficerPosition = displayValue(
+    clearance.finalHRReviewedByPosition || clearance.certificate?.generatedByPosition,
+    'HR Officer',
+  );
   const finalApproved = clearance?.status === 'Completed' && clearance?.finalHRApproval === true;
   const finalStatus = finalApproved ? 'CLEARED' : 'READY FOR CERTIFICATE';
 
   useEffect(() => {
-    if (!requestId) return undefined;
+    if (!requestId) {
+      setDetailsLoaded(true);
+      return undefined;
+    }
     let active = true;
     axios.get(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}`, {
+      suppressAutomaticLogout: true,
       headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
     }).then(({ data }) => {
       if (active && data?.clearance) setClearance((current) => ({ ...current, ...data.clearance }));
-    }).catch(() => {
-      // Keep the request data passed by the previous screen as a fallback.
+    }).catch((error) => {
+      if (active && error.response?.status === 401) {
+        setSaveError(getCertificateErrorMessage(error, 'Unable to verify your session.'));
+      }
+    }).finally(() => {
+      if (active) setDetailsLoaded(true);
     });
     return () => { active = false; };
   }, [requestId]);
@@ -120,11 +186,36 @@ export default function CertificatePreview() {
         setCertificateImage(canvas.toDataURL('image/png'));
       } catch (error) {
         console.error('Unable to render certificate image:', error);
+        if (location.state?.autoDownload) setSaveError(error.message || 'Unable to render the certificate PDF.');
       }
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [clearance, officeSummary, finalStatus]);
+  }, [clearance, officeSummary, finalStatus, location.state?.autoDownload]);
+
+  useEffect(() => {
+    if (!location.state?.autoDownload || !detailsLoaded || !certificateImage
+      || !clearance.certificate?.number || autoDownloadStarted.current) return;
+    autoDownloadStarted.current = true;
+    try {
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imageProperties = pdf.getImageProperties(certificateImage);
+      const scale = Math.min((pageWidth - 20) / imageProperties.width, (pageHeight - 20) / imageProperties.height);
+      const imageWidth = imageProperties.width * scale;
+      const imageHeight = imageProperties.height * scale;
+      pdf.addImage(certificateImage, 'PNG', (pageWidth - imageWidth) / 2, 10, imageWidth, imageHeight);
+      pdf.save(`${clearance.certificate.number.replace(/[^\w.-]+/g, '-')}.pdf`);
+      navigate('/hr-office/certificates', {
+        replace: true,
+        state: { generatedCertificateNo: clearance.certificate.number },
+      });
+    } catch (error) {
+      autoDownloadStarted.current = false;
+      setSaveError(error.message || 'Unable to create the certificate PDF.');
+    }
+  }, [certificateImage, clearance.certificate?.number, detailsLoaded, location.state?.autoDownload, navigate]);
 
   const handleBack = () => {
     if (location.state?.fromDetails) {
@@ -149,11 +240,19 @@ export default function CertificatePreview() {
       setSaveError('This clearance request has no valid ID.');
       return;
     }
+    if (!localStorage.getItem('token')) {
+      setSaveError('No sign-in token is stored in this browser. Please sign in again before generating a certificate.');
+      return;
+    }
 
     try {
       setSaving(true);
       setSaveError('');
-      const { data } = await axios.post(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`);
+      const { data } = await axios.post(
+        `http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`,
+        {},
+        authConfig(),
+      );
       const generatedCertificate = data?.certificate;
       if (generatedCertificate) {
         setClearance((current) => ({
@@ -169,7 +268,7 @@ export default function CertificatePreview() {
         });
       }
     } catch (error) {
-      setSaveError(error.response?.data?.message || 'Unable to save certificate.');
+      setSaveError(getCertificateErrorMessage(error, 'Unable to save certificate.'));
     } finally {
       setSaving(false);
     }
@@ -182,12 +281,16 @@ export default function CertificatePreview() {
     try {
       setIssuing(true);
       setSaveError('');
-      const { data } = await axios.patch(`http://localhost:3000/api/hr-final-clearance/certificate/${certificateId}/issue`);
+      const { data } = await axios.patch(
+        `http://localhost:3000/api/hr-final-clearance/certificate/${certificateId}/issue`,
+        {},
+        authConfig(),
+      );
       if (data?.certificate) {
         setClearance((current) => ({ ...current, certificate: data.certificate }));
       }
     } catch (error) {
-      setSaveError(error.response?.data?.message || 'Unable to issue certificate to employee.');
+      setSaveError(getCertificateErrorMessage(error, 'Unable to issue certificate to employee.'));
     } finally {
       setIssuing(false);
     }
@@ -289,6 +392,7 @@ export default function CertificatePreview() {
               <div className="space-y-3">
                 <div>Final HR Officer</div>
                 <div className="border-b border-slate-500 pb-2 text-[14px] font-semibold text-slate-700">{finalOfficer}</div>
+                <div>Job Title: <span className="font-semibold text-slate-700">{finalOfficerPosition}</span></div>
                 <div>Signature: <span className="ml-2 inline-block w-40 border-b border-slate-500" /></div>
                 <div>Date: <span className="ml-2 inline-block w-40 border-b border-slate-500">{formatDate(completedDate, 'XX/XX/YYYY')}</span></div>
               </div>

@@ -3,24 +3,19 @@ import ClearanceRequest from '../models/clearance.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
 
-const hrClearanceTypes = [
-  'NEW_CLEARANCE_REQUEST', 'CLEARANCE_REQUEST_RETURNED', 'CLEARANCE_RESUBMITTED',
-  'CLEARANCE_IN_PROGRESS', 'CLEARANCE_PROGRESS_UPDATED', 'CLEARANCE_REQUEST',
-  'CLEARANCE_UPDATED', 'CLEARANCE_INFORMATION_UPDATED', 'CLEARANCE_RESUBMITTED',
-  'CLEARANCE_IN_PROGRESS', 'CLEARANCE_REQUEST_RETURNED', 'ICT_CLEARANCE_APPROVED',
-  'ICT_CLEARANCE_RETURNED', 'FINANCE_APPROVED', 'FINANCE_RETURNED', 'dept_completed',
-  'ready_review', 'certificate_available', 'final_completed', 'CERTIFICATE_ISSUED',
-  'NEW_REQUEST', 'REQUEST_SUBMITTED', 'REQUEST_ASSIGNED', 'CLEARANCE_INFO_UPDATED',
-  'PENDING_REMINDER', 'PENDING_CLEARANCE_REMINDER', 'CLEARANCE_FOLLOW_UP',
-];
-
 const propertyNotificationTypes = [
   'NEW_CLEARANCE_REQUEST',
   'CLEARANCE_READY_FOR_PROPERTY',
+  'CLEARANCE_READY_FOR_OFFICE',
+  'CLEARANCE_APPROVED',
+  'CLEARANCE_RETURNED',
+  'CLEARANCE_UPDATED',
   'CLEARANCE_RESUBMITTED',
+  'CLEARANCE_REQUEST',
   'PROPERTY_PENDING_REMINDER',
   'ACTION_REQUIRED',
-  'OBLIGATION_FOUND'
+  'OBLIGATION_FOUND',
+  'ASSET_RETURNED',
 ];
 
 const ictNotificationTypes = [
@@ -260,8 +255,8 @@ export const getAllNotifications = async (req, res) => {
         ...(preferences.actionRequired === false ? ['PROPERTY_PENDING_REMINDER', 'ACTION_REQUIRED', 'OBLIGATION_FOUND'] : []),
       ];
       if (disabledPropertyTypes.length) filter.type.$nin = disabledPropertyTypes;
-    } else if (/^hr[ _]?officer$/i.test(role)) {
-      filter.type = { $in: hrClearanceTypes };
+    } else if (/^(?:hr(?:[\s_-]?officer)?|human resources)$/i.test(role) && req.user?._id) {
+      filter.$or = [{ recipientId: req.user._id }];
     } else if (/^ict(?:[ _]?officer)?$/i.test(role)) {
       filter.type = { $in: ictNotificationTypes };
     } else if (/^department[ _]?head$/i.test(role) && req.user?._id) {
@@ -269,10 +264,20 @@ export const getAllNotifications = async (req, res) => {
       await ensureDepartmentPendingNotifications(req.user._id, req.user.department);
       filter.type = { $in: departmentNotificationTypes };
     }
-    const notifications = await Notification.find(filter).sort({ createdAt: -1 });
+    const notificationsQuery = Notification.find(filter).sort({ createdAt: -1 });
+    if (req.query.limit !== undefined) {
+      const requestedLimit = Number(req.query.limit);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+        return res.status(400).json({ success: false, message: 'Notification limit must be a positive integer.' });
+      }
+      notificationsQuery.limit(Math.min(requestedLimit, 100));
+    }
+    const notifications = await notificationsQuery.lean();
+    const unreadCount = await Notification.countDocuments({ ...filter, isRead: false });
     res.status(200).json({
       success: true,
       count: notifications.length,
+      unreadCount,
       data: notifications,
       notifications
     });

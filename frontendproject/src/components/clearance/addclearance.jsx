@@ -8,12 +8,29 @@ import { useAuth } from '../../context/authContext';
 
 const defaultRequiredOffices = ['HR Office', 'Library', 'Finance', 'Department', 'Transport Office'];
 
+const getLocalDateInputValue = () => {
+	const today = new Date();
+	const year = today.getFullYear();
+	const month = String(today.getMonth() + 1).padStart(2, '0');
+	const day = String(today.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+};
+
+const isValidDateInput = (value) => {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
+	const [year, month, day] = value.split('-').map(Number);
+	const date = new Date(Date.UTC(year, month - 1, day));
+	return date.getUTCFullYear() === year
+		&& date.getUTCMonth() === month - 1
+		&& date.getUTCDate() === day;
+};
+
 const initialForm = {
 	employee: '',
 	reason: '',
 	lastWorkingDate: '',
 	relievingDate: '',
-	requestDate: new Date().toISOString().slice(0, 10),
+	requestDate: getLocalDateInputValue(),
 	remarks: '',
 };
 
@@ -28,8 +45,20 @@ function SelectField({ name, value, onChange, children, required }) {
 	return <select name={name} value={value} onChange={onChange} required={required} className={`${inputClass} appearance-none pr-8`} style={{ backgroundImage: 'linear-gradient(45deg, transparent 50%, #64748b 50%), linear-gradient(135deg, #64748b 50%, transparent 50%)', backgroundPosition: 'calc(100% - 13px) 50%, calc(100% - 9px) 50%', backgroundSize: '4px 4px, 4px 4px', backgroundRepeat: 'no-repeat' }}>{children}</select>;
 }
 
-function DateField({ name, value, onChange, required }) {
-	return <div className="relative"><input type="date" name={name} value={value} onChange={onChange} required={required} className={`${inputClass} pr-8`} /><CalendarDays size={13} className="pointer-events-none absolute right-2.5 top-2.5 text-slate-500" /></div>;
+function DateField({ name, value, onChange, required, error }) {
+	return <div className="relative">
+		<input
+			type="date"
+			name={name}
+			value={value}
+			onChange={onChange}
+			required={required}
+			aria-invalid={Boolean(error)}
+			aria-describedby={error ? `${name}-error` : undefined}
+			className={`${inputClass} pr-8 ${error ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : ''}`}
+		/>
+		<CalendarDays size={13} className="pointer-events-none absolute right-2.5 top-2.5 text-slate-500" />
+	</div>;
 }
 
 export default function AddClearance() {
@@ -46,6 +75,13 @@ export default function AddClearance() {
 	const [loadingSeparationTypes, setLoadingSeparationTypes] = useState(true);
 	const [requiredOffices, setRequiredOffices] = useState(defaultRequiredOffices);
 	const [submitting, setSubmitting] = useState(false);
+	const lastWorkingDateOrderError = Boolean(
+		form.lastWorkingDate
+		&& form.relievingDate
+		&& isValidDateInput(form.lastWorkingDate)
+		&& isValidDateInput(form.relievingDate)
+		&& form.lastWorkingDate > form.relievingDate,
+	);
 
 	useEffect(() => {
 		fetchEmployees().then(setEmployees).catch(() => setMessage('Unable to load employees.'));
@@ -87,8 +123,28 @@ export default function AddClearance() {
 
 	const handleSubmit = async (event) => {
 		event.preventDefault();
+		if (isHRInitiated && !selectedEmployee) {
+			setMessage('Select a valid employee before creating a request.');
+			return;
+		}
 		if (!separationTypes.includes(form.reason)) {
 			setMessage('Select an active clearance reason before submitting.');
+			return;
+		}
+		if (!isValidDateInput(form.lastWorkingDate)) {
+			setMessage('Enter a valid last working date.');
+			return;
+		}
+		if (!isValidDateInput(form.requestDate)) {
+			setMessage('Enter a valid request date.');
+			return;
+		}
+		if (form.relievingDate && !isValidDateInput(form.relievingDate)) {
+			setMessage('Enter a valid relieving date.');
+			return;
+		}
+		if (lastWorkingDateOrderError) {
+			setMessage('Last working date cannot be after relieving date.');
 			return;
 		}
 		setSubmitting(true);
@@ -115,7 +171,7 @@ export default function AddClearance() {
 			});
 			navigate(isHRInitiated ? `${routePrefix}/hr-workflow` : `${routePrefix}/clearance-requests`);
 		} catch (requestError) {
-			setMessage(requestError.response?.data?.message || 'Unable to submit clearance request.');
+			setMessage(requestError.response?.data?.message || requestError.message || 'Unable to submit clearance request.');
 		} finally {
 			setSubmitting(false);
 		}
@@ -148,7 +204,7 @@ export default function AddClearance() {
 							<h2 className="mb-4 flex items-center gap-3 text-[11px] font-bold text-blue-600"><span>Clearance Details</span><span className="h-px flex-1 bg-slate-200" /></h2>
 							<div className="grid grid-cols-1 gap-3 md:grid-cols-3">
 								<Field label="Clearance Reason" required><SelectField name="reason" value={form.reason} onChange={handleChange} required><option value="">{loadingSeparationTypes ? 'Loading reasons...' : 'Select Reason'}</option>{separationTypes.map((type) => <option key={type} value={type}>{type}</option>)}</SelectField>{!loadingSeparationTypes && separationTypes.length === 0 && <p className="mt-1 text-[10px] text-amber-700">No active separation types are available. Add one in HR Separation Types before creating a request.</p>}</Field>
-								<Field label="Last Working Date" required><DateField name="lastWorkingDate" value={form.lastWorkingDate} onChange={handleChange} required /></Field>
+								<Field label="Last Working Date" required><DateField name="lastWorkingDate" value={form.lastWorkingDate} onChange={handleChange} required error={lastWorkingDateOrderError} />{lastWorkingDateOrderError && <p id="lastWorkingDate-error" role="alert" className="mt-1 text-[10px] text-red-600">Last working date cannot be after relieving date.</p>}</Field>
 								<Field label="Relieving Date (if any)"><DateField name="relievingDate" value={form.relievingDate} onChange={handleChange} /></Field>
 								<Field label="Request Date"><DateField name="requestDate" value={form.requestDate} onChange={handleChange} /></Field>
 								<div className="md:col-span-2"><Field label="Remarks"><textarea name="remarks" value={form.remarks} onChange={handleChange} maxLength="500" rows="2" placeholder="Enter any remarks (optional)" className={`${inputClass} resize-none`} /><p className="mt-1 text-right text-[9px] text-slate-400">{form.remarks.length}/500</p></Field></div>
@@ -192,7 +248,7 @@ export default function AddClearance() {
 
 						<div className="flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-slate-600"><Info size={14} className="shrink-0 text-blue-600" />{isHRInitiated ? 'HR assessment is marked complete for this HR-initiated request. Select the required offices next in HR Workflow.' : 'You can track the status of this clearance request from the Clearance Requests menu.'}</div>
 					</div>
-					<footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><p className={`mr-auto text-[10px] ${message.startsWith('Unable') ? 'text-red-600' : 'text-emerald-600'}`}>{message}</p><button type="button" onClick={() => navigate(`${routePrefix}/clearance-requests`)} className="rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100">Cancel</button><button type="button" className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100"><Save size={13} />Save Draft</button><button type="submit" disabled={submitting} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-5 py-2 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"><Send size={13} />{submitting ? 'Creating...' : isHRInitiated ? 'Create & Continue to HR Workflow' : 'Submit Request'}</button></footer>
+					<footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><p role={message ? 'alert' : undefined} className={`mr-auto text-[10px] ${message ? 'text-red-600' : ''}`}>{message}</p><button type="button" onClick={() => navigate(`${routePrefix}/clearance-requests`)} className="rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100">Cancel</button><button type="button" className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100"><Save size={13} />Save Draft</button><button type="submit" disabled={submitting} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-5 py-2 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"><Send size={13} />{submitting ? 'Creating...' : isHRInitiated ? 'Create & Continue to HR Workflow' : 'Submit Request'}</button></footer>
 				</form>
 			</div>
 		</main>

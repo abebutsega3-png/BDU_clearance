@@ -8,11 +8,16 @@ const NOTIFICATIONS_API = 'http://localhost:3000/api/notifications';
 const PROPERTY_NOTIFICATION_TYPES = [
   'NEW_CLEARANCE_REQUEST',
   'CLEARANCE_READY_FOR_PROPERTY',
+  'CLEARANCE_READY_FOR_OFFICE',
+  'CLEARANCE_APPROVED',
+  'CLEARANCE_RETURNED',
+  'CLEARANCE_UPDATED',
   'CLEARANCE_REQUEST',
   'CLEARANCE_RESUBMITTED',
   'PROPERTY_PENDING_REMINDER',
   'ACTION_REQUIRED',
-  'OBLIGATION_FOUND'
+  'OBLIGATION_FOUND',
+  'ASSET_RETURNED',
 ];
 
 export default function PropertyNotifications() {
@@ -34,7 +39,9 @@ export default function PropertyNotifications() {
         const userNotifications = response.data.data || [];
         const propertyNotifications = userNotifications.filter((item) => PROPERTY_NOTIFICATION_TYPES.includes(item.type));
         setNotifications(propertyNotifications);
-        setUnreadCount(propertyNotifications.filter((item) => !item.isRead).length);
+        setUnreadCount(Number.isInteger(response.data.unreadCount)
+          ? response.data.unreadCount
+          : propertyNotifications.filter((item) => !item.isRead).length);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);

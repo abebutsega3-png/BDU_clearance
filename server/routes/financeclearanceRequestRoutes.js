@@ -1,4 +1,5 @@
 import express from 'express';
+import authMiddleware from '../middleware/authMiddleware.js';
 import {
   getFinanceRequests,
   getFinanceRequestById,
@@ -11,8 +12,8 @@ const router = express.Router();
 
 router.get('/requests', getFinanceRequests);
 router.get('/requests/:id', getFinanceRequestById);
-router.patch('/requests/:id/start-review', startFinanceReview);
-router.patch('/requests/:id/approve', approveFinanceClearance);
-router.patch('/requests/:id/return', returnFinanceRequest);
+router.patch('/requests/:id/start-review', authMiddleware, startFinanceReview);
+router.patch('/requests/:id/approve', authMiddleware, approveFinanceClearance);
+router.patch('/requests/:id/return', authMiddleware, returnFinanceRequest);
 
 export default router;

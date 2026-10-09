@@ -41,6 +41,23 @@ export const getAuditLogs = async (req, res) => {
       where.userId = { $in: users.map((item) => item._id) };
     }
 
+    if (req.query.recentOnly === 'true') {
+      const rows = await AuditLog.find(where)
+        .select('createdAt action module description')
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+      return res.json({
+        data: rows.map((log) => ({
+          id: log._id,
+          date: log.createdAt,
+          action: log.action,
+          module: log.module,
+          description: log.description || '',
+        })),
+      });
+    }
+
     const [rows, total, allTimeTotal, todayLogs, uniqueUserIds, actionStats, lastActivity] = await Promise.all([
       AuditLog.find(where).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate('userId', 'name role').lean(),
       AuditLog.countDocuments(where),

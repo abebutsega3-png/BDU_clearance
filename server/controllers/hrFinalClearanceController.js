@@ -11,9 +11,9 @@ import {
   FINAL_HR_STAGE,
   MANUAL_ROUTABLE_OFFICES,
   isFinalHRStage,
-  finalHRRoutingReadyFilter,
   normalizeRoutedOffice,
   getFinalHROffices,
+  isHRInitiatedRequest,
 } from '../utils/clearanceWorkflow.js';
 
 const getDateOnlyTimestamp = (value) => {
@@ -32,6 +32,9 @@ const getDateOnlyTimestamp = (value) => {
     ? timestamp
     : Number.NaN;
 };
+
+const isHROfficer = (user) => ['hr', 'hr officer', 'human resources']
+  .includes(String(user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim());
 
 const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
   const department = typeof clearance.department === 'object'
@@ -122,6 +125,7 @@ export const updateInitialHRDecision = async (req, res) => {
     if (normalizedDecision === 'in progress') {
       current.initialHRStatus = 'Under Review';
       current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
+      current.initialHRReviewedById = req.user?._id || null;
       current.initialHRReviewedAt = new Date();
       current.currentStep = 'Initial HR Review';
       current.status = 'Pending';
@@ -214,6 +218,7 @@ export const updateInitialHRDecision = async (req, res) => {
     current.initialHRStatus = approved ? 'Approved' : 'Returned';
     if (!approved) current.initialHRAssessmentCompleted = false;
     current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
+    current.initialHRReviewedById = req.user?._id || null;
     current.initialHRReviewedAt = new Date();
     const reviewerName = req.user?.fullName || req.user?.name || 'HR Officer';
     const returnRemark = String(remarks).trim();
@@ -233,7 +238,7 @@ export const updateInitialHRDecision = async (req, res) => {
     current.currentStep = approved ? 'Department Head' : 'Employee';
     current.workflow = (Array.isArray(current.workflow) ? current.workflow : []).map((step) => {
       if (/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))) {
-        return { ...step, office: 'Initial HR Review', status: approved ? 'Completed' : 'Rejected', reviewedBy: reviewerName, reviewedAt: current.initialHRReviewedAt, updatedAt: current.initialHRReviewedAt, remarks: returnRemark, returnReason: approved ? '' : returnReason, affectedField: approved ? '' : String(affectedField).trim() };
+        return { ...step, office: 'Initial HR Review', status: approved ? 'Completed' : 'Rejected', reviewedBy: reviewerName, reviewedById: req.user?._id || null, reviewedAt: current.initialHRReviewedAt, updatedAt: current.initialHRReviewedAt, remarks: returnRemark, returnReason: approved ? '' : returnReason, affectedField: approved ? '' : String(affectedField).trim() };
       }
       if (/department/i.test(String(step.office || step.name || ''))) {
         return { ...step, status: 'Pending', updatedAt: new Date() };
@@ -382,6 +387,8 @@ const getRequiredCoreOffices = (clearance) => {
 };
 
 const normalizeOfficeStatus = (value) => String(value || '').trim().toLowerCase();
+const isReviewerRoleLabel = (value) => /^(hr(?: officer)?|finance officer|department head|library officer|property(?:\s*\/\s*asset)? officer|ict officer|transport officer)$/i
+  .test(String(value || '').trim());
 
 const findEmployeeUser = async (clearance) => {
   let user = null;
@@ -439,6 +446,19 @@ const getOfficeProgress = (clearance) => {
       Library: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
       'Transport Office': clearance.transportReviewedBy,
     }[office] || '';
+    const officeReviewerId = {
+      'Finance Office': clearance.financeReviewedById,
+      'ICT Office': clearance.ictReviewedById || clearance.ictClearance?.reviewedById,
+      'Property / Asset Office': clearance.propertyReviewedById,
+      'Department Head': clearance.departmentReviewedById || clearance.departmentClearance?.reviewedById,
+      Library: clearance.libraryReviewedById || clearance.libraryClearance?.reviewedById,
+      'Transport Office': clearance.transportReviewedById,
+    }[office] || '';
+    const workflowReviewers = [step.approvedBy, step.reviewedBy, step.clearedBy, step.performedBy, step.officerName]
+      .filter(Boolean);
+    const workflowReviewer = workflowReviewers.find((reviewer) => !isReviewerRoleLabel(reviewer))
+      || workflowReviewers[0]
+      || '';
     const officeDate = {
       'Finance Office': clearance.financeReviewedAt,
       'ICT Office': clearance.ictReviewedAt,
@@ -455,7 +475,10 @@ const getOfficeProgress = (clearance) => {
     return {
       office,
       status,
-      clearedBy: officeReviewer || step.clearedBy || step.approvedBy || step.reviewedBy || step.performedBy || step.officerName || '-',
+      clearedBy: officeReviewer && !isReviewerRoleLabel(officeReviewer)
+        ? officeReviewer
+        : workflowReviewer || officeReviewer || '-',
+      reviewerId: officeReviewerId || step.reviewerId || step.reviewedById || step.approvedById || step.performedById || '',
       clearedDate: officeDate || step.clearedDate || step.completedAt || step.reviewedAt || step.timestamp || step.updatedAt || '-',
       remarks: step.remarks || step.comment || step.returnReason || officeRemarks || '',
     };
@@ -470,39 +493,19 @@ const getOfficeCounts = (clearance) => {
 
 const resolveOfficeReviewers = async (offices) => {
   const reviewerIds = offices
-    .map((office) => office.clearedBy)
+    .map((office) => office.reviewerId || office.clearedBy)
     .filter((value) => mongoose.Types.ObjectId.isValid(String(value || '')));
   const users = reviewerIds.length
-    ? await User.find({ _id: { $in: reviewerIds } }).select('_id name fullName').lean()
+    ? await User.find({ _id: { $in: reviewerIds } }).select('_id name').lean()
     : [];
-  const names = new Map(users.map((user) => [String(user._id), user.name || user.fullName || '—']));
-  const rolePatterns = {
-    'Department Head': /department\s*head/i,
-    Library: /library/i,
-    'Finance Office': /finance/i,
-    'Property / Asset Office': /property|asset/i,
-    'ICT Office': /ict/i,
-    'Transport Office': /transport/i,
-  };
-  const roleUsers = await Promise.all(Object.entries(rolePatterns).map(async ([office, role]) => [
-    office,
-    await User.findOne({ role }).select('name fullName').sort({ createdAt: 1 }).lean(),
-  ]));
-  const fallbackNames = new Map(roleUsers.map(([office, user]) => [office, user?.name || user?.fullName || '—']));
-  const storedNameCounts = new Map();
-  offices.forEach((office) => {
-    const storedName = names.get(String(office.clearedBy)) || office.clearedBy;
-    if (storedName) storedNameCounts.set(String(storedName).trim().toLowerCase(), (storedNameCounts.get(String(storedName).trim().toLowerCase()) || 0) + 1);
-  });
-
+  const names = new Map(users.map((user) => [String(user._id), user.name || '—']));
   return offices.map((office) => {
-    const storedName = names.get(String(office.clearedBy)) || office.clearedBy;
-    const isRoleLabel = !storedName || storedName === '-' || storedName === '—'
-      || Object.values(rolePatterns).some((pattern) => pattern.test(String(storedName).trim()))
-      || (storedNameCounts.get(String(storedName).trim().toLowerCase()) || 0) > 1;
+    const reviewerId = office.reviewerId || office.clearedBy;
+    const storedName = names.get(String(reviewerId)) || office.clearedBy;
+    const isRoleLabel = !storedName || storedName === '-' || storedName === '—' || isReviewerRoleLabel(storedName);
     return {
       ...office,
-      clearedBy: isRoleLabel ? (fallbackNames.get(office.office) || '—') : storedName,
+      clearedBy: isRoleLabel ? '—' : storedName,
     };
   });
 };
@@ -541,7 +544,26 @@ export const getHRFinalClearanceDetails = async (req, res) => {
     // Calculate progress
     const { offices: rawDepartmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(clearance);
     const departmentClearances = await resolveOfficeReviewers(rawDepartmentClearances);
-    const initialHRReviewer = await resolveOfficeReviewers([{ clearedBy: clearance.initialHRReviewedBy || 'HR Officer' }]);
+    const initialHRReview = [...(Array.isArray(clearance.workflow) ? clearance.workflow : [])]
+      .reverse()
+      .find((step) => /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')));
+    const initialHRReviewerNames = [
+      initialHRReview?.reviewedBy,
+      initialHRReview?.approvedBy,
+      initialHRReview?.clearedBy,
+      initialHRReview?.performedBy,
+      initialHRReview?.officerName,
+      clearance.initialHRReviewedBy,
+    ].filter(Boolean);
+    const initialHRReviewer = await resolveOfficeReviewers([{
+      clearedBy: initialHRReviewerNames.find((name) => !isReviewerRoleLabel(name)) || initialHRReviewerNames[0],
+      reviewerId: clearance.initialHRReviewedById || initialHRReview?.reviewedById
+        || initialHRReview?.approvedById || initialHRReview?.performedById || initialHRReview?.reviewerId,
+    }]);
+    const finalHRReviewer = await resolveOfficeReviewers([{
+      clearedBy: clearance.finalHRReviewedBy || clearance.certificate?.generatedBy,
+      reviewerId: clearance.finalHRReviewedById || clearance.certificate?.generatedById,
+    }]);
     const progress = totalDepartments === 0
       ? (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved' ? 100 : 0)
       : Math.round((approvedCount / totalDepartments) * 100);
@@ -564,6 +586,8 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         assignedDepartments: clearance.assignedDepartments || [],
         requiredOffices: clearance.requiredOffices || [],
         requestSource: clearance.requestSource || 'Employee Portal',
+        requestedByRole: clearance.requestedByRole || (isHRInitiatedRequest(clearance) ? 'HR_OFFICER' : 'EMPLOYEE'),
+        isHRInitiated: isHRInitiatedRequest(clearance),
         initiatedBy: clearance.initiatedBy || null,
         initiatedByName: clearance.initiatedByName || '',
         initialHRRemarks: clearance.initialHRRemarks || '',
@@ -607,6 +631,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         lastWorkingDate: clearance.lastWorkingDate,
         expectedLastWorkingDate: clearanceRequest?.expectedLastWorkingDate,
         initialHRReviewedBy: initialHRReviewer[0].clearedBy,
+        initialHRReviewedById: clearance.initialHRReviewedById || null,
         initialHRReviewedAt: clearance.initialHRReviewedAt,
         returnedBy: clearance.returnedBy || (clearance.initialHRStatus === 'Returned' ? clearance.initialHRReviewedBy : ''),
         returnedOffice: clearance.returnedOffice || (clearance.initialHRStatus === 'Returned' ? 'HR Officer' : ''),
@@ -650,6 +675,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         // Checklist
         checklistCompleted: clearance.checklistCompleted || false,
         finalHRApproval: clearance.finalHRApproval === true || clearance.status === 'Completed',
+        finalHRReviewedBy: finalHRReviewer[0].clearedBy,
+        finalHRReviewedById: clearance.finalHRReviewedById || clearance.certificate?.generatedById || null,
+        finalHRReviewedByPosition: clearance.finalHRReviewedByPosition || clearance.certificate?.generatedByPosition || '',
 
         // Clearance History
         history: clearance.workflow || [],
@@ -674,6 +702,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
 // UPDATE HR Final Decision
 export const updateHRFinalDecision = async (req, res) => {
   try {
+    if (!isHROfficer(req.user)) {
+      return res.status(403).json({ success: false, message: 'Only an HR Officer can complete final clearance.' });
+    }
     const { id } = req.params;
     const { decision: requestedDecision, status, action, remarks, reason, affectedField, checklistCompleted } = req.body;
     const rawDecision = requestedDecision || status || action;
@@ -740,6 +771,11 @@ export const updateHRFinalDecision = async (req, res) => {
             returnedRemark: decision === 'Returned' || decision === 'Rejected' ? finalReturnRemark : '',
             affectedField: decision === 'Returned' || decision === 'Rejected' ? String(affectedField || 'Final HR Clearance') : '',
           finalHRApproval: decision === 'Completed',
+          finalHRReviewedBy: decision === 'Completed' ? finalReviewer : '',
+          finalHRReviewedById: decision === 'Completed' ? req.user?._id || null : null,
+          finalHRReviewedByPosition: decision === 'Completed'
+            ? req.user?.position || req.user?.role || 'HR Officer'
+            : '',
           hrRemarks: remarks || '',
           checklistCompleted: Boolean(checklistCompleted),
           updatedAt: new Date()
@@ -747,7 +783,8 @@ export const updateHRFinalDecision = async (req, res) => {
         $push: {
           workflow: {
             action: `HR Final Clearance ${decision}`,
-            performedBy: 'HR Officer',
+            performedBy: finalReviewer,
+            performedById: req.user?._id || null,
             timestamp: new Date(),
             status: decision,
             remarks: remarks
@@ -877,7 +914,6 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
     const query = {
       initialHRStatus: 'Approved',
       departmentStatus: 'Approved',
-      ...finalHRRoutingReadyFilter(),
     };
     if (status) {
       query.status = status;
@@ -900,11 +936,7 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
 
       if (approvedCount === totalOffices
         && (totalOffices > 0 || (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved'))) {
-        return 'READY FOR CERTIFICATE';
-      }
-
-      if (approvedCount > 0 || ['In Progress', 'Returned', 'Under Review'].includes(String(clearance.status || ''))) {
-        return 'IN PROGRESS';
+        return 'APPROVED';
       }
 
       return 'PENDING';
@@ -930,11 +962,14 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
           clearanceType: clearance.clearanceType,
           status: clearance.status,
           initialHRStatus: clearance.initialHRStatus,
+          initialHRAssessmentCompleted: clearance.initialHRAssessmentCompleted === true || isHRInitiatedRequest(clearance),
           departmentStatus: clearance.departmentStatus,
           manualRoutingEnabled: clearance.manualRoutingEnabled === true,
           assignedDepartments: clearance.assignedDepartments || [],
           requiredOffices: clearance.requiredOffices || [],
           requestSource: clearance.requestSource || 'Employee Portal',
+          requestedByRole: clearance.requestedByRole || (isHRInitiatedRequest(clearance) ? 'HR_OFFICER' : 'EMPLOYEE'),
+          isHRInitiated: isHRInitiatedRequest(clearance),
           initiatedBy: clearance.initiatedBy || null,
           initiatedByName: clearance.initiatedByName || '',
           overallStatus,
@@ -974,6 +1009,9 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
 // Generate Certificate
 export const generateCertificate = async (req, res) => {
   try {
+    if (!isHROfficer(req.user)) {
+      return res.status(403).json({ success: false, message: 'Only an HR Officer can generate a clearance certificate.' });
+    }
     const { id } = req.params;
 
     const clearance = await Clearance.findOne({
@@ -1004,11 +1042,14 @@ export const generateCertificate = async (req, res) => {
 
     // Keep the certificate on the clearance so it appears in the list after refresh.
     const certificateNumber = `BDU/CLR/${new Date().getFullYear()}/${String(Date.now()).slice(-6)}`;
+    const certificateIssuer = clearance.finalHRReviewedBy || req.user?.fullName || req.user?.name || 'HR Officer';
 
     const certificate = {
       number: certificateNumber,
       generatedAt: new Date(),
-      generatedBy: 'HR Officer',
+      generatedBy: certificateIssuer,
+      generatedById: clearance.finalHRReviewedById || req.user?._id || null,
+      generatedByPosition: clearance.finalHRReviewedByPosition || req.user?.position || req.user?.role || 'HR Officer',
       employeeId: clearance.employeeId,
       employeeName: clearance.employeeName,
       requestId: clearance.requestId,
@@ -1056,24 +1097,54 @@ export const getGeneratedCertificates = async (req, res) => {
       .sort({ 'certificate.generatedAt': -1 })
       .lean();
 
-    const certificates = await Promise.all(clearances.map(async (clearance) => ({
-      _id: clearance._id,
-      certificateNo: clearance.certificate.number,
-      requestId: clearance.requestId || clearance._id,
-      employee: clearance.employeeName || clearance.certificate.employeeName || '—',
-      employeeId: clearance.employeeId || clearance.certificate.employeeId || '—',
-      department: typeof clearance.department === 'string' ? clearance.department : clearance.department?.name || '—',
-      generatedDate: clearance.certificate.generatedAt,
-      generatedBy: clearance.certificate.generatedBy || 'HR Officer',
-      status: clearance.certificate.issuedAt ? 'Issued' : 'Generated',
-      issuedAt: clearance.certificate.issuedAt || null,
-      certificate: clearance.certificate,
-      initialHRReviewedBy: clearance.initialHRReviewedBy || clearance.certificate.generatedBy || 'HR Officer',
-      initialHRReviewedAt: clearance.initialHRReviewedAt || clearance.certificate.generatedAt || null,
-      finalHRApproval: clearance.finalHRApproval === true && clearance.status === 'Completed',
-      clearanceId: clearance.requestId || clearance._id,
-      clearanceSummary: await resolveOfficeReviewers(getOfficeProgress(clearance)),
-    })));
+    const certificates = await Promise.all(clearances.map(async (clearance) => {
+      const initialHRReview = [...(Array.isArray(clearance.workflow) ? clearance.workflow : [])]
+        .reverse()
+        .find((step) => /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')));
+      const initialHRReviewerNames = [
+        initialHRReview?.reviewedBy,
+        initialHRReview?.approvedBy,
+        initialHRReview?.clearedBy,
+        initialHRReview?.performedBy,
+        initialHRReview?.officerName,
+        clearance.initialHRReviewedBy,
+      ].filter(Boolean);
+      const [initialHRReviewer, clearanceSummary] = await Promise.all([
+        resolveOfficeReviewers([{
+          clearedBy: initialHRReviewerNames.find((name) => !isReviewerRoleLabel(name)) || initialHRReviewerNames[0],
+          reviewerId: clearance.initialHRReviewedById || initialHRReview?.reviewedById
+            || initialHRReview?.approvedById || initialHRReview?.performedById || initialHRReview?.reviewerId,
+        }]),
+        resolveOfficeReviewers(getOfficeProgress(clearance)),
+      ]);
+      return {
+        _id: clearance._id,
+        certificateNo: clearance.certificate.number,
+        requestId: clearance.requestId || clearance._id,
+        requestSource: clearance.requestSource || 'Employee Portal',
+        requestedByRole: clearance.requestedByRole || (isHRInitiatedRequest(clearance) ? 'HR_OFFICER' : 'EMPLOYEE'),
+        isHRInitiated: isHRInitiatedRequest(clearance),
+        initiatedBy: clearance.initiatedBy || null,
+        initiatedByName: clearance.initiatedByName || '',
+        employee: clearance.employeeName || clearance.certificate.employeeName || '—',
+        employeeId: clearance.employeeId || clearance.certificate.employeeId || '—',
+        department: typeof clearance.department === 'string' ? clearance.department : clearance.department?.name || '—',
+        generatedDate: clearance.certificate.generatedAt,
+        generatedBy: clearance.certificate.generatedBy || 'HR Officer',
+        status: clearance.certificate.issuedAt ? 'Issued' : 'Generated',
+        issuedAt: clearance.certificate.issuedAt || null,
+        certificate: clearance.certificate,
+        initialHRReviewedBy: initialHRReviewer[0].clearedBy,
+        initialHRReviewedById: clearance.initialHRReviewedById || null,
+        initialHRReviewedAt: clearance.initialHRReviewedAt || clearance.certificate.generatedAt || null,
+        finalHRApproval: clearance.finalHRApproval === true && clearance.status === 'Completed',
+        finalHRReviewedBy: clearance.finalHRReviewedBy || clearance.certificate.generatedBy || '',
+        finalHRReviewedById: clearance.finalHRReviewedById || clearance.certificate.generatedById || null,
+        finalHRReviewedByPosition: clearance.finalHRReviewedByPosition || clearance.certificate.generatedByPosition || '',
+        clearanceId: clearance.requestId || clearance._id,
+        clearanceSummary,
+      };
+    }));
 
     res.json({ success: true, data: certificates });
   } catch (error) {
@@ -1085,6 +1156,9 @@ export const getGeneratedCertificates = async (req, res) => {
 // Mark a persisted certificate as issued to the employee
 export const issueCertificate = async (req, res) => {
   try {
+    if (!isHROfficer(req.user)) {
+      return res.status(403).json({ success: false, message: 'Only an HR Officer can issue a clearance certificate to an employee.' });
+    }
     const { id } = req.params;
     const existingClearance = await Clearance.findOne({
       $or: [{ requestId: id }, { _id: mongoose.Types.ObjectId.isValid(id) ? id : null }],
@@ -1092,6 +1166,9 @@ export const issueCertificate = async (req, res) => {
     }).lean();
 
     if (!existingClearance) return res.status(404).json({ success: false, message: 'Certificate not found' });
+    if (isHRInitiatedRequest(existingClearance)) {
+      return res.status(409).json({ success: false, message: 'HR-initiated certificates are retained in the HR Certificates list and cannot be issued through the employee portal.' });
+    }
 
     if (existingClearance.certificate.issuedAt) {
       return res.json({ success: true, certificate: existingClearance.certificate, alreadyIssued: true });
@@ -1107,21 +1184,22 @@ export const issueCertificate = async (req, res) => {
       return res.json({ success: true, certificate: existingClearance.certificate, alreadyIssued: true });
     }
 
-    const employeeUser = await findEmployeeUser(clearance);
-
-    await Notification.create({
-      recipientId: employeeUser?._id || null,
-      employeeId: clearance.employeeId || employeeUser?.employeeId || '',
-      targetName: clearance.employeeName || 'Employee',
-      title: 'Your Clearance Certificate Is Ready',
-      message: `Your Employee Clearance Certificate has been issued. Certificate No: ${clearance.certificate.number}`,
-      type: 'CERTIFICATE_ISSUED',
-      actionText: 'View Certificate',
-      actionLink: '/employee/documents',
-      relatedRequestId: clearance.requestId || null,
-      clearanceRequestId: clearance.requestId || null,
-      isRead: false,
-    });
+    if (!isHRInitiatedRequest(clearance)) {
+      const employeeUser = await findEmployeeUser(clearance);
+      await Notification.create({
+        recipientId: employeeUser?._id || null,
+        employeeId: clearance.employeeId || employeeUser?.employeeId || '',
+        targetName: clearance.employeeName || 'Employee',
+        title: 'Your Clearance Certificate Is Ready',
+        message: `Your Employee Clearance Certificate has been issued. Certificate No: ${clearance.certificate.number}`,
+        type: 'CERTIFICATE_ISSUED',
+        actionText: 'View Certificate',
+        actionLink: '/employee/documents',
+        relatedRequestId: clearance.requestId || null,
+        clearanceRequestId: clearance.requestId || null,
+        isRead: false,
+      });
+    }
 
     await notifyFinanceOfficers({
       type: 'CERTIFICATE_ISSUED',
@@ -1168,6 +1246,11 @@ export const getEmployeeCertificates = async (req, res) => {
     if (employeeUser?.email) identityQueries.push({ 'employee.email': employeeUser.email });
     const clearances = await Clearance.find({
       $or: identityQueries,
+      $nor: [
+        { isHRInitiated: true },
+        { requestedByRole: /^HR[_ -]?OFFICER$/i },
+        { requestSource: /^HR[_ -]?OFFICER$/i },
+      ],
       'certificate.number': { $exists: true },
       'certificate.issuedAt': { $exists: true },
     }).sort({ 'certificate.generatedAt': -1 }).lean();

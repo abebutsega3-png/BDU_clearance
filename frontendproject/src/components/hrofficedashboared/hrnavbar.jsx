@@ -1,14 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Bell, ChevronDown, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
+import { fetchUnreadNotificationCount } from '../../until/NotificationHelper';
 import UniversitySeal from '../UniversitySeal';
 import { useHRLanguage } from './HRLanguage';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
   const { language, setLanguage, t } = useHRLanguage();
+  const location = useLocation();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const accountMenuRef = useRef(null);
 
   const handleLanguageChange = (event) => {
@@ -35,6 +38,25 @@ const Navbar = () => {
 
   const closeAccountMenu = () => setAccountMenuOpen(false);
 
+  useEffect(() => {
+    let active = true;
+    const loadUnreadCount = async () => {
+      try {
+        const count = await fetchUnreadNotificationCount();
+        if (active) setUnreadCount(count);
+      } catch (error) {
+        console.error('Failed to load HR unread notification count:', error);
+      }
+    };
+
+    loadUnreadCount();
+    const intervalId = window.setInterval(loadUnreadCount, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [location.pathname, user?._id, user?.id]);
+
   return (
     <header className="flex min-h-[72px] items-center justify-end gap-2 bg-teal-700 px-3 text-white shadow-sm sm:gap-4 sm:px-6">
       <label className="inline-flex h-12 items-center gap-3 rounded-full border-2 border-white/90 px-5 text-base font-semibold text-white transition hover:bg-white/10 focus-within:outline focus-within:outline-2 focus-within:outline-white">
@@ -54,9 +76,17 @@ const Navbar = () => {
         to="/hr-office/notifications"
         aria-label="HR notifications"
         title="Notifications"
-        className="rounded-full border border-white/20 p-3 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+        className="relative rounded-full border border-white/20 p-3 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
       >
         <Bell size={20} />
+        {unreadCount > 0 && (
+          <span
+            aria-label={`${unreadCount} unread notifications`}
+            className="absolute -right-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-teal-700 bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
       </Link>
       <div className="relative" ref={accountMenuRef}>
         <button

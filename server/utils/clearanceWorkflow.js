@@ -14,6 +14,9 @@ export const CORE_CLEARANCE_OFFICES = [
 ];
 
 export const DEFAULT_REQUIRED_OFFICES = [...CORE_CLEARANCE_OFFICES, FINAL_HR_STAGE];
+export const isHRInitiatedRequest = (request) => request?.isHRInitiated === true
+  || String(request?.requestedByRole || '').trim().toUpperCase() === 'HR_OFFICER'
+  || String(request?.requestSource || '').trim().toLowerCase().replace(/[_-]+/g, ' ') === 'hr officer';
 export const MANUAL_ROUTABLE_OFFICES = [
   'Finance Office',
   'Property / Asset Office',
@@ -186,7 +189,9 @@ export const normalizeRoutedOffice = (office) => {
 };
 
 export const getFinalHROffices = (clearance = {}) => {
-  const sourceOffices = clearance.manualRoutingEnabled === true
+  const hasAssignedDepartments = Array.isArray(clearance.assignedDepartments)
+    && clearance.assignedDepartments.length > 0;
+  const sourceOffices = clearance.manualRoutingEnabled === true || hasAssignedDepartments
     ? clearance.assignedDepartments
     : Array.isArray(clearance.requiredOffices) && clearance.requiredOffices.length
       ? clearance.requiredOffices
@@ -214,45 +219,6 @@ export const officeAssignmentFilter = (office, includeLegacy = true) => {
     ],
   };
 };
-
-export const finalHRRoutingReadyFilter = () => ({
-  $or: [
-    { manualRoutingEnabled: { $ne: true } },
-    {
-      $expr: {
-        $allElementsTrue: [
-          {
-            $map: {
-              input: { $ifNull: ['$assignedDepartments', []] },
-              as: 'assignedOffice',
-              in: {
-                $anyElementTrue: [
-                  {
-                    $map: {
-                      input: { $ifNull: ['$workflow', []] },
-                      as: 'workflowStep',
-                      in: {
-                        $and: [
-                          { $eq: [{ $ifNull: ['$$workflowStep.office', '$$workflowStep.name'] }, '$$assignedOffice'] },
-                          {
-                            $in: [
-                              { $toLower: { $ifNull: ['$$workflowStep.status', ''] } },
-                              ['approved', 'completed', 'cleared'],
-                            ],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        ],
-      },
-    },
-  ],
-});
 
 export const propertyOfficeWorkflowFilter = {
   departmentStatus: 'Approved',

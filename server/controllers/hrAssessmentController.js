@@ -151,6 +151,7 @@ export const saveAssessmentDraft = async (req, res) => {
     request.hrComment = hrComment.trim();
     request.initialHRAssessmentCompleted = false;
     request.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
+    request.initialHRReviewedById = req.user?._id || null;
     request.initialHRReviewedAt = new Date();
     await request.save();
 
@@ -225,6 +226,7 @@ export const completeInitialHRAssessment = async (req, res) => {
     request.hrComment = hrComment.trim();
     request.initialHRAssessmentCompleted = true;
     request.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
+    request.initialHRReviewedById = req.user?._id || null;
     request.initialHRReviewedAt = new Date();
     await request.save();
 

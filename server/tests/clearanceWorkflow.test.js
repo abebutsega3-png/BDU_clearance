@@ -13,7 +13,7 @@ import {
   normalizeRoutedOffice,
   getFinalHROffices,
   officeAssignmentFilter,
-  finalHRRoutingReadyFilter,
+  isHRInitiatedRequest,
 } from '../utils/clearanceWorkflow.js';
 import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
 
@@ -39,6 +39,14 @@ test('normalizeRequiredOffices preserves selected offices and removes duplicates
     'Property / Asset Office',
     'Library',
   ]);
+});
+
+test('request source recognizes HR flags and keeps employee requests separate', () => {
+  assert.equal(isHRInitiatedRequest({ isHRInitiated: true }), true);
+  assert.equal(isHRInitiatedRequest({ requestedByRole: 'HR_OFFICER' }), true);
+  assert.equal(isHRInitiatedRequest({ requestSource: 'HR Officer' }), true);
+  assert.equal(isHRInitiatedRequest({ isHRInitiated: false, requestedByRole: 'EMPLOYEE', requestSource: 'Employee Portal' }), false);
+  assert.equal(isHRInitiatedRequest({}), false);
 });
 
 test('buildRequiredOfficeWorkflow creates pending workflow entries for each office', () => {
@@ -106,6 +114,14 @@ test('Final HR office progress uses only manually assigned offices', () => {
   assert.deepEqual(getFinalHROffices(clearance), ['Finance Office', 'Dormitory']);
 });
 
+test('Final HR office progress prefers selected departments over default required offices', () => {
+  assert.deepEqual(getFinalHROffices({
+    manualRoutingEnabled: false,
+    assignedDepartments: ['Finance', 'Property'],
+    requiredOffices: ['Department Head', 'Finance Office', 'Library', 'Property / Asset Office', 'ICT Office', 'Transport Office', 'Final HR Clearance'],
+  }), ['Finance Office', 'Property / Asset Office']);
+});
+
 test('Final HR office progress excludes Department Head for legacy routing and allows no assigned offices', () => {
   assert.deepEqual(getFinalHROffices({
     requiredOffices: ['Department Head', 'Finance Office', 'Library', 'Final HR Clearance'],
@@ -142,15 +158,11 @@ test('custom clearance offices can be assigned dynamically and final HR waits fo
   }), true);
 });
 
-test('office queue filters preserve legacy requests and final HR checks assigned workflow steps', () => {
+test('office queue filters preserve legacy requests and normalize manual office assignments', () => {
   const financeFilter = officeAssignmentFilter('Finance');
   assert.equal(financeFilter.$or[0].manualRoutingEnabled.$ne, true);
   assert.equal(financeFilter.$or[1].assignedDepartments, 'Finance Office');
   assert.equal(officeAssignmentFilter('Dormitory', false).assignedDepartments, 'Dormitory');
-  assert.equal(
-    finalHRRoutingReadyFilter().$or[1].$expr.$allElementsTrue[0].$map.as,
-    'assignedOffice',
-  );
 });
 
 test('department approval dispatches every office in parallel', () => {

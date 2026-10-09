@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/authContext";
+import { fetchUnreadNotificationCount } from "../../until/NotificationHelper";
 import { PropertyLanguageProvider, usePropertyLanguage } from "./propertyLanguage";
 import {
   LayoutDashboard,
@@ -35,6 +36,7 @@ function PropertyLayoutContent() {
   const [clearanceOpen, setClearanceOpen] = useState(true);
   const [assetRecordsOpen, setAssetRecordsOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const accountMenuRef = useRef(null);
   const { user, logout } = useAuth();
   const { language, setLanguage, t } = usePropertyLanguage();
@@ -42,6 +44,25 @@ function PropertyLayoutContent() {
 
   const isClearanceActive = location.pathname.startsWith("/property/clearance-requests");
   const isAssetRecordsActive = location.pathname.startsWith("/property/asset-records");
+
+  useEffect(() => {
+    let active = true;
+    const loadUnreadCount = async () => {
+      try {
+        const count = await fetchUnreadNotificationCount();
+        if (active) setUnreadCount(count);
+      } catch (error) {
+        console.error("Failed to load property unread notification count:", error);
+      }
+    };
+
+    loadUnreadCount();
+    const intervalId = window.setInterval(loadUnreadCount, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [location.pathname, user?._id, user?.id]);
 
   useEffect(() => {
     if (!accountMenuOpen) return undefined;
@@ -192,11 +213,21 @@ function PropertyLayoutContent() {
 
             <Link
               to="/property/notifications"
-              aria-label={t('Notifications', 'ማሳወቂያዎች')}
+              aria-label={unreadCount > 0
+                ? t(`Notifications, ${unreadCount} unread`, `ማሳወቂያዎች፣ ${unreadCount} ያልተነበቡ`)
+                : t('Notifications', 'ማሳወቂያዎች')}
               title={t('Notifications', 'ማሳወቂያዎች')}
-              className="rounded-full p-2 text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+              className="relative rounded-full p-2 text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
             >
               <Bell size={21} />
+              {unreadCount > 0 && (
+                <span
+                  aria-label={t(`${unreadCount} unread notifications`, `${unreadCount} ያልተነበቡ ማሳወቂያዎች`)}
+                  className="absolute -right-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-teal-700 bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+                >
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </Link>
 
             <div className="relative" ref={accountMenuRef}>

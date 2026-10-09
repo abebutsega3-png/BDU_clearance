@@ -91,13 +91,13 @@ const HrDashboard = ({ children }) => {
           clearances: Array.isArray(rows) ? rows : [],
         }));
       }),
-      loadSection('recent activity', fetchAuditLogs({ limit: 5 }), (result) => {
+      loadSection('recent activity', fetchAuditLogs({ limit: 5, recentOnly: true }), (result) => {
         setDashboardData((current) => ({
           ...current,
           activities: Array.isArray(result?.data) ? result.data : [],
         }));
       }),
-      loadSection('notifications', fetchNotifications(), (rows) => {
+      loadSection('notifications', fetchNotifications({ limit: 4 }), (rows) => {
         setDashboardData((current) => ({
           ...current,
           notifications: Array.isArray(rows) ? rows : [],

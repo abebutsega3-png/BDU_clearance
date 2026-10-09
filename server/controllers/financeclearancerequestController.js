@@ -13,6 +13,8 @@ const isOfficeAssigned = (request, office) => request?.manualRoutingEnabled !== 
   || (request.assignedDepartments || []).some(
     (assignedOffice) => normalizeRoutedOffice(assignedOffice) === normalizeRoutedOffice(office),
   );
+const isFinanceOfficer = (user) => ['finance', 'finance officer']
+  .includes(String(user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim());
 
 const createRoleNotification = async ({
   role,
@@ -76,14 +78,18 @@ const notifyEmployee = async ({ request, type, title, message }) => {
   });
 };
 
-const updateFinanceWorkflow = (request, status, comment = '') => {
+const updateFinanceWorkflow = (request, status, comment = '', reviewer = null) => {
   const workflow = Array.isArray(request.workflow) ? [...request.workflow] : [];
   const financeIndex = workflow.findIndex((step) => /finance/i.test(step.office || step.name || ''));
+  const reviewerName = reviewer?.fullName || reviewer?.name || '';
   const financeStep = {
     ...(financeIndex >= 0 ? workflow[financeIndex] : { office: 'Finance Office' }),
     status,
     updatedAt: new Date(),
-    clearedBy: status === 'Completed' ? 'Finance Officer' : '',
+    clearedBy: status === 'Completed' ? reviewerName : '',
+    approvedBy: status === 'Completed' ? reviewerName : '',
+    reviewedBy: reviewerName,
+    reviewerId: reviewer?._id || null,
     clearedDate: status === 'Completed' ? new Date() : null,
     comment,
     remarks: comment,
@@ -394,6 +400,9 @@ export const getFinanceRequestById = async (req, res) => {
 // 3. Start Review (Pending -> In Progress)
 export const startFinanceReview = async (req, res) => {
   try {
+    if (!isFinanceOfficer(req.user)) {
+      return res.status(403).json({ success: false, message: "Only Finance Officers can review finance clearances." });
+    }
     const { id } = req.params;
     const request = await ClearanceRequest.findById(id);
 
@@ -422,7 +431,8 @@ export const startFinanceReview = async (req, res) => {
     }
 
     request.financeStatus = "Under Review";
-    request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
+    request.financeReviewedBy = req.user?.fullName || req.user?.name || "Finance Officer";
+    request.financeReviewedById = req.user?._id || null;
     request.financeReviewedAt = new Date();
 
     await request.save();
@@ -445,6 +455,9 @@ export const startFinanceReview = async (req, res) => {
 // 4. Approve Clearance (Under Review -> Approved)
 export const approveFinanceClearance = async (req, res) => {
   try {
+    if (!isFinanceOfficer(req.user)) {
+      return res.status(403).json({ success: false, message: "Only Finance Officers can approve finance clearances." });
+    }
     const { id } = req.params;
     const request = await ClearanceRequest.findById(id);
 
@@ -475,9 +488,10 @@ export const approveFinanceClearance = async (req, res) => {
     const comment = String(req.body.comment || req.body.remarks || '').trim();
     request.financeStatus = "Approved";
     request.financeRemarks = comment;
-    request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
+    request.financeReviewedBy = req.user?.fullName || req.user?.name || "Finance Officer";
+    request.financeReviewedById = req.user?._id || null;
     request.financeReviewedAt = new Date();
-    updateFinanceWorkflow(request, 'Completed', comment);
+    updateFinanceWorkflow(request, 'Completed', comment, req.user);
 
     await request.save();
     const propertyOfficers = isOfficeAssigned(request, 'Property / Asset Office')
@@ -526,6 +540,9 @@ export const approveFinanceClearance = async (req, res) => {
 // 5. Return Request (Pending/In Progress/Review -> Returned)
 export const returnFinanceRequest = async (req, res) => {
   try {
+    if (!isFinanceOfficer(req.user)) {
+      return res.status(403).json({ success: false, message: "Only Finance Officers can return finance clearances." });
+    }
     const { id } = req.params;
     const returnReason = String(req.body.returnReason || '').trim();
     const comment = String(req.body.comment || req.body.remarks || '').trim();
@@ -557,7 +574,8 @@ export const returnFinanceRequest = async (req, res) => {
     request.financeRemarks = comment;
     request.remarks = comment;
     request.returnReason = returnReason;
-    request.financeReviewedBy = req.user?.fullName || req.user?.name || req.body.reviewedBy || "Finance Officer";
+    request.financeReviewedBy = req.user?.fullName || req.user?.name || "Finance Officer";
+    request.financeReviewedById = req.user?._id || null;
     request.financeReviewedAt = new Date();
     request.returnedBy = request.financeReviewedBy;
     request.returnedOffice = 'Finance Office';
@@ -566,7 +584,7 @@ export const returnFinanceRequest = async (req, res) => {
     request.returnedRemark = comment;
     request.affectedField = affectedField || 'Finance Clearance';
     if (request.requestSource === 'HR Officer') request.currentStep = 'HR Officer';
-    updateFinanceWorkflow(request, 'Returned', returnReason);
+    updateFinanceWorkflow(request, 'Returned', returnReason, req.user);
     const financeStep = request.workflow.find((step) => /finance/i.test(step.office || step.name || ''));
     if (financeStep) {
       financeStep.comment = comment;

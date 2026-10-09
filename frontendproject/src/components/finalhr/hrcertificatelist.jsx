@@ -111,6 +111,10 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+const isHRInitiatedCertificate = (row) => row?.isHRInitiated === true
+  || String(row?.requestedByRole || '').trim().toUpperCase() === 'HR_OFFICER'
+  || String(row?.requestSource || '').trim().toLowerCase().replace(/[_-]+/g, ' ') === 'hr officer';
+
 export default function HRCertificateList() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
@@ -122,6 +126,7 @@ export default function HRCertificateList() {
   const [toDate, setToDate] = useState('');
   const [selectedRow, setSelectedRow] = useState(null);
   const [issuingCertificateNo, setIssuingCertificateNo] = useState('');
+  const [issueError, setIssueError] = useState('');
 
   useEffect(() => {
     const fetchCertificates = async () => {
@@ -196,14 +201,24 @@ export default function HRCertificateList() {
   };
 
   const handleIssueToEmployee = (row) => {
+    if (isHRInitiatedCertificate(row)) return;
     const issue = async () => {
       try {
         setIssuingCertificateNo(row.certificateNo);
-        await axios.patch(`http://localhost:3000/api/hr-final-clearance/certificate/${row.clearanceId}/issue`);
+        setIssueError('');
+        await axios.patch(
+          `http://localhost:3000/api/hr-final-clearance/certificate/${row.clearanceId}/issue`,
+          {},
+          {
+            suppressAutomaticLogout: true,
+            headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+          },
+        );
         setRows((prev) => prev.map((item) => item.certificateNo === row.certificateNo ? { ...item, status: 'Issued' } : item));
         setSelectedRow((prev) => (prev ? { ...prev, status: 'Issued' } : prev));
       } catch (error) {
         console.error('Failed to issue certificate:', error);
+        setIssueError(error.response?.data?.message || error.message || 'Unable to issue certificate to employee.');
       } finally {
         setIssuingCertificateNo('');
       }
@@ -465,15 +480,18 @@ export default function HRCertificateList() {
                     Print
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleIssueToEmployee(selectedRow)}
-                    disabled={selectedRow.status === 'Issued' || issuingCertificateNo === selectedRow.certificateNo}
-                    className="relative flex w-full items-center justify-center gap-2 rounded-full bg-[#2CC26B] px-3 py-2.5 text-[12px] font-bold text-white shadow-sm hover:bg-[#25ad5d]"
-                  >
-                    {selectedRow.status === 'Issued' ? 'Issued to Employee' : issuingCertificateNo === selectedRow.certificateNo ? 'Issuing...' : 'Issue to Employee'}
-                    {selectedRow.status !== 'Issued' && <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">5</span>}
-                  </button>
+                  {!isHRInitiatedCertificate(selectedRow) && (
+                    <button
+                      type="button"
+                      onClick={() => handleIssueToEmployee(selectedRow)}
+                      disabled={selectedRow.status === 'Issued' || issuingCertificateNo === selectedRow.certificateNo}
+                      className="relative flex w-full items-center justify-center gap-2 rounded-full bg-[#2CC26B] px-3 py-2.5 text-[12px] font-bold text-white shadow-sm hover:bg-[#25ad5d]"
+                    >
+                      {selectedRow.status === 'Issued' ? 'Issued to Employee' : issuingCertificateNo === selectedRow.certificateNo ? 'Issuing...' : 'Issue to Employee'}
+                      {selectedRow.status !== 'Issued' && <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">5</span>}
+                    </button>
+                  )}
+                  {issueError && <p role="alert" className="text-xs text-red-600">{issueError}</p>}
                 </div>
                 <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-2">
                   <div className="rounded border-[3px] border-[#1d3b82] bg-white p-2">

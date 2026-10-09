@@ -97,7 +97,7 @@ const notificationTypeEnum = [
 ];
 
 const NotificationSchema = new mongoose.Schema({
-  recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   title: { type: String, required: true },
   message: { type: String, required: true },
   targetName: { type: String, default: '' },
@@ -111,6 +111,9 @@ const NotificationSchema = new mongoose.Schema({
   isRead: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
+
+NotificationSchema.index({ recipientId: 1, createdAt: -1 });
+NotificationSchema.index({ employeeId: 1, createdAt: -1 });
 
 NotificationSchema.pre('validate', function() {
   if (!this.clearanceRequestId && this.relatedRequestId) {

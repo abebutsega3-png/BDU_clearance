@@ -21,6 +21,7 @@ const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState('');
   const [verificationAttempt, setVerificationAttempt] = useState(0);
   const verificationId = useRef(0);
+  const automaticRetryCount = useRef(0);
 
   useEffect(() => {
     const interceptorId = axios.interceptors.response.use(
@@ -43,27 +44,41 @@ const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const requestId = ++verificationId.current;
+    const controller = new AbortController();
+    let retryScheduled = false;
+    let retryTimer;
     const verifyUser = async () => {
       const token = localStorage.getItem('token');
       if (token) {
         try {
           const response = await axios.get('/api/auth/verify', {
-            timeout: 8000,
+            timeout: 15000,
+            signal: controller.signal,
             headers: { Authorization: `Bearer ${token}` }
           });
-          if (requestId !== verificationId.current) return;
+          if (requestId !== verificationId.current || controller.signal.aborted) return;
           if (!response.data?.success || !response.data.user) {
             throw new Error(response.data?.message || 'Session verification failed.');
           }
           setUser(response.data.user);
           setAuthError('');
+          automaticRetryCount.current = 0;
         } catch (error) {
-          if (requestId !== verificationId.current) return;
-          console.error('Session verification failed:', error.message);
+          if (requestId !== verificationId.current || controller.signal.aborted) return;
           if (error.response?.status === 401) {
+            automaticRetryCount.current = 0;
             localStorage.removeItem('token');
             setAuthError('');
+          } else if (automaticRetryCount.current < 2) {
+            automaticRetryCount.current += 1;
+            retryScheduled = true;
+            retryTimer = window.setTimeout(() => {
+              if (requestId !== verificationId.current) return;
+              setLoading(true);
+              setVerificationAttempt((attempt) => attempt + 1);
+            }, 1000 * automaticRetryCount.current);
           } else {
+            console.error('Session verification failed after retries:', error.message);
             const message = error.response?.data?.message
               || (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT'
                 ? 'Session verification timed out. Check that the backend and database are running, then retry.'
@@ -72,17 +87,22 @@ const AuthProvider = ({ children }) => {
                   : error.message || 'Unable to verify your session. Please retry.');
             setAuthError(message);
           }
-          setUser(null);
+          if (!retryScheduled) setUser(null);
         } finally {
-          if (requestId === verificationId.current) setLoading(false);
+          if (requestId === verificationId.current && !retryScheduled) setLoading(false);
         }
       } else {
+        automaticRetryCount.current = 0;
         setUser(null);
         setAuthError('');
         setLoading(false);
       }
     };
     verifyUser();
+    return () => {
+      controller.abort();
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
   }, [verificationAttempt]);
 
   const login = useCallback((userData) => {
@@ -93,6 +113,7 @@ const AuthProvider = ({ children }) => {
   }, []);
 
   const retryVerification = useCallback(() => {
+    automaticRetryCount.current = 0;
     setAuthError('');
     setLoading(true);
     setVerificationAttempt((attempt) => attempt + 1);

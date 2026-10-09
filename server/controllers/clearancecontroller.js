@@ -617,13 +617,46 @@ const deleteClearance = async (req, res) => {
 	}
 };
 
+const normalizeDateOnly = (value) => {
+	const rawValue = String(value || '').trim();
+	const dateOnly = rawValue.slice(0, 10);
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)
+		|| (rawValue !== dateOnly && (!rawValue.startsWith(`${dateOnly}T`) || Number.isNaN(Date.parse(rawValue))))) {
+		return '';
+	}
+	const [year, month, day] = dateOnly.split('-').map(Number);
+	const date = new Date(Date.UTC(year, month - 1, day));
+	return date.getUTCFullYear() === year
+		&& date.getUTCMonth() === month - 1
+		&& date.getUTCDate() === day
+		? dateOnly
+		: '';
+};
+
 const addClearance = async (req, res) => {
 	try {
 		const normalizedRole = String(req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
 		const initiatedByHR = ['hr', 'hr officer', 'human resources'].includes(normalizedRole);
-		const lastWorkingDate = String(req.body?.lastWorkingDate || '').slice(0, 10);
+		const lastWorkingDate = normalizeDateOnly(req.body?.lastWorkingDate);
 		if (!lastWorkingDate) {
-			return res.status(400).json({ success: false, message: 'Last working date is required.' });
+			return res.status(400).json({ success: false, message: 'A valid last working date is required.' });
+		}
+		const requestDate = normalizeDateOnly(req.body?.requestDate || new Date().toISOString().slice(0, 10));
+		if (!requestDate) {
+			return res.status(400).json({ success: false, message: 'A valid request date is required.' });
+		}
+		const relievingDate = req.body?.relievingDate
+			? normalizeDateOnly(req.body.relievingDate)
+			: '';
+		if (req.body?.relievingDate && !relievingDate) {
+			return res.status(400).json({ success: false, message: 'Enter a valid relieving date.' });
+		}
+		if (relievingDate && lastWorkingDate > relievingDate) {
+			return res.status(400).json({ success: false, message: 'Last working date cannot be after relieving date.' });
+		}
+		const reason = String(req.body?.reason || req.body?.clearanceReason || '').trim();
+		if (initiatedByHR && !reason) {
+			return res.status(400).json({ success: false, message: 'Select a clearance reason before creating the request.' });
 		}
 		const employeeRecord = req.body?.employeeId
 			? await Employee.findOne({ employeeId: req.body.employeeId }).select('employeeId fullName department position campus phone email status').lean()
@@ -632,6 +665,9 @@ const addClearance = async (req, res) => {
 			return res.status(400).json({ success: false, message: 'Select a valid employee record before creating a request on their behalf.' });
 		}
 		const resolvedDepartment = employeeRecord?.department || req.user?.department || req.body?.department || '';
+		if (initiatedByHR && !resolvedDepartment) {
+			return res.status(400).json({ success: false, message: 'The selected employee must have a department before creating a clearance request.' });
+		}
 		const resolvedEmployeeName = employeeRecord?.fullName || req.user?.name || req.body?.employeeName || '';
 		const employeeFilter = employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId
 			? { employeeId: employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId }
@@ -670,7 +706,11 @@ const addClearance = async (req, res) => {
 			office: 'Initial HR Review',
 			status: initiatedByHR ? 'Completed' : 'Pending',
 			updatedAt: new Date().toISOString(),
-			...(initiatedByHR ? { performedBy: req.user?.name || 'HR Officer', remarks: 'Request initiated and employee details checked by HR.' } : {}),
+			...(initiatedByHR ? {
+				performedBy: req.user?.fullName || req.user?.name || 'HR Officer',
+				performedById: req.user?._id || null,
+				remarks: 'Request initiated and employee details checked by HR.',
+			} : {}),
 		});
 		if (!workflow.some((step) => /department\s*head|^department$/i.test(String(step.office || '').trim()))) {
 			workflow.unshift({ office: 'Department Head', status: 'Pending', updatedAt: new Date().toISOString() });
@@ -679,12 +719,16 @@ const addClearance = async (req, res) => {
 		const payload = {
 			...(req.body || {}),
 			lastWorkingDate,
-			requestDate: req.body?.requestDate || new Date().toISOString().slice(0, 10),
+			requestDate,
+			relievingDate,
+			...(initiatedByHR ? { reason } : {}),
 			employeeId: employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId || '',
 			department: resolvedDepartment,
 			requestSource: initiatedByHR ? 'HR Officer' : 'Employee Portal',
 			initiatedBy: req.user?._id || null,
 			initiatedByName: req.user?.fullName || req.user?.name || '',
+			requestedByRole: initiatedByHR ? 'HR_OFFICER' : 'EMPLOYEE',
+			isHRInitiated: initiatedByHR,
 			initialHRStatus: initiatedByHR ? 'Under Review' : 'Pending',
 			initialHRAssessmentCompleted: initiatedByHR,
 			assessmentChecklist: initiatedByHR ? {
@@ -695,10 +739,11 @@ const addClearance = async (req, res) => {
 				noDuplicateRequest: true,
 			} : req.body?.assessmentChecklist,
 			initialHRReviewedBy: initiatedByHR ? (req.user?.fullName || req.user?.name || 'HR Officer') : '',
+			initialHRReviewedById: initiatedByHR ? (req.user?._id || null) : null,
 			initialHRReviewedAt: initiatedByHR ? new Date() : null,
 			departmentStatus: 'Pending',
 			employeeName: resolvedEmployeeName,
-			clearanceType: req.body?.clearanceType || req.body?.clearanceReason || 'Resignation',
+			clearanceType: req.body?.clearanceType || reason || req.body?.clearanceReason || 'Resignation',
 			requiredOffices: requestedOffices,
 			currentStep: initiatedByHR ? 'HR Workflow' : 'Initial HR Review',
 			workflow,
@@ -727,6 +772,8 @@ const addClearance = async (req, res) => {
 					status: clearance.status,
 					requiredOffices: clearance.requiredOffices,
 					requestSource: clearance.requestSource,
+					requestedByRole: clearance.requestedByRole,
+					isHRInitiated: clearance.isHRInitiated,
 					initiatedBy: clearance.initiatedBy,
 				},
 			});
@@ -769,6 +816,11 @@ const addClearance = async (req, res) => {
 const updateClearance = async (req, res) => {
 	try {
 		const { libraryDecision, ...requestUpdates } = req.body || {};
+		delete requestUpdates.requestSource;
+		delete requestUpdates.requestedByRole;
+		delete requestUpdates.isHRInitiated;
+		delete requestUpdates.initiatedBy;
+		delete requestUpdates.initiatedByName;
 		if (Object.prototype.hasOwnProperty.call(requestUpdates, 'lastWorkingDate')) {
 			const lastWorkingDate = String(requestUpdates.lastWorkingDate || '').slice(0, 10);
 			if (!lastWorkingDate) return res.status(400).json({ success: false, message: 'Last working date is required.' });

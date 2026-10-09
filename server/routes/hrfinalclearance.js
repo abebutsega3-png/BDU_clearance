@@ -21,14 +21,14 @@ router.get('/clearance/:id', getHRFinalClearanceDetails);
 router.get('/clearances', getAllClearanceRequestsForHR);
 
 // UPDATE HR Final Decision
-router.patch('/clearance/:id/decision', updateHRFinalDecision);
+router.patch('/clearance/:id/decision', authMiddleware, updateHRFinalDecision);
 router.patch('/initial-clearance/:id/decision', authMiddleware, updateInitialHRDecision);
 
 // Generate Certificate
-router.post('/clearance/:id/certificate', generateCertificate);
+router.post('/clearance/:id/certificate', authMiddleware, generateCertificate);
 router.get('/certificates', getGeneratedCertificates);
 router.get('/certificates/employee/:employeeId', getEmployeeCertificates);
 router.get('/certificates/verify/:certificateNo', verifyCertificate);
-router.patch('/certificate/:id/issue', issueCertificate);
+router.patch('/certificate/:id/issue', authMiddleware, issueCertificate);
 
 export default router;

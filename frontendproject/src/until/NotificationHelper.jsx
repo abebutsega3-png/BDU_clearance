@@ -6,13 +6,25 @@ export const getNotificationHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
 });
 
-export const fetchNotifications = async () => {
-  const response = await axios.get(notificationApiUrl, { headers: getNotificationHeaders() });
+export const fetchNotifications = async (params) => {
+  const response = await axios.get(notificationApiUrl, { headers: getNotificationHeaders(), params });
   const payload = response.data;
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.notifications)) return payload.notifications;
   if (Array.isArray(payload?.data)) return payload.data;
   return [];
+};
+
+export const fetchUnreadNotificationCount = async () => {
+  const response = await axios.get(notificationApiUrl, {
+    headers: getNotificationHeaders(),
+    params: { limit: 1 },
+  });
+  const unreadCount = response.data?.unreadCount;
+  if (!Number.isInteger(unreadCount) || unreadCount < 0) {
+    throw new Error('Notification response did not include a valid unread count.');
+  }
+  return unreadCount;
 };
 
 export const fetchNotification = async (id) => {
