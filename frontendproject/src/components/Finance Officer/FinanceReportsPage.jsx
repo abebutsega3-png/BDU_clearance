@@ -1,581 +1,417 @@
-import React, { useCallback, useState, useEffect } from "react";
-import axios from "axios";
-import * as XLSX from "xlsx";
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  Download,
+  FileSpreadsheet,
   Filter,
   Printer,
-  FileSpreadsheet,
-  AlertCircle,
-  Clock,
-  History,
-  DollarSign,
   RefreshCw,
-  CheckCircle2,
-} from "lucide-react";
+  WalletCards,
+} from 'lucide-react';
 
-// =========================================================
-// 1. INLINE API SERVICE HANDLERS (በተመሳሳይ ፋይል ውስጥ የተካተቱ)
-// =========================================================
-const API_BASE_URL = (import.meta.env.VITE_API_URL || "http://localhost:3000")
-  .replace(/\/api\/clearance\/?$/, "")
-  .replace(/\/api\/?$/, "");
-const API_URL = `${API_BASE_URL}/api/finance/reports`;
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000')
+  .replace(/\/api\/clearance\/?$/, '')
+  .replace(/\/api\/?$/, '');
+const REPORT_URL = `${API_BASE_URL}/api/finance/reports`;
+const CHART_COLORS = ['#16a34a', '#f59e0b', '#2563eb', '#dc2626', '#64748b'];
 
 const getAuthConfig = () => {
-  const token = localStorage.getItem("token");
-  return {
-    headers: { Authorization: `Bearer ${token}` },
-  };
+  const token = localStorage.getItem('token');
+  return { headers: token ? { Authorization: `Bearer ${token}` } : {} };
 };
 
-const apiGetSummaryReport = async (filters) => {
-  const res = await axios.get(`${API_URL}/summary`, { ...getAuthConfig(), params: filters });
-  return res.data;
-};
-
-const apiGetObligationsReport = async (filters) => {
-  const res = await axios.get(`${API_URL}/obligations`, { ...getAuthConfig(), params: filters });
-  return res.data;
-};
-
-const apiGetPendingReport = async (filters) => {
-  const res = await axios.get(`${API_URL}/pending`, { ...getAuthConfig(), params: filters });
-  return res.data;
-};
-
-const apiGetHistoryReport = async (filters) => {
-  const res = await axios.get(`${API_URL}/history`, { ...getAuthConfig(), params: filters });
-  return res.data;
-};
-
-const apiGetAllReports = async (filters) => {
-  const [summaryRes, obligationsRes, pendingRes, historyRes] = await Promise.all([
-    apiGetSummaryReport(filters),
-    apiGetObligationsReport(filters),
-    apiGetPendingReport(filters),
-    apiGetHistoryReport(filters),
-  ]);
-
-  return {
-    summary: summaryRes?.data || {},
-    obligations: Array.isArray(obligationsRes?.data) ? obligationsRes.data : [],
-    pending: Array.isArray(pendingRes?.data) ? pendingRes.data : [],
-    history: Array.isArray(historyRes?.data) ? historyRes.data : [],
-  };
-};
-
-const getDateInputValue = (date) => {
+const localDateValue = (date) => {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
-const getPeriodRange = (period) => {
+const getCurrentMonthRange = () => {
   const today = new Date();
-  const start = new Date(today);
-  const end = new Date(today);
-
-  if (period === "weekly") {
-    const daysFromMonday = (today.getDay() + 6) % 7;
-    start.setDate(today.getDate() - daysFromMonday);
-    end.setDate(start.getDate() + 6);
-  } else if (period === "monthly") {
-    start.setDate(1);
-    end.setMonth(today.getMonth() + 1, 0);
-  } else if (period === "yearly") {
-    start.setMonth(0, 1);
-    end.setMonth(11, 31);
-  }
-
-  return { startDate: getDateInputValue(start), endDate: getDateInputValue(end) };
+  return {
+    startDate: localDateValue(new Date(today.getFullYear(), today.getMonth(), 1)),
+    endDate: localDateValue(today),
+  };
 };
 
-const defaultPeriodRange = getPeriodRange("monthly");
 const INITIAL_FILTERS = {
-  period: "monthly",
-  ...defaultPeriodRange,
-  campus: "",
-  department: "",
-  clearanceReason: "",
-  status: "",
-};
-const getDepartmentName = (department) => {
-  if (typeof department === "string") return department;
-  return department?.name || department?.departmentName || "";
+  period: 'monthly',
+  ...getCurrentMonthRange(),
+  department: '',
+  campus: '',
+  clearanceReason: '',
+  debtType: '',
+  status: '',
 };
 
-// =========================================================
-// 2. MAIN COMPONENT
-// =========================================================
-const FinanceReportsPage = () => {
+const money = (value) => `ETB ${Number(value || 0).toLocaleString('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}`;
+
+const dateTime = (value) => value
+  ? new Date(value).toLocaleString()
+  : '—';
+
+const STATUS_LABELS = [
+  ['cleared', 'Cleared'],
+  ['outstanding', 'Outstanding'],
+  ['pending', 'Pending'],
+  ['underReview', 'Under Review'],
+  ['returned', 'Returned'],
+  ['rejected', 'Rejected'],
+];
+
+export default function FinanceReportsPage() {
   const [filters, setFilters] = useState(INITIAL_FILTERS);
-
+  const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [summaryData, setSummaryData] = useState(null);
+  const [error, setError] = useState('');
 
-  const [obligationsData, setObligationsData] = useState([]);
-  const [pendingData, setPendingData] = useState([]);
-  const [historyData, setHistoryData] = useState([]);
-
-  const fetchAllReports = useCallback(async (reportFilters) => {
+  const loadReport = useCallback(async (reportFilters, shouldAudit = false) => {
     setLoading(true);
-    setError("");
+    setError('');
     try {
-      const reportData = await apiGetAllReports(reportFilters);
-      setSummaryData(reportData.summary);
-      setObligationsData(reportData.obligations);
-      setPendingData(reportData.pending);
-      setHistoryData(reportData.history);
-    } catch (error) {
-      console.error("ሪፖርቶችን መጫን አልተቻለም:", error);
-      setError(error.response?.data?.message || "Unable to load finance clearance reports. Please try again.");
+      const response = shouldAudit
+        ? await axios.post(`${REPORT_URL}/generate`, reportFilters, {
+          ...getAuthConfig(),
+          headers: { ...getAuthConfig().headers, 'Content-Type': 'application/json' },
+        })
+        : await axios.get(`${REPORT_URL}/dashboard`, {
+          ...getAuthConfig(),
+          params: reportFilters,
+        });
+      if (!response.data?.success || !response.data.data) {
+        throw new Error(response.data?.message || 'Unable to load finance reports.');
+      }
+      setReport(response.data.data);
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || requestError.message || 'Unable to load finance reports.');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    apiGetAllReports(INITIAL_FILTERS)
-      .then((reportData) => {
-        if (cancelled) return;
-        setSummaryData(reportData.summary);
-        setObligationsData(reportData.obligations);
-        setPendingData(reportData.pending);
-        setHistoryData(reportData.history);
-      })
-      .catch((error) => {
-        console.error("ሪፖርቶችን መጫን አልተቻለም:", error);
-        if (!cancelled) {
-          setError(error.response?.data?.message || "Unable to load finance clearance reports. Please try again.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    loadReport(INITIAL_FILTERS);
+  }, [loadReport]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const statusData = useMemo(() => STATUS_LABELS
+    .map(([key, name]) => ({ name, value: Number(report?.clearanceStatus?.[key] || 0) }))
+    .filter((item) => item.value > 0), [report]);
 
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
-    setFilters((current) => {
-      if (name === "period" && value !== "custom") {
-        return { ...current, period: value, ...getPeriodRange(value) };
-      }
-      if (name === "period") return { ...current, period: value, startDate: "", endDate: "" };
-      return { ...current, [name]: value };
-    });
+  const handleFilterChange = (event) => {
+    const { name, value } = event.target;
+    setFilters((current) => ({ ...current, [name]: value }));
   };
 
-  const handleGenerateReport = (e) => {
-    e.preventDefault();
-    if (filters.period === "custom" && (!filters.startDate || !filters.endDate)) {
-      setError("Choose both a start date and an end date for a custom date range.");
+  const submitFilters = (event) => {
+    event.preventDefault();
+    if (filters.period === 'custom' && (!filters.startDate || !filters.endDate)) {
+      setError('Choose both start and end dates for the custom range.');
       return;
     }
-    if (filters.period === "custom" && filters.startDate > filters.endDate) {
-      setError("The start date must be on or before the end date.");
+    if (filters.period === 'custom' && filters.startDate > filters.endDate) {
+      setError('The start date must be on or before the end date.');
       return;
     }
-    fetchAllReports(filters);
+    loadReport(filters, true);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const resetFilters = () => {
+    setFilters(INITIAL_FILTERS);
+    loadReport(INITIAL_FILTERS);
   };
 
-  const handleExportExcel = () => {
+  const exportExcel = () => {
+    const rows = report?.rows || [];
+    const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => ({
+      'Request ID': row.requestId,
+      Employee: row.employeeName,
+      'Employee ID': row.employeeId,
+      Department: row.department,
+      'Clearance Reason': row.clearanceReason,
+      'Debt Type': row.debtType,
+      'Debt (ETB)': row.debt,
+      'Paid (ETB)': row.paid,
+      'Balance (ETB)': row.balance,
+      Status: row.status,
+    })));
     const workbook = XLSX.utils.book_new();
-    const summaryRows = summaryData
-      ? Object.entries(summaryData).map(([metric, value]) => ({ Metric: metric, Count: value }))
-      : [];
-    const obligationRows = obligationsData.map((item) => ({
-      Employee: item.employeeName || "",
-      "Employee ID": item.employeeId || "",
-      Department: getDepartmentName(item.department),
-      "Obligation Type": item.financialObligation?.type || "",
-      "Amount Due (ETB)": item.financialObligation?.amountDue ?? 0,
-      "Balance Left (ETB)": item.financialObligation?.balance ?? 0,
-    }));
-    const pendingRows = pendingData.map((item) => ({
-      Employee: item.employeeName || "",
-      "Employee ID": item.employeeId || "",
-      Department: getDepartmentName(item.department),
-      "Request Date": item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "",
-      Status: item.financeStatus || "",
-      "Days Pending": item.daysPending ?? 0,
-    }));
-    const historyRows = historyData.map((item) => ({
-      Employee: item.employeeName || "",
-      "Employee ID": item.employeeId || "",
-      Department: getDepartmentName(item.department),
-      Decision: item.financeStatus || "",
-      "Reviewed By": item.financeReviewedByName || "",
-      "Review Date": item.financeReviewedAt ? new Date(item.financeReviewedAt).toLocaleDateString() : "",
-      "Reference Number": item.financeReferenceNumber || "",
-      Remarks: item.financeRemarks || "",
-    }));
-
-    if (summaryRows.length) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "Summary");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(obligationRows), "Obligations");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(pendingRows), "Pending");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(historyRows), "History");
-    XLSX.writeFile(workbook, "finance-clearance-reports.xlsx");
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Financial Report');
+    XLSX.writeFile(workbook, 'finance-financial-report.xlsx');
   };
+
+  const exportPdf = () => {
+    const pdf = new jsPDF({ orientation: 'landscape' });
+    pdf.setFontSize(16);
+    pdf.text('BDU Employee Clearance - Financial Report', 14, 16);
+    pdf.setFontSize(9);
+    pdf.text(`Generated by ${report?.generatedBy || 'Finance Officer'} | ${dateTime(report?.generatedAt)}`, 14, 23);
+    autoTable(pdf, {
+      startY: 29,
+      head: [['Request ID', 'Employee', 'Department', 'Clearance Reason', 'Debt', 'Paid', 'Balance', 'Status']],
+      body: (report?.rows || []).map((row) => [
+        row.requestId,
+        `${row.employeeName} (${row.employeeId})`,
+        row.department,
+        row.clearanceReason,
+        money(row.debt),
+        money(row.paid),
+        money(row.balance),
+        row.status,
+      ]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [30, 64, 175] },
+    });
+    pdf.save('finance-financial-report.pdf');
+  };
+
+  const summary = report?.summary || {};
+  const cards = [
+    { label: 'Total Requests', value: Number(summary.totalRequests || 0).toLocaleString(), tone: 'bg-blue-50 text-blue-700' },
+    { label: 'Cleared', value: Number(summary.cleared || 0).toLocaleString(), tone: 'bg-emerald-50 text-emerald-700' },
+    { label: 'Outstanding', value: Number(summary.outstanding || 0).toLocaleString(), tone: 'bg-amber-50 text-amber-700' },
+    { label: 'Amount Owed', value: money(summary.amountOwed), tone: 'bg-rose-50 text-rose-700' },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 print:p-0 print:bg-white">
-      {/* Header */}
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center print:hidden">
+    <main className="min-h-screen space-y-3 bg-slate-50 p-3 sm:p-4 md:p-5 print:bg-white print:p-0">
+      <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center print:hidden">
         <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-blue-100 p-3 text-blue-600">
-            <DollarSign size={26} />
-          </div>
+          <span className="rounded-xl bg-blue-100 p-2.5 text-blue-700"><WalletCards size={22} /></span>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Finance Clearance Reports</h1>
-            <p className="text-sm text-gray-500">የፋይናንስ ክሊራንስ ዋና ሪፖርቶች መከታተያ</p>
+            <h1 className="text-xl font-bold text-slate-900">Finance Reports</h1>
+            <p className="text-xs text-slate-500">Financial clearance and debt recovery overview</p>
           </div>
         </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition shadow-sm"
-          >
-            <Printer size={16} />
-            Print
-          </button>
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition shadow-sm"
-          >
-            <FileSpreadsheet size={16} />
-            Export Excel
-          </button>
-        </div>
-      </div>
+        {report && (
+          <p className="text-[10px] text-slate-500">
+            Generated by <span className="font-semibold">{report.generatedBy}</span>
+            {' · '}{dateTime(report.generatedAt)}
+          </p>
+        )}
+      </header>
 
       {error && (
-        <div role="alert" className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 print:hidden">
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
           <span>{error}</span>
-          <button type="button" onClick={() => fetchAllReports(filters)} disabled={loading} className="font-semibold underline disabled:opacity-60">
-            Retry
-          </button>
+          <button type="button" onClick={() => loadReport(filters)} disabled={loading} className="font-semibold underline">Retry</button>
         </div>
       )}
 
-      {summaryData && (
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            ["Total Requests", summaryData.total, FileSpreadsheet],
-            ["Pending", summaryData.pending, Clock],
-            ["Under Review", summaryData.underReview, RefreshCw],
-            ["Approved", summaryData.approved, CheckCircle2],
-            ["Returned", summaryData.returned, AlertCircle],
-            ["Rejected", summaryData.rejected, History],
-          ].map(([label, value, Icon]) => (
-            <div key={label} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-2 text-xs font-medium text-gray-500">
-                <span>{label}</span>
-                <Icon size={15} className="text-blue-600" />
-              </div>
-              <p className="mt-2 text-2xl font-bold text-gray-900">{value ?? 0}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      <section aria-label="Financial report summary" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <article key={card.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <p className="text-[11px] font-medium text-slate-500">{card.label}</p>
+            <p className={`mt-1 text-lg font-bold ${card.tone.split(' ')[1]}`}>{card.value}</p>
+          </article>
+        ))}
+      </section>
 
-      {/* Filter Form */}
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:hidden">
-        <div className="mb-4 flex items-center gap-2 font-semibold text-gray-700">
-          <Filter size={18} />
-          <span>Report Filters</span>
-        </div>
-        <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-blue-800">Report Period</p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly'], ['custom', 'Custom Date Range']].map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
-                <input type="radio" name="period" value={value} checked={filters.period === value} onChange={handleFilterChange} />
-                {label}
-              </label>
-            ))}
-          </div>
-        </div>
-        <form onSubmit={handleGenerateReport} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-7">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
-            <input
-              type="date"
-              name="startDate"
-              value={filters.startDate}
-              onChange={handleFilterChange}
-              disabled={filters.period !== "custom"}
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">To Date</label>
-            <input
-              type="date"
-              name="endDate"
-              value={filters.endDate}
-              onChange={handleFilterChange}
-              disabled={filters.period !== "custom"}
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Department</label>
-            <select
-              name="department"
-              value={filters.department}
-              onChange={handleFilterChange}
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
-            >
+      <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
+        <form onSubmit={submitFilters}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
+            <SelectField label="Period" name="period" value={filters.period} onChange={handleFilterChange}>
+              <option value="today">Today</option>
+              <option value="weekly">This Week</option>
+              <option value="monthly">This Month</option>
+              <option value="yearly">This Year</option>
+              <option value="custom">Custom Range</option>
+            </SelectField>
+            <SelectField label="Department" name="department" value={filters.department} onChange={handleFilterChange}>
               <option value="">All Departments</option>
-              <option value="ICT">ICT</option>
-              <option value="Library">Library</option>
-              <option value="Finance">Finance</option>
-              <option value="HR">HR</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Campus</label>
-            <input
-              type="text"
-              name="campus"
-              value={filters.campus}
-              onChange={handleFilterChange}
-              placeholder="All campuses"
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Clearance Reason</label>
-            <select
-              name="clearanceReason"
-              value={filters.clearanceReason}
-              onChange={handleFilterChange}
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
-            >
+              {(report?.options?.departments || []).map((item) => <option key={item} value={item}>{item}</option>)}
+            </SelectField>
+            <SelectField label="Campus" name="campus" value={filters.campus} onChange={handleFilterChange}>
+              <option value="">All Campuses</option>
+              {(report?.options?.campuses || []).map((item) => <option key={item} value={item}>{item}</option>)}
+            </SelectField>
+            <SelectField label="Clearance Reason" name="clearanceReason" value={filters.clearanceReason} onChange={handleFilterChange}>
               <option value="">All Reasons</option>
-              <option value="Resignation">Resignation</option>
-              <option value="Retirement">Retirement</option>
-              <option value="Contract End">Contract End</option>
-              <option value="Termination">Termination</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-            <select
-              name="status"
-              value={filters.status}
-              onChange={handleFilterChange}
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:outline-none"
-            >
+              {(report?.options?.clearanceReasons || []).map((item) => <option key={item} value={item}>{item}</option>)}
+            </SelectField>
+            <SelectField label="Debt Type" name="debtType" value={filters.debtType} onChange={handleFilterChange}>
+              <option value="">All Debt Types</option>
+              {(report?.options?.debtTypes || []).map((item) => <option key={item} value={item}>{item}</option>)}
+            </SelectField>
+            <SelectField label="Financial Status" name="status" value={filters.status} onChange={handleFilterChange}>
               <option value="">All Statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Under Review">Under Review</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Approved">Approved</option>
-              <option value="Returned">Returned</option>
-              <option value="Rejected">Rejected</option>
-              <option value="Completed">Completed</option>
-            </select>
+              {['Cleared', 'Outstanding', 'Pending', 'Under Review', 'Returned', 'Rejected'].map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </SelectField>
+            <div className="flex items-end gap-1.5">
+              <button type="submit" disabled={loading} className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-600 px-2 py-2 text-[10px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                {loading ? <RefreshCw size={13} className="animate-spin" /> : <Filter size={13} />}
+                Generate
+              </button>
+              <button type="button" onClick={resetFilters} disabled={loading} className="rounded-lg border border-slate-200 px-2 py-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">
+                Reset
+              </button>
+            </div>
           </div>
+          {filters.period === 'custom' && (
+            <div className="mt-2 grid max-w-md grid-cols-2 gap-2">
+              <DateField label="From Date" name="startDate" value={filters.startDate} onChange={handleFilterChange} />
+              <DateField label="To Date" name="endDate" value={filters.endDate} onChange={handleFilterChange} />
+            </div>
+          )}
+        </form>
+      </section>
 
-          <div className="flex items-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition"
-            >
-              {loading ? <RefreshCw size={16} className="animate-spin" /> : <Filter size={16} />}
-              Generate Report
+      <section className="grid gap-3 lg:grid-cols-2">
+        <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <h2 className="text-xs font-bold text-slate-800">Financial Clearance Status</h2>
+          <div className="mt-1 flex h-44 items-center">
+            <div className="h-44 min-w-0 flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={42} outerRadius={68} paddingAngle={2}>
+                    {statusData.map((entry, index) => <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex min-w-28 flex-col gap-1.5 text-[10px] text-slate-600">
+              {STATUS_LABELS.map(([key, label], index) => (
+                <span key={key} className="flex items-center gap-1.5">
+                  <i className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
+                  {label} <strong className="ml-auto text-slate-800">{report?.clearanceStatus?.[key] || 0}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <h2 className="text-xs font-bold text-slate-800">Monthly Debt Recovery</h2>
+          <div className="mt-1 h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={report?.monthlyRecovery || []} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 9 }} tickFormatter={(value) => Number(value).toLocaleString()} />
+                <Tooltip formatter={(value) => money(value)} />
+                <Bar dataKey="recovered" name="Debt Recovered" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <header className="flex flex-col gap-3 border-b border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Detailed Financial Report</h2>
+            <p className="text-[10px] text-slate-500">
+              {report?.rows?.length || 0} record{report?.rows?.length === 1 ? '' : 's'}
+              {report?.period?.startDate && ` · ${report.period.startDate} — ${report.period.endDate}`}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 print:hidden">
+            <button type="button" onClick={exportExcel} disabled={!report || loading} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-2 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+              <FileSpreadsheet size={13} /> Export Excel
+            </button>
+            <button type="button" onClick={exportPdf} disabled={!report || loading} className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-2 text-[10px] font-semibold text-white hover:bg-rose-700 disabled:opacity-50">
+              <Download size={13} /> Export PDF
+            </button>
+            <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
+              <Printer size={13} /> Print
             </button>
           </div>
-        </form>
-      </div>
-
-      {/* Printable Header (Visible only when printing) */}
-      <div className="hidden print:block mb-6 text-center">
-        <h1 className="text-xl font-bold">University Employee Clearance Management System</h1>
-        <h2 className="text-lg font-semibold text-gray-700">Finance Clearance Official Report</h2>
-        <p className="text-xs text-gray-500">Generated Date: {new Date().toLocaleDateString()}</p>
-        <hr className="my-3" />
-      </div>
-
-      {/* REPORT 2: Outstanding Financial Obligations */}
-      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-lg font-bold text-gray-800 flex items-center gap-2">
-          <AlertCircle className="text-red-600" size={20} />
-          2. Outstanding Financial Obligations Report
-        </h2>
+        </header>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-700 border-y border-gray-200">
+          <table className="w-full min-w-[950px] text-left text-[11px]">
+            <thead className="bg-slate-50 text-[9px] uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="py-3 px-4">Employee</th>
-                <th className="py-3 px-4">Employee ID</th>
-                <th className="py-3 px-4">Department</th>
-                <th className="py-3 px-4">Obligation Type</th>
-                <th className="py-3 px-4">Amount Due</th>
-                <th className="py-3 px-4">Balance Left</th>
+                {['Request ID', 'Employee', 'Department', 'Clearance Reason', 'Debt', 'Paid', 'Balance', 'Status'].map((label) => (
+                  <th key={label} className="px-3 py-2.5 font-semibold">{label}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {obligationsData.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="text-center py-4 text-gray-400">
-                    ምንም ያልተከፈለ እዳ ያለበት ሰራተኛ አልተገኘም።
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr><td colSpan="8" className="p-8 text-center text-slate-400">Loading financial report…</td></tr>
+              ) : report?.rows?.length ? report.rows.map((row) => (
+                <tr key={row._id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2.5 font-semibold text-slate-700">{row.requestId || '—'}</td>
+                  <td className="px-3 py-2.5">
+                    <p className="font-semibold text-slate-900">{row.employeeName}</p>
+                    <p className="text-[9px] text-slate-400">{row.employeeId}</p>
+                  </td>
+                  <td className="px-3 py-2.5">{row.department || '—'}</td>
+                  <td className="px-3 py-2.5">{row.clearanceReason || '—'}{row.debtType ? ` · ${row.debtType}` : ''}</td>
+                  <td className="px-3 py-2.5 font-medium">{money(row.debt)}</td>
+                  <td className="px-3 py-2.5 font-medium text-emerald-700">{money(row.paid)}</td>
+                  <td className={`px-3 py-2.5 font-bold ${row.balance > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(row.balance)}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${row.status === 'Cleared' ? 'bg-emerald-50 text-emerald-700' : row.status === 'Outstanding' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {row.status}
+                    </span>
                   </td>
                 </tr>
-              ) : (
-                obligationsData.map((item) => (
-                  <tr key={item._id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-medium text-gray-900">{item.employeeName}</td>
-                    <td className="py-3 px-4">{item.employeeId}</td>
-                    <td className="py-3 px-4">{getDepartmentName(item.department)}</td>
-                    <td className="py-3 px-4">{item.financialObligation?.type || "N/A"}</td>
-                    <td className="py-3 px-4 font-semibold text-gray-700">
-                      {(item.financialObligation?.amountDue ?? 0).toLocaleString()} ETB
-                    </td>
-                    <td className="py-3 px-4 font-bold text-red-600">
-                      {(item.financialObligation?.balance ?? 0).toLocaleString()} ETB
-                    </td>
-                  </tr>
-                ))
+              )) : (
+                <tr><td colSpan="8" className="p-8 text-center text-slate-400">No financial records match the selected filters.</td></tr>
               )}
             </tbody>
+            {!!report?.rows?.length && (
+              <tfoot className="border-t border-slate-200 bg-slate-50 font-bold text-slate-700">
+                <tr>
+                  <td colSpan="4" className="px-3 py-2.5 text-right">Totals</td>
+                  <td className="px-3 py-2.5">{money(report.rows.reduce((sum, row) => sum + row.debt, 0))}</td>
+                  <td className="px-3 py-2.5 text-emerald-700">{money(report.rows.reduce((sum, row) => sum + row.paid, 0))}</td>
+                  <td className="px-3 py-2.5 text-rose-700">{money(report.rows.reduce((sum, row) => sum + row.balance, 0))}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
-      </div>
+      </section>
 
-      {/* REPORT 3: Pending Finance Clearance */}
-      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-lg font-bold text-gray-800 flex items-center gap-2">
-          <Clock className="text-orange-500" size={20} />
-          3. Pending Finance Clearance Report
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-700 border-y border-gray-200">
-              <tr>
-                <th className="py-3 px-4">Employee</th>
-                <th className="py-3 px-4">Department</th>
-                <th className="py-3 px-4">Request Date</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Days Pending</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {pendingData.length === 0 ? (
-                <tr>
-                  <td colSpan="5" className="text-center py-4 text-gray-400">
-                    ምንም የሚጠበቅ (Pending) የክሊራንስ ጥያቄ የለም።
-                  </td>
-                </tr>
-              ) : (
-                pendingData.map((item) => (
-                  <tr key={item._id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-medium text-gray-900">{item.employeeName}</td>
-                    <td className="py-3 px-4">{getDepartmentName(item.department)}</td>
-                    <td className="py-3 px-4">{new Date(item.createdAt).toLocaleDateString()}</td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          item.financeStatus === "Pending"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-blue-100 text-blue-800"
-                        }`}
-                      >
-                        {item.financeStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-bold text-orange-600">{item.daysPending} days</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* REPORT 4: Finance Clearance History */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-lg font-bold text-gray-800 flex items-center gap-2">
-          <History className="text-purple-600" size={20} />
-          4. Finance Clearance History Report
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-gray-600">
-            <thead className="bg-gray-50 uppercase text-gray-700 border-y border-gray-200">
-              <tr>
-                <th className="py-3 px-3">Employee</th>
-                <th className="py-3 px-3">Department</th>
-                <th className="py-3 px-3">Decision</th>
-                <th className="py-3 px-3">Reviewed By</th>
-                <th className="py-3 px-3">Review Date</th>
-                <th className="py-3 px-3">Ref No.</th>
-                <th className="py-3 px-3">Remarks</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {historyData.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="text-center py-4 text-gray-400">
-                    ምንም የተቀመጠ የታሪክ ሪፖርት አልተገኘም።
-                  </td>
-                </tr>
-              ) : (
-                historyData.map((item) => (
-                  <tr key={item._id} className="hover:bg-gray-50">
-                    <td className="py-3 px-3 font-medium text-gray-900">
-                      {item.employeeName} ({item.employeeId})
-                    </td>
-                    <td className="py-3 px-3">{getDepartmentName(item.department)}</td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold ${
-                          item.financeStatus === "Approved"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {item.financeStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">{item.financeReviewedByName || "N/A"}</td>
-                    <td className="py-3 px-3">
-                      {item.financeReviewedAt
-                        ? new Date(item.financeReviewedAt).toLocaleDateString()
-                        : "N/A"}
-                    </td>
-                    <td className="py-3 px-3 font-mono">{item.financeReferenceNumber || "-"}</td>
-                    <td className="py-3 px-3 truncate max-w-xs">{item.financeRemarks || "-"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      {report && (
+        <footer className="text-right text-[10px] text-slate-400 print:block">
+          Report generated by {report.generatedBy} at {dateTime(report.generatedAt)}
+        </footer>
+      )}
+    </main>
   );
-};
+}
 
-export default FinanceReportsPage;
+function SelectField({ label, name, value, onChange, children }) {
+  return (
+    <label className="min-w-0 text-[10px] font-semibold text-slate-600">
+      {label}
+      <select name={name} value={value} onChange={onChange} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px] outline-none focus:border-blue-500">
+        {children}
+      </select>
+    </label>
+  );
+}
+
+function DateField({ label, name, value, onChange }) {
+  return (
+    <label className="text-[10px] font-semibold text-slate-600">
+      {label}
+      <input type="date" name={name} value={value} onChange={onChange} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-[11px] outline-none focus:border-blue-500" />
+    </label>
+  );
+}

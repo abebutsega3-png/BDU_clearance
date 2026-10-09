@@ -44,15 +44,22 @@ const HRSidebar = () => {
           icon={<ClipboardCheck size={20} />}
           label={t('HR Separation Types')}
         />
+      
         <SidebarItem
           to="/hr-office/clearance-requests"
           icon={<ClipboardCheck size={20} />}
           label={t('Clearance Requests')}
         />
+      
         <SidebarItem
           to="/hr-office/hr-assessment"
           icon={<ClipboardCheck size={20} />}
           label={t('HR Assessment')}
+        />
+         <SidebarItem
+          to="/hr-office/hr-workflow"
+          icon={<ClipboardCheck size={20} />}
+          label={t('HR Workflow')}
         />
         <SidebarItem
           to="/hr-office/final-hr-clearance"

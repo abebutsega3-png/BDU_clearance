@@ -3,6 +3,7 @@ import { dispatchNotificationEmails } from '../utils/notificationEmailDispatcher
 
 const notificationTypeEnum = [
   'NEW_CLEARANCE_REQUEST',
+  'HR_WORKFLOW_REQUEST_CREATED',
   'CLEARANCE_REQUEST_RETURNED',
   'CLEARANCE_INFO_UPDATED',
   'IT_ASSET_UPDATED',
@@ -24,6 +25,7 @@ const notificationTypeEnum = [
   'CLEARANCE_READY_FOR_LIBRARY',
   'CLEARANCE_READY_FOR_PROPERTY',
   'CLEARANCE_READY_FOR_ICT',
+  'CLEARANCE_READY_FOR_OFFICE',
   'REVIEW_REMINDER',
   'EMPLOYEE_UPDATED_REQUEST_DEPARTMENT',
   'CLEARANCE_RETURNED',

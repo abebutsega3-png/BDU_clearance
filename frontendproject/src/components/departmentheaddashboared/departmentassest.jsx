@@ -153,7 +153,7 @@ export default function DepartmentAssets() {
 			setRequest(updatedRequest);
 			setMessage(status === 'Approved' ? 'Department clearance approved.' : 'Request returned for correction.');
 		} catch (saveError) {
-			setError(saveError.response?.data?.message || 'Unable to save department clearance.');
+			setError(saveError.response?.data?.message || saveError.message || 'Unable to save department clearance.');
 		} finally {
 			setSaving(false);
 		}

@@ -126,6 +126,63 @@ export const getFinanceDashboard = async (req, res) => {
   }
 };
 
+export const createFinancialRecord = async (req, res) => {
+  try {
+    const { employeeId, type, amount, status, description, paymentDate } = req.body || {};
+    const normalizedEmployeeId = String(employeeId || '').trim();
+    if (!normalizedEmployeeId) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required.' });
+    }
+
+    const validTypes = ['Advance', 'Loan', 'Overpayment', 'Other'];
+    const normalizedType = String(type || 'Other').trim();
+    if (!validTypes.includes(normalizedType)) {
+      return res.status(400).json({ success: false, message: 'Invalid financial record type.' });
+    }
+
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than zero.' });
+    }
+
+    const validStatuses = ['Outstanding', 'Paid', 'Cleared'];
+    const normalizedStatus = String(status || 'Outstanding').trim();
+    if (!validStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid status.' });
+    }
+
+    const recordDate = paymentDate ? new Date(paymentDate) : new Date();
+    if (paymentDate && Number.isNaN(recordDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Payment date is invalid.' });
+    }
+
+    const record = await FinancialRecord.create({
+      employeeId: normalizedEmployeeId,
+      type: normalizedType,
+      amount: numericAmount,
+      status: normalizedStatus,
+      description: description ? String(description).trim() : '',
+      paymentDate: recordDate,
+    });
+
+    const employee = await Employee.findOne({ employeeId: normalizedEmployeeId }).lean();
+
+    res.status(201).json({
+      success: true,
+      message: 'Financial record added successfully.',
+      record: {
+        ...record.toObject(),
+        employeeName: employee?.fullName || 'Unknown Employee',
+        department: employee?.department || 'N/A',
+        employeeType: employee?.employmentType || employee?.employeeType || 'N/A',
+      },
+    });
+  } catch (error) {
+    console.error('Create financial record error:', error);
+    res.status(500).json({ success: false, message: 'Failed to add financial record.', error: error.message });
+  }
+};
+
 export const getFinancialRecords = async (req, res) => {
   try {
     const { search = '', department = 'All', employeeType = 'All', status = 'All', startDate, endDate } = req.query;

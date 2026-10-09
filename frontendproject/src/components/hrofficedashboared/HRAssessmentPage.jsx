@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
   CalendarDays,
@@ -35,7 +36,7 @@ const authConfig = () => ({
 const fetchAssessmentQueue = async (status) => {
   const response = await axios.get(`${apiRoot}/hr/queue`, {
     ...authConfig(),
-    params: { status },
+    params: { status, assessment: 'incomplete' },
   });
   return Array.isArray(response.data?.data) ? response.data.data : [];
 };
@@ -130,8 +131,10 @@ const InfoRow = ({ label, value }) => (
 );
 
 export default function HRAssessmentPage() {
+  const navigate = useNavigate();
+  const { id: routeRequestId } = useParams();
   const [queue, setQueue] = useState([]);
-  const [selectedId, setSelectedId] = useState('');
+  const [selectedId, setSelectedId] = useState(routeRequestId || '');
   const [request, setRequest] = useState(null);
   const [detailsLoadedId, setDetailsLoadedId] = useState('');
   const [checklist, setChecklist] = useState(emptyChecklist);
@@ -150,13 +153,13 @@ export default function HRAssessmentPage() {
       const rows = await fetchAssessmentQueue(status);
       setQueue(rows);
       setSelectedId((currentId) => (
-        rows.some((row) => row._id === currentId) ? currentId : rows[0]?._id || ''
+        rows.some((row) => row._id === currentId) ? currentId : routeRequestId || rows[0]?._id || ''
       ));
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     }
     setLoadingQueue(false);
-  }, [statusFilter]);
+  }, [routeRequestId, statusFilter]);
 
   useEffect(() => {
     let current = true;
@@ -165,7 +168,7 @@ export default function HRAssessmentPage() {
         if (!current) return;
         setQueue(rows);
         setSelectedId((currentId) => (
-          rows.some((row) => row._id === currentId) ? currentId : rows[0]?._id || ''
+          rows.some((row) => row._id === currentId) ? currentId : routeRequestId || rows[0]?._id || ''
         ));
       })
       .catch((loadError) => {
@@ -175,7 +178,7 @@ export default function HRAssessmentPage() {
         if (current) setLoadingQueue(false);
       });
     return () => { current = false; };
-  }, [statusFilter]);
+  }, [routeRequestId, statusFilter]);
 
   useEffect(() => {
     if (!selectedId) return undefined;
@@ -264,20 +267,29 @@ export default function HRAssessmentPage() {
     setError('');
     setNotice('');
     try {
+      if (decision === 'approve') {
+        await axios.put(`${apiRoot}/hr/${request._id}/complete`, {
+          assessmentChecklist: checklist,
+          hrComment: comment.trim(),
+        }, authConfig());
+        setNotice('Assessment passed. Choose required offices in HR Workflow before forwarding to the Department Head.');
+        setRequest(null);
+        await loadQueue();
+        navigate('/hr-office/hr-workflow');
+        return;
+      }
       await axios.patch(
         `${apiRoot}/hr-final-clearance/initial-clearance/${request._id}/decision`,
         {
-          decision: decision === 'approve' ? 'approved' : 'returned',
-          reason: decision === 'return' ? (returnReason === 'Other' ? comment.trim() : returnReason) : '',
+          decision: 'returned',
+          reason: returnReason === 'Other' ? comment.trim() : returnReason,
           remarks: comment.trim(),
-          affectedField: decision === 'return' ? returnReason : '',
+          affectedField: returnReason,
           assessmentChecklist: checklist,
         },
         authConfig(),
       );
-      setNotice(decision === 'approve'
-        ? 'Assessment approved. The request is now with the Department Head.'
-        : 'Request returned to the employee for correction.');
+      setNotice('Request returned to the employee for correction.');
       setRequest(null);
       await loadQueue();
     } catch (submitError) {
@@ -551,6 +563,13 @@ export default function HRAssessmentPage() {
                     {saving ? 'Starting...' : 'Start HR Review'}
                   </button>
                 </div>
+              ) : request.initialHRAssessmentCompleted ? (
+                <div className="rounded-md bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">
+                  HR Assessment has passed. Continue to HR Workflow to select required offices and forward the request.
+                  <button type="button" onClick={() => navigate('/hr-office/hr-workflow')} className="mt-3 w-full rounded-md bg-emerald-700 px-3 py-2 font-semibold text-white hover:bg-emerald-800">
+                    Continue to HR Workflow
+                  </button>
+                </div>
               ) : request.initialHRStatus !== 'Under Review' ? (
                 <div className="rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-600">
                   This request has already been {String(request.initialHRStatus || '').toLowerCase()}. Select an Under Review request to submit a decision.
@@ -564,7 +583,7 @@ export default function HRAssessmentPage() {
                     </label>
                     <label className={`flex cursor-pointer items-start gap-2 rounded-md p-2 ${decision === 'approve' ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
                       <input type="radio" name="hr-decision" value="approve" checked={decision === 'approve'} onChange={() => setDecision('approve')} className="mt-0.5 accent-blue-600" />
-                      <span><span className="block text-xs font-semibold text-slate-800">Approve &amp; Start Clearance Process</span><span className="mt-0.5 block text-[10px] text-slate-500">Send to the Department Head after all checks pass.</span></span>
+                      <span><span className="block text-xs font-semibold text-slate-800">Pass Assessment &amp; Continue to HR Workflow</span><span className="mt-0.5 block text-[10px] text-slate-500">Select required clearance offices in the next step before forwarding to the Department Head.</span></span>
                     </label>
                   </div>
 
@@ -618,7 +637,7 @@ export default function HRAssessmentPage() {
                       disabled={saving || (decision === 'approve' && !canApprove)}
                       className={`flex-1 rounded-md px-3 py-2 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 ${decision === 'return' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                     >
-                      {saving ? 'Saving...' : decision === 'return' ? 'Return Request' : 'Approve'}
+                      {saving ? 'Saving...' : decision === 'return' ? 'Return Request' : 'Pass Assessment'}
                     </button>
                   </div>
                   {saving && <p role="status" className="mt-2 flex items-center justify-center gap-1 text-[10px] text-slate-500"><LoaderCircle size={13} className="animate-spin" />Saving assessment...</p>}

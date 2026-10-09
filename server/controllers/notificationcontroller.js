@@ -360,7 +360,7 @@ export const markAsRead = async (req, res) => {
 export const getUnreadSummary = async (req, res) => {
   try {
     const unreadFilter = { isRead: false };
-    const newRequests = await Notification.countDocuments({ ...unreadFilter, type: { $in: ['new_request', 'NEW_CLEARANCE_REQUEST'] } });
+    const newRequests = await Notification.countDocuments({ ...unreadFilter, type: { $in: ['new_request', 'NEW_CLEARANCE_REQUEST', 'HR_WORKFLOW_REQUEST_CREATED'] } });
     const deptCompleted = await Notification.countDocuments({ ...unreadFilter, type: { $in: ['dept_completed', 'FINANCE_APPROVED', 'CLEARANCE_IN_PROGRESS'] } });
     const pending = await Notification.countDocuments({ ...unreadFilter, type: 'pending' });
     const returned = await Notification.countDocuments({ ...unreadFilter, type: { $in: ['returned', 'CLEARANCE_REQUEST_RETURNED', 'FINANCE_RETURNED'] } });

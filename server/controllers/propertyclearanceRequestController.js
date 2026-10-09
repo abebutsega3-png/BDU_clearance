@@ -4,7 +4,12 @@ import AuditLog from '../models/AuditLog.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Asset from '../models/propertyAsset.js';
-import { propertyOfficeWorkflowFilter, resolveNextStepAfterDecision } from '../utils/clearanceWorkflow.js';
+import { normalizeRoutedOffice, officeAssignmentFilter, propertyOfficeWorkflowFilter, resolveNextStepAfterDecision } from '../utils/clearanceWorkflow.js';
+
+const isOfficeAssigned = (request, office) => request?.manualRoutingEnabled !== true
+  || (request.assignedDepartments || []).some(
+    (assignedOffice) => normalizeRoutedOffice(assignedOffice) === normalizeRoutedOffice(office),
+  );
 
 const recordPropertyAction = async (req, action, requestId, description, oldValues, newValues) => {
   try {
@@ -111,6 +116,7 @@ const findEmployeeUser = async (request) => {
 };
 
 const notifyEmployee = async ({ request, title, message, type }) => {
+  if (request?.requestSource === 'HR Officer') return null;
   try {
     const employeeUser = await findEmployeeUser(request);
     await Notification.create({
@@ -153,7 +159,7 @@ export const getAllRequests = async (req, res) => {
 
 export const getRequestById = async (req, res) => {
   try {
-    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId });
+    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') });
     if (!request) return res.status(404).json({ message: 'Request not found' });
     res.status(200).json(await mapRequestWithEmployee(request));
   } catch (error) {
@@ -173,7 +179,7 @@ export const updateClearanceAssetStatus = async (req, res) => {
       return res.status(400).json({ message: 'Asset status must be Outstanding, Returned, or Damaged.' });
     }
 
-    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId }).lean();
+    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') }).lean();
     if (!request) return res.status(404).json({ message: 'Clearance request not found.' });
     if (request.departmentStatus !== 'Approved') {
       return res.status(409).json({ message: 'This request is waiting for Department Head approval.' });
@@ -215,7 +221,7 @@ export const updateClearanceAssetStatus = async (req, res) => {
 
 export const startReview = async (req, res) => {
   try {
-    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId });
+    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') });
     if (!request) return res.status(400).json({ message: 'Request cannot be put under review' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
     updatePropertyWorkflow(request, 'Under Review');
@@ -230,7 +236,7 @@ export const startReview = async (req, res) => {
 export const approveClearance = async (req, res) => {
   try {
     const { officerComment, completedChecks = [] } = req.body;
-    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId }).lean();
+    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') }).lean();
     if (!request) return res.status(400).json({ message: 'Request cannot be approved' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
     const officer = await User.findById(req.user?._id).select('propertySettings').lean();
@@ -269,7 +275,7 @@ export const approveClearance = async (req, res) => {
       workflow.push(propertyStep);
     }
     const savedRequest = await ClearanceRequest.findOneAndUpdate(
-      { requestId: req.params.requestId },
+      { requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') },
       { $set: {
         propertyStatus: 'Approved',
         propertyReviewedAt: approvedAt,
@@ -286,7 +292,9 @@ export const approveClearance = async (req, res) => {
     if (savedRequest?.propertyStatus !== 'Approved') {
       return res.status(500).json({ message: 'Property approval was not saved.' });
     }
-    const ictOfficers = await User.find({ role: { $regex: '^ict officer$', $options: 'i' } }).select('_id name');
+    const ictOfficers = isOfficeAssigned(savedRequest, 'ICT Office')
+      ? await User.find({ role: { $regex: '^ict officer$', $options: 'i' } }).select('_id name')
+      : [];
     if (ictOfficers.length) await Notification.insertMany(ictOfficers.map((officer) => ({
       recipientId: officer._id,
       targetName: officer.name || 'ICT Officer',
@@ -319,7 +327,7 @@ export const returnRequest = async (req, res) => {
       return res.status(400).json({ message: 'Return reason is required' });
     }
 
-    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId });
+    const request = await ClearanceRequest.findOne({ requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') });
     if (!request) return res.status(400).json({ message: 'Request cannot be returned' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
     updatePropertyWorkflow(request, 'Returned');
@@ -331,15 +339,39 @@ export const returnRequest = async (req, res) => {
     updatePropertyReturnDetails(request, returnReason, officerComment, affectedField);
     request.status = 'Returned';
     request.overallStatus = 'Returned';
-    request.currentStep = resolveNextStepAfterDecision('Property / Asset Office', 'Returned');
+    request.currentStep = request.requestSource === 'HR Officer'
+      ? 'HR Officer'
+      : resolveNextStepAfterDecision('Property / Asset Office', 'Returned');
     request.reviewedAt = new Date();
     await request.save();
-    await notifyEmployee({
-      request,
-      title: 'Property Clearance Returned',
-      message: `Property / Asset Office returned your request. Reason: ${returnReason}. Please resolve the issue and resubmit.`,
-      type: 'CLEARANCE_RETURNED',
-    });
+    if (request.requestSource !== 'HR Officer') {
+      await notifyEmployee({
+        request,
+        title: 'Property Clearance Returned',
+        message: `Property / Asset Office returned your request. Reason: ${returnReason}. Please resolve the issue and resubmit.`,
+        type: 'CLEARANCE_RETURNED',
+      });
+    } else {
+      try {
+        const hrOfficers = await User.find({ role: { $regex: '^(hr[ _-]?officer|hr|human resources)$', $options: 'i' } }).select('_id name');
+        if (hrOfficers.length) {
+          await Notification.insertMany(hrOfficers.map((officer) => ({
+            recipientId: officer._id,
+            targetName: officer.name || 'HR Officer',
+            title: 'HR-Initiated Clearance Returned',
+            message: `${request.employeeName || 'Employee'}'s request was returned by Property / Asset Office. Reason: ${returnReason}`,
+            type: 'CLEARANCE_REQUEST_RETURNED',
+            relatedRequestId: request.requestId,
+            clearanceRequestId: request.requestId,
+            actionText: 'Resolve Request',
+            actionLink: '/hr-office/clearance-requests',
+            isRead: false,
+          })));
+        }
+      } catch (notificationError) {
+        console.error('Property request was returned but HR notification failed:', notificationError.message);
+      }
+    }
     await recordPropertyAction(req, 'RETURN_REQUEST', request.requestId, `Returned clearance ${request.requestId}`, { status: 'Under Review' }, { status: 'Returned', returnReason });
     res.status(200).json(request);
   } catch (error) {

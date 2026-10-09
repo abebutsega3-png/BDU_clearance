@@ -170,9 +170,18 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
   }
 
   const { employee, financialRecords = [], totalOutstanding = 0 } = data;
+  const recordOutstanding = (record) => {
+    const type = String(record.type || '').toLowerCase();
+    if (type === 'payment / repayment' || type === 'payment' || type === 'repayment') return 0;
+    const amount = Number(record.amount || 0);
+    const paidAmount = record.paidAmount === undefined
+      ? (record.status === 'Paid' || record.status === 'Cleared' ? amount : 0)
+      : Number(record.paidAmount || 0);
+    return Math.max(amount - paidAmount, 0);
+  };
   const amountByType = (types) => financialRecords
     .filter((record) => types.includes(String(record.type || '').toLowerCase()))
-    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+    .reduce((sum, record) => sum + recordOutstanding(record), 0);
   const outstandingLoan = amountByType(['loan']);
   const salaryAdvance = amountByType(['advance', 'salary advance']);
 
@@ -245,9 +254,9 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
                 {financialRecords.length === 0 ? <tr><td colSpan="4" className="p-4 text-center text-slate-400">No financial records found for this employee.</td></tr> : financialRecords.map((record) => (
                   <tr key={record._id} className="hover:bg-slate-50">
                     <td className="p-2.5 font-medium text-slate-800">{record.description || 'Financial obligation'}</td>
-                    <td className="p-2.5 text-slate-600">{record.type || 'Other'}</td>
+                      <td className="p-2.5 text-slate-600">{record.type === 'Adjustment' && record.adjustmentDirection ? `${record.type} (${record.adjustmentDirection})` : record.type || 'Other'}</td>
                     <td className="p-2.5 font-semibold text-slate-800">{Number(record.amount || 0).toLocaleString()} ETB</td>
-                    <td className="p-2.5 text-right"><span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${record.status === 'Outstanding' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>{record.status || 'N/A'}</span></td>
+                    <td className="p-2.5 text-right"><span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${record.status === 'Outstanding' ? 'bg-rose-100 text-rose-800' : record.status === 'Partially Paid' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{record.status || 'N/A'}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -304,8 +313,9 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
                     <button
                       type="button"
                       onClick={handleApprove}
-                      disabled={actionLoading}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                      disabled={actionLoading || Number(totalOutstanding || 0) > 0}
+                      title={Number(totalOutstanding || 0) > 0 ? 'Outstanding balance must be paid before approval.' : undefined}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <CheckCircle2 size={14} />{actionLoading ? 'Signing...' : 'Approve Clearance'}
                     </button>

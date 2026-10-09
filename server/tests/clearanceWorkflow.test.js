@@ -10,6 +10,10 @@ import {
   areAllRequiredOfficesCleared,
   resolveNextStepAfterDecision,
   isRequestVisibleToOffice,
+  normalizeRoutedOffice,
+  getFinalHROffices,
+  officeAssignmentFilter,
+  finalHRRoutingReadyFilter,
 } from '../utils/clearanceWorkflow.js';
 import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
 
@@ -77,6 +81,76 @@ test('Property Office cannot see a request before Department Head approval', () 
 
 test('Property Office sees a request immediately after Department Head approval', () => {
   assert.equal(isRequestVisibleToOffice({ departmentStatus: 'Approved', currentStep: 'Library' }, 'Property / Asset Office'), true);
+});
+
+test('manual routing makes only selected departments eligible after Department Head approval', () => {
+  const request = {
+    manualRoutingEnabled: true,
+    assignedDepartments: ['Finance Office', 'Property / Asset Office'],
+    departmentStatus: 'Approved',
+  };
+
+  assert.equal(isRequestVisibleToOffice(request, 'Finance Office'), true);
+  assert.equal(isRequestVisibleToOffice(request, 'Library'), false);
+  assert.equal(isRequestVisibleToOffice({ ...request, departmentStatus: 'Pending' }, 'Finance Office'), false);
+  assert.equal(normalizeRoutedOffice('Property'), 'Property / Asset Office');
+});
+
+test('Final HR office progress uses only manually assigned offices', () => {
+  const clearance = {
+    manualRoutingEnabled: true,
+    assignedDepartments: ['Finance', 'Dormitory', 'Final HR Clearance', 'Finance Office'],
+    requiredOffices: ['Department Head', 'Finance Office', 'Library', 'Final HR Clearance'],
+  };
+
+  assert.deepEqual(getFinalHROffices(clearance), ['Finance Office', 'Dormitory']);
+});
+
+test('Final HR office progress excludes Department Head for legacy routing and allows no assigned offices', () => {
+  assert.deepEqual(getFinalHROffices({
+    requiredOffices: ['Department Head', 'Finance Office', 'Library', 'Final HR Clearance'],
+  }), ['Finance Office', 'Library']);
+  assert.deepEqual(getFinalHROffices({ manualRoutingEnabled: true, assignedDepartments: [] }), []);
+});
+
+test('custom clearance offices can be assigned dynamically and final HR waits for each workflow step', () => {
+  const request = {
+    manualRoutingEnabled: true,
+    assignedDepartments: ['Dormitory', 'Sports Master'],
+    departmentStatus: 'Approved',
+  };
+
+  assert.equal(normalizeRoutedOffice('Dormitory'), 'Dormitory');
+  assert.deepEqual(officeAssignmentFilter('Sports Master', false), { assignedDepartments: 'Sports Master' });
+  assert.equal(isRequestVisibleToOffice(request, 'Dormitory'), true);
+  assert.equal(isRequestVisibleToOffice(request, 'Library'), false);
+  assert.deepEqual(getResponsibleOffices({
+    ...request,
+    requiredOffices: ['Department Head', 'Dormitory', 'Sports Master', 'Final HR Clearance'],
+    workflow: [
+      { office: 'Dormitory', status: 'Completed' },
+      { office: 'Sports Master', status: 'Pending' },
+    ],
+  }), ['Sports Master']);
+  assert.equal(areAllRequiredOfficesCleared({
+    ...request,
+    requiredOffices: ['Department Head', 'Dormitory', 'Sports Master', 'Final HR Clearance'],
+    workflow: [
+      { office: 'Dormitory', status: 'Completed' },
+      { office: 'Sports Master', status: 'Completed' },
+    ],
+  }), true);
+});
+
+test('office queue filters preserve legacy requests and final HR checks assigned workflow steps', () => {
+  const financeFilter = officeAssignmentFilter('Finance');
+  assert.equal(financeFilter.$or[0].manualRoutingEnabled.$ne, true);
+  assert.equal(financeFilter.$or[1].assignedDepartments, 'Finance Office');
+  assert.equal(officeAssignmentFilter('Dormitory', false).assignedDepartments, 'Dormitory');
+  assert.equal(
+    finalHRRoutingReadyFilter().$or[1].$expr.$allElementsTrue[0].$map.as,
+    'assignedOffice',
+  );
 });
 
 test('department approval dispatches every office in parallel', () => {

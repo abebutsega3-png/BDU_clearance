@@ -1,4 +1,83 @@
 import ClearanceRequest from "../models/clearance.js";
+import Employee from "../models/employee.js";
+import FinancialRecord from "../models/financedashboared.js";
+import { recordAuditLog } from './auditLogger.js';
+import {
+  buildFinanceReportData,
+  getFinanceReportDateRange,
+  normalizeFinanceReportFilters,
+  validateFinanceReportDateRange,
+} from '../utils/financeReportData.js';
+
+export const getFinanceReportDashboard = async (req, res) => {
+  try {
+    const filters = normalizeFinanceReportFilters(req.method === 'POST' ? req.body : req.query);
+    const validationError = validateFinanceReportDateRange(filters);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
+    const period = getFinanceReportDateRange(filters);
+    const requestQuery = {};
+    if (period.startDate || period.endDate) {
+      requestQuery.createdAt = {};
+      if (period.startDate) requestQuery.createdAt.$gte = new Date(`${period.startDate}T00:00:00.000Z`);
+      if (period.endDate) requestQuery.createdAt.$lte = new Date(`${period.endDate}T23:59:59.999Z`);
+    }
+
+    const requests = await ClearanceRequest.find(requestQuery).lean();
+    const employeeIds = [...new Set(requests.map((request) => request.employeeId).filter(Boolean))];
+    const [financialRecords, employees] = employeeIds.length
+      ? await Promise.all([
+        FinancialRecord.find({ employeeId: { $in: employeeIds } }).lean(),
+        Employee.find({ employeeId: { $in: employeeIds } })
+          .select('employeeId fullName department campus')
+          .lean(),
+      ])
+      : [[], []];
+
+    const report = buildFinanceReportData({
+      requests,
+      financialRecords,
+      employees,
+      filters,
+    });
+    const generatedAt = new Date();
+    const generatedBy = req.user?.name || req.user?.username || req.user?.email || 'Finance Officer';
+
+    if (req.method === 'POST') {
+      await recordAuditLog({
+        req,
+        action: 'GENERATE_FINANCE_REPORT',
+        module: 'Finance',
+        description: `${generatedBy} generated a financial report.`,
+        newValues: {
+          generatedAt,
+          filters,
+          period: report.period,
+          requestCount: report.summary.totalRequests,
+          rowCount: report.rows.length,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...report,
+        generatedAt,
+        generatedBy,
+      },
+    });
+  } catch (error) {
+    console.error('Finance report dashboard error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to generate the finance report.',
+      error: error.message,
+    });
+  }
+};
 
 const normalizeStatus = (value) => {
   const status = (value || "").toString().trim();

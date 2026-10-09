@@ -13,9 +13,19 @@ const financialDashboardSchema = new mongoose.Schema(
         "Advance",
         "Loan",
         "Overpayment",
-        "Other"
+        "Other",
+        "Salary Advance",
+        "Other Financial Obligation",
+        "Payment / Repayment",
+        "Payment Reversal",
+        "Adjustment"
       ],
       required: true
+    },
+
+    adjustmentDirection: {
+      type: String,
+      enum: ["Increase", "Reduce"]
     },
 
     amount: {
@@ -28,6 +38,7 @@ const financialDashboardSchema = new mongoose.Schema(
       type: String,
       enum: [
         "Outstanding",
+        "Partially Paid",
         "Paid",
         "Cleared"
       ],
@@ -39,12 +50,69 @@ const financialDashboardSchema = new mongoose.Schema(
       default: ""
     },
 
+    notes: {
+      type: String,
+      default: ""
+    },
+
+    issueDate: {
+      type: Date
+    },
+
+    dueDate: {
+      type: Date
+    },
+
+    paidAmount: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+
     paymentDate: {
       type: Date
+    },
+
+    paymentFor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FinancialRecord',
+      default: null
+    },
+
+    paymentMethod: {
+      type: String,
+      enum: ["Cash", "Bank Transfer", "Other"],
+      trim: true
+    },
+
+    paymentReference: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+
+    recordedBy: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+
+    reversalOf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FinancialRecord',
+      default: null
     }
   },
   {
     timestamps: true
+  }
+);
+
+financialDashboardSchema.index(
+  { reversalOf: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { reversalOf: { $type: 'objectId' } },
   }
 );
 

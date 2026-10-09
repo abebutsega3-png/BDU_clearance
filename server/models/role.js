@@ -9,6 +9,7 @@ const roleSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true, trim: true },
   description: { type: String, default: '', trim: true },
   permissions: { type: [permissionSchema], default: [] },
+  isClearanceOffice: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 

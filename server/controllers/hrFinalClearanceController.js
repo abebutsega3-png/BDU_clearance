@@ -1,11 +1,20 @@
 import Clearance from '../models/clearance.js';
 import Employee from '../models/employee.js';
+import Role from '../models/role.js';
 import ClearanceRequest from '../models/ClearanceRequest.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
 import { sendNotificationEmail } from '../utils/emailService.js';
+import {
+  FINAL_HR_STAGE,
+  MANUAL_ROUTABLE_OFFICES,
+  isFinalHRStage,
+  finalHRRoutingReadyFilter,
+  normalizeRoutedOffice,
+  getFinalHROffices,
+} from '../utils/clearanceWorkflow.js';
 
 const getDateOnlyTimestamp = (value) => {
   if (!value) return Number.NaN;
@@ -68,6 +77,7 @@ export const updateInitialHRDecision = async (req, res) => {
       reason = '',
       affectedField = '',
       assessmentChecklist,
+      assignedDepartments,
     } = req.body || {};
     const normalizedDecision = String(decision || '').trim().toLowerCase();
     const returnReason = String(reason || remarks).trim();
@@ -76,6 +86,27 @@ export const updateInitialHRDecision = async (req, res) => {
     }
     if (normalizedDecision === 'returned' && !returnReason) {
       return res.status(400).json({ success: false, message: 'Return reason is required.' });
+    }
+    const manualRoutingRequested = Object.prototype.hasOwnProperty.call(req.body || {}, 'assignedDepartments');
+    let selectedDepartments = [];
+    if (normalizedDecision === 'approved' && !manualRoutingRequested) {
+      return res.status(400).json({ success: false, message: 'Select the required clearance offices in HR Workflow before forwarding to the Department Head.' });
+    }
+    if (manualRoutingRequested) {
+      if (!Array.isArray(assignedDepartments) || assignedDepartments.some((office) => typeof office !== 'string')) {
+        return res.status(400).json({ success: false, message: 'Selected clearance offices must be provided as a list.' });
+      }
+      const configuredRoles = await Role.find({ isActive: true, isClearanceOffice: true }).select('name').lean();
+      const allowedOffices = new Map(
+        [...MANUAL_ROUTABLE_OFFICES, ...configuredRoles.map(({ name }) => name)]
+          .map((office) => [normalizeRoutedOffice(office).toLowerCase(), normalizeRoutedOffice(office)])
+          .filter(([key, office]) => key && office && !isFinalHRStage(office) && !/^department(\s|$)/i.test(office)),
+      );
+      const requestedOfficeKeys = assignedDepartments.map((office) => normalizeRoutedOffice(office).toLowerCase());
+      if (requestedOfficeKeys.some((office) => !office || !allowedOffices.has(office))) {
+        return res.status(400).json({ success: false, message: 'One or more selected clearance offices are invalid.' });
+      }
+      selectedDepartments = [...new Set(requestedOfficeKeys.map((office) => allowedOffices.get(office)))];
     }
 
     const clearanceFilter = {
@@ -102,6 +133,21 @@ export const updateInitialHRDecision = async (req, res) => {
     }
 
     const approved = normalizedDecision === 'approved';
+    if (approved && !current.initialHRAssessmentCompleted) {
+      return res.status(409).json({ success: false, message: 'Complete HR Assessment before assigning offices and forwarding to the Department Head.' });
+    }
+    if (approved && manualRoutingRequested) {
+      const checklistKeys = [
+        'empInfoVerified',
+        'clearanceRequestVerified',
+        'documentVerified',
+        'employmentVerified',
+        'noDuplicateRequest',
+      ];
+      if (!assessmentChecklist || checklistKeys.some((key) => assessmentChecklist[key] !== true)) {
+        return res.status(400).json({ success: false, message: 'Pass every HR assessment checklist item before routing the request.' });
+      }
+    }
     if (assessmentChecklist !== undefined) {
       const checklistKeys = [
         'empInfoVerified',
@@ -142,10 +188,13 @@ export const updateInitialHRDecision = async (req, res) => {
       }
       const lastWorkingDate = getDateOnlyTimestamp(current.lastWorkingDate);
       const requestDate = getDateOnlyTimestamp(current.requestDate || current.createdAt);
-      if (Number.isNaN(lastWorkingDate) || Number.isNaN(requestDate) || lastWorkingDate < requestDate) {
+      if (Number.isNaN(lastWorkingDate) || Number.isNaN(requestDate)
+        || (current.requestSource !== 'HR Officer' && lastWorkingDate < requestDate)) {
         return res.status(400).json({
           success: false,
-          message: 'Last working date must be valid and cannot be earlier than the request date.',
+          message: current.requestSource === 'HR Officer'
+            ? 'Last working date and request date must be valid.'
+            : 'Last working date must be valid and cannot be earlier than the request date.',
         });
       }
       const duplicate = current.employeeId
@@ -163,6 +212,7 @@ export const updateInitialHRDecision = async (req, res) => {
       }
     }
     current.initialHRStatus = approved ? 'Approved' : 'Returned';
+    if (!approved) current.initialHRAssessmentCompleted = false;
     current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
     current.initialHRReviewedAt = new Date();
     const reviewerName = req.user?.fullName || req.user?.name || 'HR Officer';
@@ -190,6 +240,25 @@ export const updateInitialHRDecision = async (req, res) => {
       }
       return step;
     });
+    if (approved && manualRoutingRequested) {
+      current.manualRoutingEnabled = true;
+      current.assignedDepartments = selectedDepartments;
+      current.requiredOffices = ['Department Head', ...selectedDepartments, FINAL_HR_STAGE];
+      const requiredOfficeKeys = new Set(current.requiredOffices.map((office) => office.toLowerCase()));
+      current.workflow = current.workflow.filter((step) => {
+        const office = String(step.office || step.name || '').trim();
+        return /initial\s*hr|hr\s*review/i.test(office)
+          || requiredOfficeKeys.has(normalizeRoutedOffice(office).toLowerCase());
+      });
+      const workflowOfficeKeys = new Set(current.workflow.map((step) =>
+        normalizeRoutedOffice(step.office || step.name || '').toLowerCase()
+      ));
+      current.requiredOffices.forEach((office) => {
+        if (!workflowOfficeKeys.has(normalizeRoutedOffice(office).toLowerCase())) {
+          current.workflow.push({ office, status: 'Pending', updatedAt: current.initialHRReviewedAt });
+        }
+      });
+    }
     await current.save();
 
     await ClearanceRequest.updateOne(
@@ -246,7 +315,6 @@ export const updateInitialHRDecision = async (req, res) => {
   }
 };
 
-const LEGACY_CORE_OFFICES = ['Department Head', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Library'];
 const approvedStatuses = ['approved', 'completed', 'cleared'];
 
 const employeeFilter = (employeeId) => ({
@@ -310,11 +378,7 @@ const normalizeOfficeName = (value) => {
 };
 
 const getRequiredCoreOffices = (clearance) => {
-  const configuredOffices = Array.isArray(clearance.requiredOffices) && clearance.requiredOffices.length
-    ? clearance.requiredOffices
-    : LEGACY_CORE_OFFICES;
-  return [...new Set(configuredOffices.map(normalizeOfficeName))]
-    .filter((office) => office && !/final hr/i.test(office));
+  return getFinalHROffices(clearance);
 };
 
 const normalizeOfficeStatus = (value) => String(value || '').trim().toLowerCase();
@@ -478,7 +542,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
     const { offices: rawDepartmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(clearance);
     const departmentClearances = await resolveOfficeReviewers(rawDepartmentClearances);
     const initialHRReviewer = await resolveOfficeReviewers([{ clearedBy: clearance.initialHRReviewedBy || 'HR Officer' }]);
-    const progress = Math.round((approvedCount / totalDepartments) * 100);
+    const progress = totalDepartments === 0
+      ? (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved' ? 100 : 0)
+      : Math.round((approvedCount / totalDepartments) * 100);
 
     // Outstanding items
     const outstandingItems = Array.isArray(clearance.outstandingItems)
@@ -493,6 +559,13 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         requestId: clearance.requestId,
         status: clearance.status,
         initialHRStatus: clearance.initialHRStatus || 'Pending',
+        departmentStatus: clearance.departmentStatus || 'Pending',
+        manualRoutingEnabled: clearance.manualRoutingEnabled === true,
+        assignedDepartments: clearance.assignedDepartments || [],
+        requiredOffices: clearance.requiredOffices || [],
+        requestSource: clearance.requestSource || 'Employee Portal',
+        initiatedBy: clearance.initiatedBy || null,
+        initiatedByName: clearance.initiatedByName || '',
         initialHRRemarks: clearance.initialHRRemarks || '',
         
         // Employee Information
@@ -646,9 +719,6 @@ export const updateHRFinalDecision = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Final HR review is available only after Initial HR and Department Head approval.' });
     }
     const currentCounts = getOfficeCounts(currentClearance);
-    if (currentCounts.approvedCount < 1) {
-      return res.status(400).json({ success: false, message: 'Final HR review becomes available after at least one office is approved.' });
-    }
     if (currentCounts.approvedCount !== currentCounts.totalOffices) {
       return res.status(400).json({ success: false, message: `Final HR approval requires all ${currentCounts.totalOffices} offices to be approved. Current progress: ${currentCounts.approvedCount}/${currentCounts.totalOffices}.` });
     }
@@ -804,7 +874,11 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
     const { status, page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
-    const query = { initialHRStatus: 'Approved', departmentStatus: 'Approved' };
+    const query = {
+      initialHRStatus: 'Approved',
+      departmentStatus: 'Approved',
+      ...finalHRRoutingReadyFilter(),
+    };
     if (status) {
       query.status = status;
     }
@@ -824,7 +898,8 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
         return 'CERTIFICATE ISSUED';
       }
 
-      if (approvedCount === totalOffices) {
+      if (approvedCount === totalOffices
+        && (totalOffices > 0 || (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved'))) {
         return 'READY FOR CERTIFICATE';
       }
 
@@ -854,12 +929,22 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
           position: employee?.position,
           clearanceType: clearance.clearanceType,
           status: clearance.status,
+          initialHRStatus: clearance.initialHRStatus,
+          departmentStatus: clearance.departmentStatus,
+          manualRoutingEnabled: clearance.manualRoutingEnabled === true,
+          assignedDepartments: clearance.assignedDepartments || [],
+          requiredOffices: clearance.requiredOffices || [],
+          requestSource: clearance.requestSource || 'Employee Portal',
+          initiatedBy: clearance.initiatedBy || null,
+          initiatedByName: clearance.initiatedByName || '',
           overallStatus,
           departmentClearances,
           completedDepartments: approvedCount,
           totalDepartments: totalDepts,
           officeProgress: `${approvedCount}/${totalDepts}`,
-          progress: Math.round((approvedCount / totalDepts) * 100),
+          progress: totalDepts === 0
+            ? (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved' ? 100 : 0)
+            : Math.round((approvedCount / totalDepts) * 100),
           requestDate: clearance.requestDate,
           createdAt: clearance.createdAt
         };

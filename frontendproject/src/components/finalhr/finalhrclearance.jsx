@@ -37,59 +37,32 @@ const normalizeStatus = (status) => {
   return 'PENDING';
 };
 
-const CORE_OFFICES = ['Department Head', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Library'];
-
-const officeAliases = {
-  'department head': 'Department Head',
-  department: 'Department Head',
-  finance: 'Finance Office',
-  'finance office': 'Finance Office',
-  property: 'Property / Asset Office',
-  'property office': 'Property / Asset Office',
-  'property / asset office': 'Property / Asset Office',
-  ict: 'ICT Office',
-  'ict office': 'ICT Office',
-  library: 'Library',
-  'library office': 'Library',
-};
-
 const getOfficeProgress = (request) => {
-  const entries = [
-    ...(Array.isArray(request?.departmentClearances) ? request.departmentClearances : []),
-    ...(Array.isArray(request?.workflow) ? request.workflow : []),
-  ];
-  const fieldStatuses = {
-    'Department Head': request?.departmentStatus,
-    'Finance Office': request?.financeStatus,
-    'Property / Asset Office': request?.propertyStatus,
-    'ICT Office': request?.ictStatus,
-    Library: request?.libraryStatus,
-  };
+  if (Array.isArray(request?.departmentClearances)) {
+    return request.departmentClearances.map((office) => ({
+      ...office,
+      name: office.name || office.office || office.department || 'Office',
+      status: office.status || office.state || office.approvalStatus || 'Pending',
+      clearedBy: office.clearedBy || office.approvedBy || office.reviewedBy || '-',
+      clearedDate: office.clearedDate || office.completedAt || office.updatedAt || '-',
+      remarks: office.remarks || office.comment || office.returnReason || '',
+    }));
+  }
 
-  return CORE_OFFICES.map((office) => {
-    const matches = entries.filter((entry) => {
-      const name = String(entry?.name || entry?.office || entry?.department || '').trim().toLowerCase();
-      const compactName = name.replace(/[^a-z0-9]+/g, '');
-      return officeAliases[name] === office
-        || name === office.toLowerCase()
-        || (office === 'Department Head' && compactName.includes('department'))
-        || (office === 'Finance Office' && compactName.includes('finance'))
-        || (office === 'Property / Asset Office' && (compactName.includes('property') || compactName.includes('asset')))
-        || (office === 'ICT Office' && compactName.includes('ict'))
-        || (office === 'Library' && compactName.includes('library'));
-    });
-    const entry = [...matches].reverse().find((item) => ['APPROVED', 'CLEARED', 'COMPLETED'].includes(normalizeStatus(item?.status || item?.state || item?.approvalStatus)))
-      || [...matches].reverse().find((item) => normalizeStatus(item?.status || item?.state || item?.approvalStatus) !== 'PENDING')
-      || matches[matches.length - 1]
-      || {};
-    const fieldStatus = fieldStatuses[office];
-    const status = fieldStatus && normalizeStatus(fieldStatus) !== 'PENDING'
-      ? fieldStatus
-      : entry.status || entry.state || entry.approvalStatus || fieldStatus || 'Pending';
+  const officeNames = request?.manualRoutingEnabled
+    ? request.assignedDepartments
+    : request?.requiredOffices?.filter((office) => !/department head|final hr/i.test(String(office)))
+      || ['Finance Office', 'Property / Asset Office', 'ICT Office', 'Library', 'Transport Office'];
+  const entries = [...(Array.isArray(request?.workflow) ? request.workflow : [])];
 
+  return (Array.isArray(officeNames) ? officeNames : []).map((office) => {
+    const entry = [...entries].reverse().find((item) => {
+      const entryName = String(item?.name || item?.office || item?.department || '').trim().toLowerCase();
+      return entryName === String(office).trim().toLowerCase();
+    }) || {};
     return {
       name: office,
-      status,
+      status: entry.status || entry.state || entry.approvalStatus || 'Pending',
       clearedBy: entry.clearedBy || entry.approvedBy || entry.reviewedBy || '-',
       clearedDate: entry.clearedDate || entry.completedAt || entry.updatedAt || '-',
       remarks: entry.remarks || entry.comment || entry.returnReason || '',
@@ -99,15 +72,22 @@ const getOfficeProgress = (request) => {
 
 const getProgressInfo = (request) => {
   const departmentClearances = getOfficeProgress(request);
-  const totalDepartments = CORE_OFFICES.length;
-  const approvedCount = departmentClearances.filter((item) => ['approved', 'completed', 'cleared'].includes(String(item.status || '').toLowerCase())).length;
+  const totalDepartments = Number.isFinite(Number(request?.totalDepartments))
+    ? Number(request.totalDepartments)
+    : departmentClearances.length;
+  const approvedCount = Number.isFinite(Number(request?.completedDepartments))
+    ? Number(request.completedDepartments)
+    : departmentClearances.filter((item) => ['approved', 'completed', 'cleared'].includes(String(item.status || '').toLowerCase())).length;
 
   const normalizedStatus = normalizeStatus(request?.overallStatus || request?.status);
+  const noOfficesReady = totalDepartments === 0
+    && request?.initialHRStatus === 'Approved'
+    && request?.departmentStatus === 'Approved';
 
   let statusLabel = 'PENDING';
   if (normalizedStatus === 'CERTIFICATE ISSUED') {
     statusLabel = 'CERTIFICATE ISSUED';
-  } else if (approvedCount >= totalDepartments && totalDepartments > 0) {
+  } else if (approvedCount === totalDepartments && (totalDepartments > 0 || noOfficesReady)) {
     statusLabel = 'READY FOR CERTIFICATE';
   } else if (approvedCount > 0 || ['IN PROGRESS', 'RETURNED', 'UNDER REVIEW'].includes(normalizedStatus)) {
     statusLabel = 'IN PROGRESS';
@@ -118,6 +98,10 @@ const getProgressInfo = (request) => {
     completed: approvedCount,
     total: totalDepartments,
     progress: `${approvedCount}/${totalDepartments}`,
+    hasOffices: totalDepartments > 0,
+    percentage: totalDepartments === 0
+      ? (noOfficesReady ? 100 : 0)
+      : Math.min(100, (approvedCount / totalDepartments) * 100),
     status: statusLabel,
     statusType: statusLabel === 'READY FOR CERTIFICATE' ? 'ready' : statusLabel === 'CERTIFICATE ISSUED' ? 'issued' : statusLabel === 'IN PROGRESS' ? 'progress' : 'pending',
   };
@@ -267,7 +251,10 @@ export default function HRFinalClearance() {
   };
 
   const selectedProgress = selectedRequest ? getProgressInfo(selectedRequest) : null;
-  const certificateReady = Boolean(selectedProgress?.total && selectedProgress.completed === selectedProgress.total);
+  const certificateReady = Boolean(selectedProgress
+    && selectedProgress.completed === selectedProgress.total
+    && (selectedProgress.total > 0
+      || (selectedRequest?.initialHRStatus === 'Approved' && selectedRequest?.departmentStatus === 'Approved')));
   const hrApproved = Boolean(selectedRequest?.finalHRApproval === true && selectedRequest?.status === 'Completed');
   const certificateAvailable = Boolean(hrApproved && certificateReady);
 
@@ -284,7 +271,9 @@ export default function HRFinalClearance() {
         remarks: 'All required offices cleared and final HR verification completed.',
       });
       setSelectedRequest(data?.clearance || { ...selectedRequest, status: 'Completed', finalHRApproval: true, checklistCompleted: true });
-      setRequests((previous) => previous.map((request) => request.requestId === requestId ? { ...request, status: 'Completed' } : request));
+      setRequests((previous) => previous.map((request) => request.requestId === requestId
+        ? { ...request, status: 'Completed', overallStatus: 'CERTIFICATE ISSUED', finalHRApproval: true }
+        : request));
     } catch (error) {
       setDecisionError(error.response?.data?.message || 'Unable to complete final HR approval.');
     } finally {
@@ -424,7 +413,7 @@ export default function HRFinalClearance() {
                         <td className="px-4 py-4 text-slate-600">{formatDate(request.requestDate || request.createdAt)}</td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-1.5">
-                            {Array.from({ length: 5 }).map((_, dotIndex) => (
+                            {Array.from({ length: info.total }).map((_, dotIndex) => (
                               <span
                                 key={`${request._id || request.requestId}-dot-${dotIndex}`}
                                 className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${
@@ -436,7 +425,9 @@ export default function HRFinalClearance() {
                                 {dotIndex < Number(info.progress.split('/')[0]) ? '✓' : ''}
                               </span>
                             ))}
-                            <span className="ml-2 text-slate-500">{info.progress} Approved</span>
+                            <span className="ml-2 text-slate-500">
+                              {info.hasOffices ? `${info.progress} Approved` : 'No additional offices assigned'}
+                            </span>
                           </div>
                         </td>
                         <td className="px-4 py-4">
@@ -589,7 +580,9 @@ export default function HRFinalClearance() {
 
                       <div className="mt-5 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-[11px]">
                         <span className="font-semibold text-slate-600">Overall Progress</span>
-                        <span className="font-bold text-slate-800">{selectedProgress.progress} Offices Approved</span>
+                        <span className="font-bold text-slate-800">
+                          {selectedProgress.hasOffices ? `${selectedProgress.progress} Offices Approved` : 'No additional offices assigned'}
+                        </span>
                       </div>
                     </div>
 
@@ -598,7 +591,11 @@ export default function HRFinalClearance() {
                       <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
                         <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Overall Status</div>
                         <div className="mt-1 font-bold text-emerald-800">{hrApproved ? 'HR FINAL APPROVED' : selectedProgress.status}</div>
-                        <div className="mt-1 text-[10px] text-emerald-700">{selectedProgress.completed}/{selectedProgress.total} offices approved</div>
+                        <div className="mt-1 text-[10px] text-emerald-700">
+                          {selectedProgress.hasOffices
+                            ? `${selectedProgress.completed}/${selectedProgress.total} offices approved`
+                            : 'No additional offices assigned'}
+                        </div>
                       </div>
                       {decisionError && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-[11px] text-red-700">{decisionError}</div>}
                       <div className="space-y-3">
@@ -609,7 +606,7 @@ export default function HRFinalClearance() {
                           className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#0e63d6] px-3 py-2.5 text-[11px] font-bold text-white hover:bg-[#0d56b8] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <CheckCircle2 size={14} />
-                          {decisionSaving ? 'Approving...' : hrApproved ? 'Final HR Approved' : certificateReady ? 'Approve Final HR Clearance' : 'Requires 5/5 Office Approval'}
+                          {decisionSaving ? 'Approving...' : hrApproved ? 'Final HR Approved' : certificateReady ? 'Approve Final HR Clearance' : `Awaiting ${selectedProgress.completed}/${selectedProgress.total} office approvals`}
                         </button>
                         <button
                           type="button"
@@ -635,9 +632,11 @@ export default function HRFinalClearance() {
                     <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5">
                       <div className="mb-4 flex items-center justify-between">
                         <div className="text-[13px] font-semibold text-slate-700">Clearance Progress</div>
-                        <span className="text-[11px] font-bold text-slate-600">{selectedProgress.progress} Offices</span>
+                        <span className="text-[11px] font-bold text-slate-600">
+                          {selectedProgress.hasOffices ? `${selectedProgress.progress} Offices` : 'No additional offices assigned'}
+                        </span>
                       </div>
-                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${selectedProgress.completed / selectedProgress.total * 100}%` }} /></div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${selectedProgress.percentage}%` }} /></div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
                         {selectedProgress.departmentClearances.map((office, index) => (
                           <div key={`progress-${office.name || office.department || 'office'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-center text-[10px]">

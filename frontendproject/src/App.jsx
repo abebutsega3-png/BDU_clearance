@@ -39,6 +39,7 @@ import EditRole from './components/role and permision/editrole';
 import AuditLog from './components/audit/auditlog';
 import HRFinalClearance from './components/finalhr/finalhrclearance';
 import HRAssessmentPage from './components/hrofficedashboared/HRAssessmentPage';
+import HRWorkflowPanel from './components/hrofficedashboared/HRWorkflowPanel';
 import HRSeparationTypes from './components/hrofficedashboared/HRSeparationTypeManagement';
 import HRCertificateList from './components/finalhr/hrcertificatelist';
 import CertificatePreview from './components/finalhr/CertificatePreview';
@@ -90,6 +91,8 @@ import PropertyProfile from './components/Property Officer/propertyprofile';
 import FinanceOfficerDashboard from './page/finance officerdashboared';
 import FinanceClearanceRequestPage from './components/Finance Officer/FinanceClearancerequest';
 import FinancialRecords from './components/Finance Officer/Financial Records';
+import EmployeeFinancialRecordDetails from './components/Finance Officer/EmployeeFinancialRecordDetails';
+import AddFinancialRecord from './components/Finance Officer/AddFinancialRecord';
 import FinanceReportsPage from './components/Finance Officer/FinanceReportsPage';
 import FinanceNotifications from './components/Finance Officer/FinanceNotifications';
 import FinanceProfilePage from './components/Finance Officer/FinanceProfilePage';
@@ -268,6 +271,18 @@ function MainLayout() {
 							</PrivateRoutes>
 						}
 					/>
+          <Route
+            path="/finance-office/records/add"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Finance Officer", "finance officer", "finance office", "finance"]}>
+                  <FinanceOfficerDashboard>
+                    <AddFinancialRecord />
+                  </FinanceOfficerDashboard>
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
           <Route
             path="/finance-office/notifications"
             element={
@@ -478,6 +493,18 @@ function MainLayout() {
             <Route path="settings" element={<PropertySettings />} />
             <Route path="profile" element={<PropertyProfile />} />
           </Route>
+          <Route
+            path="/finance-office/records/employee/:employeeId"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Finance Officer", "finance officer", "finance office", "finance"]}>
+                  <FinanceOfficerDashboard>
+                    <EmployeeFinancialRecordDetails />
+                  </FinanceOfficerDashboard>
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
           <Route path="/library-office/clearance-requests" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryClearanceRequestsPage /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/library-office/library-records" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryRecordsPage /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/library-office/clearance-history" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryClearanceHistory /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
@@ -517,6 +544,7 @@ function MainLayout() {
           <Route path="/hr-office/reports" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRReport /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/profile" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRmyprofile /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/hr-assessment" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRAssessmentPage /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
+          <Route path="/hr-office/hr-workflow" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRWorkflowPanel /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/separationType" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRSeparationTypes /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/assessment/:id" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRAssessmentPage /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/employees" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><EmployeeList /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />

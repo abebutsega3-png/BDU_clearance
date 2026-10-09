@@ -1,5 +1,6 @@
 import Clearance from '../models/clearance.js';
 import AuditLog from '../models/AuditLog.js';
+import { officeAssignmentFilter } from '../utils/clearanceWorkflow.js';
 
 const transportOfficeRegex = { $regex: 'transport', $options: 'i' };
 
@@ -99,7 +100,11 @@ const getDashboardData = async (req, res) => {
 
   try {
     const reviewableTransportRequestFilter = {
-      $and: [transportRequestFilter, { departmentStatus: 'Approved' }],
+      $and: [
+        transportRequestFilter,
+        { departmentStatus: 'Approved' },
+        officeAssignmentFilter('Transport Office'),
+      ],
     };
     const withTransportFilter = (filter = {}) => ({
       $and: [reviewableTransportRequestFilter, filter],

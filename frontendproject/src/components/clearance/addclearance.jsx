@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { createClearance } from '../../until/clearanceHelper';
 import { fetchEmployees } from '../../until/EmployeeHelper';
 import { fetchActiveSeparationTypes } from '../../until/separationTypeHelper';
+import { useAuth } from '../../context/authContext';
 
 const defaultRequiredOffices = ['HR Office', 'Library', 'Finance', 'Department', 'Transport Office'];
 
@@ -34,7 +35,10 @@ function DateField({ name, value, onChange, required }) {
 export default function AddClearance() {
 	const navigate = useNavigate();
 	const { pathname } = useLocation();
+	const { user } = useAuth();
 	const routePrefix = pathname.startsWith('/hr-office') ? '/hr-office' : '/admin';
+	const normalizedRole = String(user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+	const isHRInitiated = routePrefix === '/hr-office' && ['hr', 'hr officer', 'human resources'].includes(normalizedRole);
 	const [form, setForm] = useState(initialForm);
 	const [message, setMessage] = useState('');
 	const [employees, setEmployees] = useState([]);
@@ -90,7 +94,6 @@ export default function AddClearance() {
 		setSubmitting(true);
 		setMessage('');
 		try {
-			const selectedOffices = requiredOffices.length ? requiredOffices : defaultRequiredOffices;
 			await createClearance({
 				employee: selectedEmployee?._id || form.employee,
 				employeeId: selectedEmployee?.employeeId || form.employee,
@@ -103,11 +106,14 @@ export default function AddClearance() {
 				lastWorkingDate: form.lastWorkingDate,
 				relievingDate: form.relievingDate,
 				remarks: form.remarks,
-				requiredOffices: selectedOffices,
-				workflow: selectedOffices.map((office) => ({ office, status: 'Pending', updatedAt: new Date().toISOString() })),
-				status: 'Pending',
+				...(!isHRInitiated ? {
+					requiredOffices: requiredOffices.length ? requiredOffices : defaultRequiredOffices,
+					workflow: (requiredOffices.length ? requiredOffices : defaultRequiredOffices)
+						.map((office) => ({ office, status: 'Pending', updatedAt: new Date().toISOString() })),
+					status: 'Pending',
+				} : {}),
 			});
-			navigate(`${routePrefix}/clearance-requests`);
+			navigate(isHRInitiated ? `${routePrefix}/hr-workflow` : `${routePrefix}/clearance-requests`);
 		} catch (requestError) {
 			setMessage(requestError.response?.data?.message || 'Unable to submit clearance request.');
 		} finally {
@@ -122,17 +128,19 @@ export default function AddClearance() {
 				<form onSubmit={handleSubmit} className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
 					<header className="flex items-center gap-3 border-b border-slate-200 px-4 py-3">
 						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><ClipboardList size={22} /></div>
-						<div><h1 className="text-base font-bold text-slate-900">Create New Clearance Request</h1><p className="text-[10px] text-slate-500">Fill in the information below to create a new clearance request for an employee.</p></div>
+						<div><h1 className="text-base font-bold text-slate-900">Create New Clearance Request</h1><p className="text-[10px] text-slate-500">{isHRInitiated ? 'Create this request on behalf of an employee. It will be ready for office assignment in HR Workflow.' : 'Fill in the information below to create a new clearance request for an employee.'}</p></div>
 					</header>
 
 					<div className="space-y-6 p-4">
 						<section>
 							<h2 className="mb-4 flex items-center gap-3 text-[11px] font-bold text-blue-600"><span>Employee Information</span><span className="h-px flex-1 bg-slate-200" /></h2>
 							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-								<Field label="Employee" required><SelectField name="employee" value={form.employee} onChange={handleChange} required><option value="">Select Employee</option>{employees.map((item) => <option key={item._id || item.employeeId} value={item.employeeId || item._id}>{item.fullName}</option>)}</SelectField></Field>
+								<Field label={isHRInitiated ? 'Employee ID' : 'Employee'} required><SelectField name="employee" value={form.employee} onChange={handleChange} required><option value="">{isHRInitiated ? 'Search by Employee ID' : 'Select Employee'}</option>{employees.map((item) => <option key={item._id || item.employeeId} value={item.employeeId || item._id}>{isHRInitiated ? `${item.employeeId || 'No ID'} — ${item.fullName}` : item.fullName}</option>)}</SelectField></Field>
+								{isHRInitiated && <Field label="Full Name"><input value={selectedEmployee?.fullName || '-'} readOnly className={`${inputClass} bg-slate-100 text-slate-500`} /></Field>}
 								<Field label="Employee ID"><input value={selectedEmployee?.employeeId || '-'} readOnly className={`${inputClass} bg-slate-100 text-slate-500`} /></Field>
 								<Field label="Department"><input value={selectedEmployee?.department || '-'} readOnly className={`${inputClass} bg-slate-100 text-slate-500`} /></Field>
 								<Field label="Campus"><input value={selectedEmployee?.campus || '-'} readOnly className={`${inputClass} bg-slate-100 text-slate-500`} /></Field>
+								{isHRInitiated && <Field label="Employment Status"><input value={selectedEmployee?.status || '-'} readOnly className={`${inputClass} bg-slate-100 text-slate-500`} /></Field>}
 							</div>
 						</section>
 
@@ -147,7 +155,7 @@ export default function AddClearance() {
 							</div>
 						</section>
 
-						<section>
+						{!isHRInitiated && <section>
 							<h2 className="mb-2 flex items-center gap-3 text-[11px] font-bold text-blue-600"><span>Required Offices</span><span className="h-px flex-1 bg-slate-200" /></h2>
 							<p className="mb-3 text-[10px] text-slate-500">The system will create one pending clearance task for every selected office.</p>
 							<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -161,9 +169,9 @@ export default function AddClearance() {
 									);
 								})}
 							</div>
-						</section>
+						</section>}
 
-						<section>
+						{!isHRInitiated && <section>
 							<h2 className="mb-2 flex items-center gap-3 text-[11px] font-bold text-blue-600"><span>Clearance Flow</span><span className="h-px flex-1 bg-slate-200" /></h2>
 							<p className="mb-3 text-[10px] text-slate-500">The request will be sent to the following offices for clearance.</p>
 							<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
@@ -180,11 +188,11 @@ export default function AddClearance() {
 									</React.Fragment>
 								))}
 							</div>
-						</section>
+						</section>}
 
-						<div className="flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-slate-600"><Info size={14} className="shrink-0 text-blue-600" />You can track the status of this clearance request from the Clearance Requests menu.</div>
+						<div className="flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] text-slate-600"><Info size={14} className="shrink-0 text-blue-600" />{isHRInitiated ? 'HR assessment is marked complete for this HR-initiated request. Select the required offices next in HR Workflow.' : 'You can track the status of this clearance request from the Clearance Requests menu.'}</div>
 					</div>
-					<footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><p className={`mr-auto text-[10px] ${message.startsWith('Unable') ? 'text-red-600' : 'text-emerald-600'}`}>{message}</p><button type="button" onClick={() => navigate(`${routePrefix}/clearance-requests`)} className="rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100">Cancel</button><button type="button" className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100"><Save size={13} />Save Draft</button><button type="submit" disabled={submitting} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-5 py-2 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"><Send size={13} />{submitting ? 'Submitting...' : 'Submit Request'}</button></footer>
+					<footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><p className={`mr-auto text-[10px] ${message.startsWith('Unable') ? 'text-red-600' : 'text-emerald-600'}`}>{message}</p><button type="button" onClick={() => navigate(`${routePrefix}/clearance-requests`)} className="rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100">Cancel</button><button type="button" className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-5 py-2 text-[10px] font-medium text-slate-700 hover:bg-slate-100"><Save size={13} />Save Draft</button><button type="submit" disabled={submitting} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-5 py-2 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"><Send size={13} />{submitting ? 'Creating...' : isHRInitiated ? 'Create & Continue to HR Workflow' : 'Submit Request'}</button></footer>
 				</form>
 			</div>
 		</main>

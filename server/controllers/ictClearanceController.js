@@ -161,7 +161,7 @@ const notifyIctOfficers = async (data) => {
 	}
 };
 
-const notifyIctDecisionRecipients = async (request, status) => {
+const notifyIctDecisionRecipients = async (request, status, requestSource = '') => {
   if (!['Approved', 'Returned'].includes(status)) return;
   const employee = request.employee || {};
   const isApproved = status === 'Approved';
@@ -180,7 +180,7 @@ const notifyIctDecisionRecipients = async (request, status) => {
   const employeeUser = employeeQueries.length
     ? await User.findOne({ $or: employeeQueries }).select('_id')
     : null;
-  if (employeeUser) recipients.push({ id: employeeUser._id, actionLink: '/employee/My%20Clearance', actionText: isApproved ? 'View Clearance' : 'View Request' });
+  if (employeeUser && requestSource !== 'HR Officer') recipients.push({ id: employeeUser._id, actionLink: '/employee/My%20Clearance', actionText: isApproved ? 'View Clearance' : 'View Request' });
   const hrUsers = await User.find({ role: { $regex: '^(hr[ _]officer|hr|human resources)$', $options: 'i' } }).select('_id');
   recipients.push(...hrUsers.map((user) => ({ id: user._id, actionLink: '/hr-office/clearance-requests', actionText: 'View Request' })));
   if (recipients.length) {
@@ -447,6 +447,7 @@ const processIctClearanceRequest = async (req, res) => {
             returnedReason: request.returnReason,
             returnedRemark: request.remarks,
             affectedField: affectedField || 'ICT Clearance',
+            ...(clearance.requestSource === 'HR Officer' ? { currentStep: 'HR Officer' } : {}),
           } : {}),
           ictAssets: request.assetsIssued,
           ictChecklist: request.ictChecklist,
@@ -466,7 +467,7 @@ const processIctClearanceRequest = async (req, res) => {
     );
 
     try {
-      await notifyIctDecisionRecipients(request, finalStatus);
+      await notifyIctDecisionRecipients(request, finalStatus, clearance.requestSource);
     } catch (notificationError) {
       console.error('ICT decision saved, but recipient notification failed:', notificationError.message);
     }

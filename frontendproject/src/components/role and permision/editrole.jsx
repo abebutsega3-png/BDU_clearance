@@ -24,6 +24,7 @@ export default function EditRole() {
   const [roleName, setRoleName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('Active');
+  const [isClearanceOffice, setIsClearanceOffice] = useState(false);
   const [permissions, setPermissions] = useState(emptyPermissions);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -37,6 +38,7 @@ export default function EditRole() {
         setRoleName(role.name || '');
         setDescription(role.description || '');
         setStatus(role.isActive === false ? 'Inactive' : 'Active');
+        setIsClearanceOffice(role.isClearanceOffice === true);
         setPermissions(moduleNames.map(([module]) => permissionLabels.map((label) => role.permissions?.find((permission) => permission.module === module)?.actions?.includes(label.toLowerCase()) || false)));
       } catch (error) {
         setMessage(error.response?.data?.message || 'Unable to load role. Please try again.');
@@ -60,7 +62,7 @@ export default function EditRole() {
     setMessage('');
     try {
       await axios.put(`http://localhost:3000/api/roles/${id}`, {
-        name: roleName.trim(), description: description.trim(), status,
+        name: roleName.trim(), description: description.trim(), status, isClearanceOffice,
         permissions: moduleNames.map(([module], moduleIndex) => ({
           module,
           actions: permissionLabels.filter((_, permissionIndex) => permissions[moduleIndex][permissionIndex]).map((action) => action.toLowerCase()),
@@ -83,6 +85,7 @@ export default function EditRole() {
         <label className="text-xs font-semibold text-slate-700">Role Name<input value={roleName} onChange={(event) => setRoleName(event.target.value)} className="mt-1.5 block w-full rounded border border-slate-300 px-3 py-2.5 text-xs font-normal outline-none focus:border-blue-500" required /></label>
         <label className="text-xs font-semibold text-slate-700">Role Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows="3" className="mt-1.5 block w-full resize-none rounded border border-slate-300 px-3 py-2.5 text-xs font-normal outline-none focus:border-blue-500" /></label>
         <label className="text-xs font-semibold text-slate-700">Role Status<span className="relative mt-1.5 block"><select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full appearance-none rounded border border-slate-300 px-3 py-2.5 text-xs font-normal"><option>Active</option><option>Inactive</option></select><ChevronDown size={14} className="pointer-events-none absolute right-3 top-2.5 text-slate-500" /></span></label>
+        <label className="flex items-start gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={isClearanceOffice} onChange={(event) => setIsClearanceOffice(event.target.checked)} className="mt-0.5 h-4 w-4 accent-blue-600" /><span>Use as a clearance office<span className="mt-1 block text-[10px] font-normal text-slate-500">This role will be available for HR to assign during manual clearance routing.</span></span></label>
       </div></section>
       <section className="p-4 sm:p-6"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-sm font-bold text-slate-800">Set Permissions</h2><p className="mt-1 text-[11px] text-slate-500">Select the permissions that this role will have.</p></div><div className="flex gap-2"><button type="button" onClick={() => setAllPermissions(true)} className="rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-600">Select All</button><button type="button" onClick={() => setAllPermissions(false)} className="rounded border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600">Deselect All</button></div></div>
         <div className="mt-4 overflow-x-auto rounded border border-slate-200"><table className="w-full min-w-[680px] border-collapse text-xs"><thead><tr className="bg-slate-50 text-left font-bold text-slate-600"><th className="px-3 py-3">Module / Feature</th>{permissionLabels.map((label) => <th key={label} className="px-2 py-3 text-center">{label}</th>)}</tr></thead><tbody>{moduleNames.map(([name, detail], moduleIndex) => <tr key={name} className="border-t border-slate-100"><td className="px-3 py-3"><div className="flex items-start gap-2"><ChevronDown size={14} className="mt-0.5 text-slate-500" /><span><strong className="block text-slate-700">{name}</strong><small className="block text-[10px] text-slate-500">{detail}</small></span></div></td>{permissionLabels.map((label, permissionIndex) => <td key={label} className="px-2 py-3 text-center"><input type="checkbox" aria-label={`${name} ${label}`} checked={permissions[moduleIndex][permissionIndex]} onChange={() => updatePermission(moduleIndex, permissionIndex)} className="h-4 w-4 accent-blue-600" /></td>)}</tr>)}</tbody></table></div>

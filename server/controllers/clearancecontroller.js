@@ -4,10 +4,15 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Employee from '../models/employee.js';
 import Department from '../models/department.js';
+import Role from '../models/role.js';
 import { isDepartmentHead } from '../utils/roleHelpers.js';
 import {
+  FINAL_HR_STAGE,
   DEFAULT_REQUIRED_OFFICES,
   buildRequiredOfficeWorkflow,
+  officeAssignmentFilter,
+  MANUAL_ROUTABLE_OFFICES,
+  normalizeRoutedOffice,
   normalizeRequiredOffices,
   resolveNextStepAfterDecision,
 	isRequestVisibleToOffice,
@@ -34,6 +39,8 @@ const hasTransportOffice = (clearance) => [
 	...(Array.isArray(clearance?.requiredOffices) ? clearance.requiredOffices : []),
 	...(Array.isArray(clearance?.workflow) ? clearance.workflow.map((step) => step.office || step.name) : []),
 ].some((office) => /transport/i.test(String(office || '')));
+const isAssignedOffice = (clearance, pattern) => clearance?.manualRoutingEnabled !== true
+	|| (clearance.assignedDepartments || []).some((office) => pattern.test(String(office || '')));
 
 const resolveEmployeeNotificationRecipient = async (clearance) => {
 	if (!clearance) return null;
@@ -95,6 +102,39 @@ const notifyPropertyOfficers = async (clearance, event = 'new') => {
 		if (notifications.length) await Notification.insertMany(notifications);
 	} catch (error) {
 		console.error('Unable to notify Property Officers:', error.message);
+	}
+};
+
+const notifyDynamicClearanceOffices = async (clearance) => {
+	if (clearance?.manualRoutingEnabled !== true) return;
+	const customOfficeNames = [...new Set((clearance.assignedDepartments || [])
+		.map(normalizeRoutedOffice)
+		.filter((office) => office && !MANUAL_ROUTABLE_OFFICES.some(
+			(builtInOffice) => normalizeRoutedOffice(builtInOffice).toLowerCase() === office.toLowerCase(),
+		)))];
+	if (!customOfficeNames.length) return;
+
+	try {
+		const customRoles = await Role.find({
+			name: { $in: customOfficeNames },
+			isActive: true,
+			isClearanceOffice: true,
+		}).select('name').lean();
+		const recipients = await User.find({ role: { $in: customRoles.map(({ name }) => name) } }).select('_id name role');
+		if (!recipients.length) return;
+		await Notification.insertMany(recipients.map((recipient) => ({
+			recipientId: recipient._id,
+			targetName: recipient.name || recipient.role,
+			title: 'Clearance Ready for Office Review',
+			message: `${clearance.employeeName || 'An employee'}'s clearance request was approved by the Department Head and is ready for ${recipient.role} review.`,
+			type: 'CLEARANCE_READY_FOR_OFFICE',
+			actionText: 'Review Request',
+			relatedRequestId: clearance.requestId,
+			clearanceRequestId: clearance.requestId,
+			isRead: false,
+		})));
+	} catch (error) {
+		console.error('Unable to notify dynamically assigned clearance offices:', error.message);
 	}
 };
 
@@ -266,6 +306,28 @@ const getClearances = async (_req, res) => {
 	try {
 		const role = String(_req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ');
 		const workflowFilter = {};
+		const officeByRole = {
+			'finance officer': 'Finance Office',
+			'library officer': 'Library',
+			'property officer': 'Property / Asset Office',
+			'property / asset officer': 'Property / Asset Office',
+			'ict officer': 'ICT Office',
+			'transport officer': 'Transport Office',
+		};
+		let routedOffice = officeByRole[role];
+		if (!routedOffice && !['admin', 'administrator', 'system admin', 'system administrator', 'hr', 'hr officer', 'human resources', 'employee', 'department head'].includes(role)) {
+			const escapedRole = role.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const clearanceRole = await Role.findOne({
+				name: { $regex: `^${escapedRole}$`, $options: 'i' },
+				isActive: true,
+				isClearanceOffice: true,
+			}).select('name').lean();
+			routedOffice = clearanceRole?.name;
+		}
+		if (routedOffice) {
+			workflowFilter.$and = [officeAssignmentFilter(routedOffice, Boolean(officeByRole[role]))];
+			if (!officeByRole[role]) workflowFilter.departmentStatus = 'Approved';
+		}
 		if (role === 'finance officer') {
 			workflowFilter.departmentStatus = 'Approved';
 		}
@@ -326,7 +388,7 @@ const getLibraryReport = async (req, res) => {
 				{ requiredOffices: { $regex: 'library', $options: 'i' } },
 				{ libraryStatus: { $exists: true } },
 			],
-		}] };
+		}, officeAssignmentFilter('Library')] };
 		const dateFilter = {};
 		if (fromDate) dateFilter.$gte = new Date(`${fromDate}T00:00:00.000Z`);
 		if (toDate) dateFilter.$lte = new Date(`${toDate}T23:59:59.999Z`);
@@ -500,12 +562,25 @@ const getClearance = async (req, res) => {
 			'property officer': 'Property / Asset Office',
 			'property / asset officer': 'Property / Asset Office',
 			'ict officer': 'ICT Office',
+			'transport officer': 'Transport Office',
 		};
+		let routedOffice = officeByRole[role];
+		if (!routedOffice && !['admin', 'administrator', 'system admin', 'system administrator', 'hr', 'hr officer', 'human resources', 'employee', 'department head'].includes(role)) {
+			const escapedRole = role.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const clearanceRole = await Role.findOne({
+				name: { $regex: `^${escapedRole}$`, $options: 'i' },
+				isActive: true,
+				isClearanceOffice: true,
+			}).select('name').lean();
+			routedOffice = clearanceRole?.name;
+		}
 		const parallelOffice = ['finance officer', 'library officer', 'property officer', 'property / asset officer', 'ict officer'].includes(role);
-		const canView = officeByRole[role]
-			? (parallelOffice && clearance.departmentStatus === 'Approved'
-				? true
-				: isRequestVisibleToOffice(clearance, officeByRole[role]))
+		const canView = routedOffice
+			? (clearance.manualRoutingEnabled === true
+				? isRequestVisibleToOffice(clearance, routedOffice)
+				: parallelOffice && clearance.departmentStatus === 'Approved'
+					? true
+					: isRequestVisibleToOffice(clearance, routedOffice))
 			: true;
 		if (!canView) return res.status(404).json({ success: false, message: 'This request is not ready for your office.' });
 		return res.status(200).json({ success: true, clearance });
@@ -544,13 +619,18 @@ const deleteClearance = async (req, res) => {
 
 const addClearance = async (req, res) => {
 	try {
+		const normalizedRole = String(req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+		const initiatedByHR = ['hr', 'hr officer', 'human resources'].includes(normalizedRole);
 		const lastWorkingDate = String(req.body?.lastWorkingDate || '').slice(0, 10);
 		if (!lastWorkingDate) {
 			return res.status(400).json({ success: false, message: 'Last working date is required.' });
 		}
 		const employeeRecord = req.body?.employeeId
-			? await Employee.findOne({ employeeId: req.body.employeeId }).select('employeeId fullName department position campus phone email').lean()
+			? await Employee.findOne({ employeeId: req.body.employeeId }).select('employeeId fullName department position campus phone email status').lean()
 			: null;
+		if (initiatedByHR && !employeeRecord) {
+			return res.status(400).json({ success: false, message: 'Select a valid employee record before creating a request on their behalf.' });
+		}
 		const resolvedDepartment = employeeRecord?.department || req.user?.department || req.body?.department || '';
 		const resolvedEmployeeName = employeeRecord?.fullName || req.user?.name || req.body?.employeeName || '';
 		const employeeFilter = employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId
@@ -571,11 +651,13 @@ const addClearance = async (req, res) => {
 				});
 			}
 		}
-		const requestedOffices = normalizeRequiredOffices([
-			...(req.body?.requiredOffices || req.body?.offices || DEFAULT_REQUIRED_OFFICES),
-			'Department Head',
-		]);
-		const workflow = Array.isArray(req.body?.workflow) && req.body.workflow.length
+		const requestedOffices = initiatedByHR
+			? ['Department Head', FINAL_HR_STAGE]
+			: normalizeRequiredOffices([
+				...(req.body?.requiredOffices || req.body?.offices || DEFAULT_REQUIRED_OFFICES),
+				'Department Head',
+			]);
+		const workflow = !initiatedByHR && Array.isArray(req.body?.workflow) && req.body.workflow.length
 			? req.body.workflow
 				.map((step) => ({
 					office: step?.office || step?.name || '',
@@ -584,7 +666,12 @@ const addClearance = async (req, res) => {
 				}))
 				.filter((step) => step.office)
 			: buildRequiredOfficeWorkflow(requestedOffices);
-		workflow.unshift({ office: 'Initial HR Review', status: 'Pending', updatedAt: new Date().toISOString() });
+		workflow.unshift({
+			office: 'Initial HR Review',
+			status: initiatedByHR ? 'Completed' : 'Pending',
+			updatedAt: new Date().toISOString(),
+			...(initiatedByHR ? { performedBy: req.user?.name || 'HR Officer', remarks: 'Request initiated and employee details checked by HR.' } : {}),
+		});
 		if (!workflow.some((step) => /department\s*head|^department$/i.test(String(step.office || '').trim()))) {
 			workflow.unshift({ office: 'Department Head', status: 'Pending', updatedAt: new Date().toISOString() });
 		}
@@ -592,16 +679,30 @@ const addClearance = async (req, res) => {
 		const payload = {
 			...(req.body || {}),
 			lastWorkingDate,
+			requestDate: req.body?.requestDate || new Date().toISOString().slice(0, 10),
 			employeeId: employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId || '',
 			department: resolvedDepartment,
-			initialHRStatus: 'Pending',
+			requestSource: initiatedByHR ? 'HR Officer' : 'Employee Portal',
+			initiatedBy: req.user?._id || null,
+			initiatedByName: req.user?.fullName || req.user?.name || '',
+			initialHRStatus: initiatedByHR ? 'Under Review' : 'Pending',
+			initialHRAssessmentCompleted: initiatedByHR,
+			assessmentChecklist: initiatedByHR ? {
+				empInfoVerified: true,
+				clearanceRequestVerified: true,
+				documentVerified: true,
+				employmentVerified: true,
+				noDuplicateRequest: true,
+			} : req.body?.assessmentChecklist,
+			initialHRReviewedBy: initiatedByHR ? (req.user?.fullName || req.user?.name || 'HR Officer') : '',
+			initialHRReviewedAt: initiatedByHR ? new Date() : null,
 			departmentStatus: 'Pending',
 			employeeName: resolvedEmployeeName,
 			clearanceType: req.body?.clearanceType || req.body?.clearanceReason || 'Resignation',
 			requiredOffices: requestedOffices,
-			currentStep: 'Initial HR Review',
+			currentStep: initiatedByHR ? 'HR Workflow' : 'Initial HR Review',
 			workflow,
-			status: req.body?.status || 'Pending',
+			status: 'Pending',
 			propertyStatus: 'Pending',
 		};
 		const assignment = await resolveDepartmentAssignment(resolvedDepartment);
@@ -615,42 +716,50 @@ const addClearance = async (req, res) => {
 			await recordAuditLog({
 				req,
 				user: req.user,
-				action: 'SUBMIT_CLEARANCE',
+				action: initiatedByHR ? 'HR_INITIATE_CLEARANCE' : 'SUBMIT_CLEARANCE',
 				module: 'Clearance Request',
-				description: `${clearance.employeeName || 'An employee'} submitted a clearance request (${clearance.requestId || clearance._id}).`,
+				description: initiatedByHR
+					? `${req.user?.fullName || req.user?.name || 'HR Officer'} created a clearance request for ${clearance.employeeName || 'an employee'} (${clearance.requestId || clearance._id}).`
+					: `${clearance.employeeName || 'An employee'} submitted a clearance request (${clearance.requestId || clearance._id}).`,
 				newValues: {
 					requestId: clearance.requestId,
 					employeeId: clearance.employeeId,
 					status: clearance.status,
 					requiredOffices: clearance.requiredOffices,
+					requestSource: clearance.requestSource,
+					initiatedBy: clearance.initiatedBy,
 				},
 			});
 		} catch (auditError) {
 			console.error('Failed to record audit log:', auditError.message);
 		}
 
-		try {
-			await createEmployeeNotification({
-				clearance,
-				title: 'Clearance Request Submitted',
-				message: `Your clearance request has been submitted successfully. Request No: ${clearance.requestId || 'N/A'}`,
-				type: 'REQUEST_SUBMITTED',
-				actionText: 'View Request',
-				actionLink: '/employee/My%20Clearance',
-			});
-		} catch (notifError) {
-			console.error('Failed to create employee notification:', notifError.message);
+		if (!initiatedByHR) {
+			try {
+				await createEmployeeNotification({
+					clearance,
+					title: 'Clearance Request Submitted',
+					message: `Your clearance request has been submitted successfully. Request No: ${clearance.requestId || 'N/A'}`,
+					type: 'REQUEST_SUBMITTED',
+					actionText: 'View Request',
+					actionLink: '/employee/My%20Clearance',
+				});
+			} catch (notifError) {
+				console.error('Failed to create employee notification:', notifError.message);
+			}
 		}
 
 		await notifyHrOfficers({
 			clearance,
-			type: 'NEW_CLEARANCE_REQUEST',
-			title: 'New Clearance Request for Initial HR Review',
-			message: `${clearance.employeeName || 'An employee'} submitted a clearance request. Review the employee information before sending it to the Department Head. Request No: ${clearance.requestId || 'N/A'}`,
-			actionText: 'Review Request',
-			actionLink: '/hr-office/clearance-requests',
+			type: initiatedByHR ? 'HR_WORKFLOW_REQUEST_CREATED' : 'NEW_CLEARANCE_REQUEST',
+			title: initiatedByHR ? 'HR-Initiated Request Ready for Workflow' : 'New Clearance Request for Initial HR Review',
+			message: initiatedByHR
+				? `${req.user?.fullName || req.user?.name || 'HR Officer'} created a request for ${clearance.employeeName || 'an employee'}. Select required offices in HR Workflow. Request No: ${clearance.requestId || 'N/A'}`
+				: `${clearance.employeeName || 'An employee'} submitted a clearance request. Review the employee information before sending it to the Department Head. Request No: ${clearance.requestId || 'N/A'}`,
+			actionText: initiatedByHR ? 'Assign Clearance Offices' : 'Review Request',
+			actionLink: initiatedByHR ? '/hr-office/hr-workflow' : '/hr-office/clearance-requests',
 		});
-		return res.status(201).json({ success: true, clearance });
+		return res.status(201).json({ success: true, clearance, initiatedByHR });
 	} catch (error) {
 		console.error('Error in addClearance:', error);
 		return res.status(400).json({ success: false, message: 'Unable to create clearance request.' });
@@ -704,6 +813,7 @@ const updateClearance = async (req, res) => {
 			}
 		}
 		const isResubmission = requestUpdates.resubmitted === true || requestUpdates.status === 'Resubmitted';
+		const resolutionRemark = String(requestUpdates.resolutionRemark || '').trim();
 		let resubmittedToFinance = false;
 		const hasExplicitDepartmentDecision = requestUpdates.departmentDecision && typeof requestUpdates.departmentDecision === 'object';
 		const legacyDepartmentDecision = Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length
@@ -711,14 +821,15 @@ const updateClearance = async (req, res) => {
 			: null;
 		const departmentDecision = hasExplicitDepartmentDecision ? requestUpdates.departmentDecision : legacyDepartmentDecision;
 		const hasDepartmentDecision = Boolean(departmentDecision);
+		let reviewRequest = null;
 		if (hasExplicitDepartmentDecision) delete requestUpdates.departmentDecision;
 		if (hasDepartmentDecision) {
 			if (!isDepartmentHead(req.user?.role)) return res.status(403).json({ success: false, message: 'Department Head access is required.' });
 			const departmentRequestFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };
-			const reviewRequest = await Clearance.findOne(departmentRequestFilter)
-				.select('departmentId department employeeId initialHRStatus departmentStatus')
+			reviewRequest = await Clearance.findOne(departmentRequestFilter)
+				.select('departmentId department employeeId initialHRStatus departmentStatus manualRoutingEnabled assignedDepartments')
 				.lean();
 			if (!reviewRequest) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
 			if (reviewRequest.initialHRStatus !== 'Approved' || !['Pending', 'In Progress'].includes(reviewRequest.departmentStatus)) {
@@ -747,6 +858,8 @@ const updateClearance = async (req, res) => {
 		if (isResubmission) {
 			requestUpdates.status = 'Pending';
 			requestUpdates.overallStatus = 'In Progress';
+			delete requestUpdates.resubmitted;
+			delete requestUpdates.resolutionRemark;
 			requestUpdates.returnReason = '';
 			requestUpdates.returnedBy = '';
 			requestUpdates.returnedOffice = '';
@@ -754,7 +867,7 @@ const updateClearance = async (req, res) => {
 			requestUpdates.returnedReason = '';
 			requestUpdates.returnedRemark = '';
 			requestUpdates.affectedField = '';
-			requestUpdates.officerComment = requestUpdates.resolutionRemark || '';
+			requestUpdates.officerComment = resolutionRemark;
 		}
 		if (hasExplicitDepartmentDecision) {
 			const checklist = Array.isArray(requestUpdates.departmentChecklist) ? requestUpdates.departmentChecklist : [];
@@ -782,6 +895,9 @@ const updateClearance = async (req, res) => {
 			if (departmentStatus === 'Approved') {
 				requestUpdates.status = 'In Progress';
 				requestUpdates.overallStatus = 'In Progress';
+				if (reviewRequest.manualRoutingEnabled) {
+					requestUpdates.currentStep = reviewRequest.assignedDepartments?.[0] || 'Final HR Clearance';
+				}
 			}
 			if (departmentStatus === 'Returned') {
 				requestUpdates.status = 'Returned';
@@ -873,15 +989,29 @@ const updateClearance = async (req, res) => {
 			return undefined;
 		})();
 		if (resolvedCurrentStep) requestUpdates.currentStep = resolvedCurrentStep;
+		if (requestUpdates.departmentStatus === 'Approved') {
+			const routingFilter = mongoose.isValidObjectId(req.params.id)
+				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
+				: { requestId: req.params.id };
+			const routing = await Clearance.findOne(routingFilter)
+				.select('manualRoutingEnabled assignedDepartments')
+				.lean();
+			if (routing?.manualRoutingEnabled) {
+				requestUpdates.currentStep = routing.assignedDepartments?.[0] || 'Final HR Clearance';
+			}
+		}
 		if (isResubmission) {
 			const clearanceFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };
-			const existingClearance = await Clearance.findOne(clearanceFilter).select('workflow departmentClearances initialHRStatus transportReview').lean();
+			const existingClearance = await Clearance.findOne(clearanceFilter).select('workflow departmentClearances initialHRStatus transportReview requestSource').lean();
 			if (!existingClearance) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
 			requestUpdates.workflow = (Array.isArray(existingClearance.workflow) ? existingClearance.workflow : []).map((step) => {
 				if (String(step.status || '').toLowerCase() !== 'returned' && String(step.status || '').toLowerCase() !== 'rejected') return step;
 				const office = String(step.office || step.name || '').toLowerCase();
+				if (existingClearance.requestSource === 'HR Officer' && !requestUpdates.currentStep) {
+					requestUpdates.currentStep = step.office || step.name || 'HR Officer';
+				}
 				if (office.includes('ict')) requestUpdates.ictStatus = 'Pending';
 				if (office.includes('finance')) {
 					requestUpdates.financeStatus = 'Pending';
@@ -914,7 +1044,7 @@ const updateClearance = async (req, res) => {
 				return { ...item, status: 'Pending', updatedAt: new Date(), comment: '', remarks: '', returnReason: '' };
 			});
 			requestUpdates.departmentReturnReason = '';
-			requestUpdates.departmentComment = requestUpdates.resolutionRemark || '';
+			requestUpdates.departmentComment = resolutionRemark;
 			if (existingClearance.initialHRStatus === 'Returned') {
 				requestUpdates.initialHRStatus = 'Pending';
 				requestUpdates.currentStep = 'Initial HR Review';
@@ -927,7 +1057,10 @@ const updateClearance = async (req, res) => {
 		const clearanceFilter = mongoose.isValidObjectId(req.params.id)
 			? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 			: { requestId: req.params.id };
-		const previousClearance = await Clearance.findOne(clearanceFilter).select('libraryStatus departmentStatus workflow transportStatus returnedOffice').lean();
+		const previousClearance = await Clearance.findOne(clearanceFilter).select('libraryStatus departmentStatus workflow transportStatus returnedOffice requestSource').lean();
+		if (previousClearance?.requestSource === 'HR Officer' && ['Returned', 'Rejected'].includes(requestUpdates.status)) {
+			requestUpdates.currentStep = 'HR Officer';
+		}
 		if (libraryDecision && previousClearance) {
 			const libraryWorkflowStatus = libraryDecision.status === 'Completed'
 				? 'Completed'
@@ -1018,19 +1151,23 @@ const updateClearance = async (req, res) => {
 			});
 		}
 		if (requestUpdates.departmentStatus === 'Approved') {
-			await notifyLibraryOfficers({
-				clearance,
-				type: 'CLEARANCE_READY_FOR_LIBRARY',
-				title: 'Clearance Ready for Library Review',
-				message: `${clearance.employeeName || 'An employee'}'s clearance request was approved by the Department Head and is ready for Library review.`,
-				actionText: 'Review Request',
-			});
-			await notifyPropertyOfficers(clearance);
-			await notifyFinanceOfficers({
-				type: 'CLEARANCE_READY_FOR_FINANCE',
-				employeeName: clearance.employeeName,
-				requestId: clearance.requestId,
-			});
+			if (isAssignedOffice(clearance, /library/i)) {
+				await notifyLibraryOfficers({
+					clearance,
+					type: 'CLEARANCE_READY_FOR_LIBRARY',
+					title: 'Clearance Ready for Library Review',
+					message: `${clearance.employeeName || 'An employee'}'s clearance request was approved by the Department Head and is ready for Library review.`,
+					actionText: 'Review Request',
+				});
+			}
+			if (isAssignedOffice(clearance, /property|asset/i)) await notifyPropertyOfficers(clearance);
+			if (isAssignedOffice(clearance, /finance/i)) {
+				await notifyFinanceOfficers({
+					type: 'CLEARANCE_READY_FOR_FINANCE',
+					employeeName: clearance.employeeName,
+					requestId: clearance.requestId,
+				});
+			}
 			if (requiresIctClearance(clearance)) {
 				await createIctClearanceRequestFromClearance(clearance);
 				await notifyIctOfficers({
@@ -1041,6 +1178,7 @@ const updateClearance = async (req, res) => {
 					message: `${clearance.employeeName || 'An employee'}'s clearance was approved by the Department Head and is ready for ICT review.`,
 				});
 			}
+			await notifyDynamicClearanceOffices(clearance);
 		}
 		if (libraryDecision?.status === 'Completed') {
 			await notifyFinanceOfficers({
@@ -1092,7 +1230,9 @@ const updateClearance = async (req, res) => {
 							? ['ICT Clearance Approved', `ICT Office approved clearance ${clearance.requestId || 'for your request'}.`, 'CLEARANCE_PROGRESS_UPDATED']
 							: null;
 		const [title, message, type] = officeApproval || statusMessages[clearance.status] || statusMessages.Pending;
-		await createEmployeeNotification({ clearance, title, message, type, actionText: clearance.status === 'Returned' ? 'View Request' : 'View Clearance' });
+		if (clearance.requestSource !== 'HR Officer') {
+			await createEmployeeNotification({ clearance, title, message, type, actionText: clearance.status === 'Returned' ? 'View Request' : 'View Clearance' });
+		}
 		const officeProgress = getOfficeProgress(clearance);
 		const allRequiredOfficesCleared = officeProgress.total > 0 && officeProgress.completed === officeProgress.total;
 		const decisionOffice = libraryDecision ? 'Library Office' : Array.isArray(requestUpdates.departmentClearances) ? 'Department Head' : 'Clearance Office';
@@ -1193,7 +1333,7 @@ const updateClearance = async (req, res) => {
 				actionText: 'View Details',
 			});
 		}
-		if (requiresIctClearance(clearance) && (requestUpdates.resubmitted || requestUpdates.status === 'Resubmitted')) {
+		if (requiresIctClearance(clearance) && isResubmission) {
 			await notifyIctOfficers({
 				type: 'CLEARANCE_RESUBMITTED',
 				employeeName: clearance.employeeName || 'An employee',
@@ -1204,7 +1344,8 @@ const updateClearance = async (req, res) => {
 		}
 		return res.status(200).json({ success: true, clearance });
 	} catch (error) {
-		return res.status(400).json({ success: false, message: 'Unable to update clearance request.' });
+		console.error('Unable to update clearance request:', error);
+		return res.status(400).json({ success: false, message: error.message || 'Unable to update clearance request.' });
 	}
 };
 

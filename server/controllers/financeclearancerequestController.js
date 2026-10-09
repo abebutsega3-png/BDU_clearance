@@ -3,6 +3,16 @@ import Employee from "../models/employee.js";
 import FinancialRecord from "../models/financedashboared.js";
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
+import {
+  calculateFinancialRecordBalances,
+  calculateFinancialOutstanding,
+} from "../utils/financialRecordBalance.js";
+import { normalizeRoutedOffice, officeAssignmentFilter } from '../utils/clearanceWorkflow.js';
+
+const isOfficeAssigned = (request, office) => request?.manualRoutingEnabled !== true
+  || (request.assignedDepartments || []).some(
+    (assignedOffice) => normalizeRoutedOffice(assignedOffice) === normalizeRoutedOffice(office),
+  );
 
 const createRoleNotification = async ({
   role,
@@ -38,6 +48,7 @@ const createRoleNotification = async ({
 };
 
 const notifyEmployee = async ({ request, type, title, message }) => {
+  if (request?.requestSource === 'HR Officer') return null;
   const employeeId = String(request.employeeId || '').trim();
   const employeeName = String(request.employeeName || '').trim();
   const employeeFilter = employeeId
@@ -250,10 +261,15 @@ export const getFinanceRequests = async (req, res) => {
   try {
     const { status, search } = req.query;
     // Finance review starts after Department Head approval. Library review is a separate workflow step.
-    const filter = { departmentStatus: 'Approved' };
+    const filter = {
+      $and: [
+        { departmentStatus: 'Approved' },
+        officeAssignmentFilter('Finance Office'),
+      ],
+    };
 
     if (status && status !== "All") {
-      filter.financeStatus = status;
+      filter.$and.push({ financeStatus: status });
     }
 
     let requests = await ClearanceRequest.find(filter)
@@ -339,19 +355,23 @@ export const getFinanceRequestById = async (req, res) => {
       employeeId: request.employeeId,
     }).lean();
 
-    const financialRecords = await FinancialRecord.find({
+    const storedFinancialRecords = await FinancialRecord.find({
       employeeId: request.employeeId,
     })
       .sort({ createdAt: -1 })
       .lean();
 
-    const outstandingRecords = financialRecords.filter(
-      (rec) => rec.status === "Outstanding"
-    );
-    const totalOutstanding = outstandingRecords.reduce(
-      (sum, rec) => sum + rec.amount,
-      0
-    );
+    const totalOutstanding = calculateFinancialOutstanding(storedFinancialRecords);
+    const calculatedBalances = calculateFinancialRecordBalances(storedFinancialRecords);
+    const financialRecords = storedFinancialRecords.map((record) => {
+      const balance = calculatedBalances.get(record);
+      return {
+        ...record,
+        paidAmount: balance.paidAmount,
+        outstandingBalance: balance.outstandingAmount,
+        status: balance.status,
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -442,6 +462,16 @@ export const approveFinanceClearance = async (req, res) => {
       });
     }
 
+    const financialRecords = await FinancialRecord.find({ employeeId: request.employeeId }).lean();
+    const totalOutstanding = calculateFinancialOutstanding(financialRecords);
+    if (totalOutstanding > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot approve finance clearance while ${totalOutstanding.toLocaleString()} ETB remains outstanding.`,
+        totalOutstanding,
+      });
+    }
+
     const comment = String(req.body.comment || req.body.remarks || '').trim();
     request.financeStatus = "Approved";
     request.financeRemarks = comment;
@@ -450,7 +480,9 @@ export const approveFinanceClearance = async (req, res) => {
     updateFinanceWorkflow(request, 'Completed', comment);
 
     await request.save();
-    const propertyOfficers = await User.find({ role: { $regex: '^property(?:\\s*\\/\\s*asset)?\\s+officer$', $options: 'i' } }).select('_id name');
+    const propertyOfficers = isOfficeAssigned(request, 'Property / Asset Office')
+      ? await User.find({ role: { $regex: '^property(?:\\s*\\/\\s*asset)?\\s+officer$', $options: 'i' } }).select('_id name')
+      : [];
     if (propertyOfficers.length) await Notification.insertMany(propertyOfficers.map((officer) => ({
       recipientId: officer._id,
       targetName: officer.name || 'Property Officer',
@@ -533,6 +565,7 @@ export const returnFinanceRequest = async (req, res) => {
     request.returnedReason = returnReason;
     request.returnedRemark = comment;
     request.affectedField = affectedField || 'Finance Clearance';
+    if (request.requestSource === 'HR Officer') request.currentStep = 'HR Officer';
     updateFinanceWorkflow(request, 'Returned', returnReason);
     const financeStep = request.workflow.find((step) => /finance/i.test(step.office || step.name || ''));
     if (financeStep) {

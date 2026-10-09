@@ -29,10 +29,16 @@ export const createRole = async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ success: false, message: 'Database unavailable. Please start MongoDB and try again.' });
   }
-  const { name, description, status, permissions } = req.body;
+  const { name, description, status, permissions, isClearanceOffice } = req.body;
   if (!name?.trim()) return res.status(400).json({ success: false, message: 'Role name is required.' });
   try {
-    const role = await Role.create({ name: name.trim(), description: description?.trim() || '', isActive: status !== 'Inactive', permissions: validatePermissions(permissions) });
+    const role = await Role.create({
+      name: name.trim(),
+      description: description?.trim() || '',
+      isActive: status !== 'Inactive',
+      isClearanceOffice: isClearanceOffice === true,
+      permissions: validatePermissions(permissions),
+    });
     return res.status(201).json({ success: true, message: 'Role created successfully.', role });
   } catch (error) {
     if (error.code === 11000) return res.status(409).json({ success: false, message: 'A role with this name already exists.' });
@@ -43,8 +49,15 @@ export const createRole = async (req, res) => {
 
 export const updateRole = async (req, res) => {
   if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin access required.' });
-  const { name, description, status, permissions } = req.body;
-  const role = await Role.findByIdAndUpdate(req.params.id, { name: name?.trim(), description: description?.trim() || '', isActive: status !== 'Inactive', permissions: validatePermissions(permissions) }, { returnDocument: 'after', runValidators: true });
+  const { name, description, status, permissions, isClearanceOffice } = req.body;
+  const updates = {
+    name: name?.trim(),
+    description: description?.trim() || '',
+    isActive: status !== 'Inactive',
+    permissions: validatePermissions(permissions),
+  };
+  if (typeof isClearanceOffice === 'boolean') updates.isClearanceOffice = isClearanceOffice;
+  const role = await Role.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after', runValidators: true });
   if (!role) return res.status(404).json({ success: false, message: 'Role not found.' });
   return res.json({ success: true, message: 'Role updated successfully.', role });
 };

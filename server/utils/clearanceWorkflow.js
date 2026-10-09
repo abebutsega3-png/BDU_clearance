@@ -14,6 +14,13 @@ export const CORE_CLEARANCE_OFFICES = [
 ];
 
 export const DEFAULT_REQUIRED_OFFICES = [...CORE_CLEARANCE_OFFICES, FINAL_HR_STAGE];
+export const MANUAL_ROUTABLE_OFFICES = [
+  'Finance Office',
+  'Property / Asset Office',
+  'Library',
+  'ICT Office',
+  'Transport Office',
+];
 
 const normalizeOfficeName = (value = '') => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -171,8 +178,85 @@ export const resolveNextStepAfterDecision = (office = '', decision = '') => {
   return nextOffice || 'Employee';
 };
 
+export const normalizeRoutedOffice = (office) => {
+  const name = String(office || '').trim().replace(/\s+/g, ' ');
+  if (!name) return '';
+  const normalized = normalizeOfficeName(name);
+  return officeAliases[normalized] || name;
+};
+
+export const getFinalHROffices = (clearance = {}) => {
+  const sourceOffices = clearance.manualRoutingEnabled === true
+    ? clearance.assignedDepartments
+    : Array.isArray(clearance.requiredOffices) && clearance.requiredOffices.length
+      ? clearance.requiredOffices
+      : DEFAULT_REQUIRED_OFFICES;
+  const offices = Array.isArray(sourceOffices) ? sourceOffices : [];
+  const uniqueOffices = new Map();
+
+  offices.forEach((office) => {
+    const normalizedOffice = normalizeRoutedOffice(office);
+    const normalizedName = normalizeOfficeName(normalizedOffice);
+    if (!normalizedOffice || normalizedName === 'department head' || isFinalHRStage(normalizedOffice)) return;
+    if (!uniqueOffices.has(normalizedName)) uniqueOffices.set(normalizedName, normalizedOffice);
+  });
+
+  return [...uniqueOffices.values()];
+};
+
+export const officeAssignmentFilter = (office, includeLegacy = true) => {
+  const normalized = normalizeRoutedOffice(office);
+  if (!includeLegacy) return { assignedDepartments: normalized || '__invalid_office__' };
+  return {
+    $or: [
+      { manualRoutingEnabled: { $ne: true } },
+      { assignedDepartments: normalized || '__invalid_office__' },
+    ],
+  };
+};
+
+export const finalHRRoutingReadyFilter = () => ({
+  $or: [
+    { manualRoutingEnabled: { $ne: true } },
+    {
+      $expr: {
+        $allElementsTrue: [
+          {
+            $map: {
+              input: { $ifNull: ['$assignedDepartments', []] },
+              as: 'assignedOffice',
+              in: {
+                $anyElementTrue: [
+                  {
+                    $map: {
+                      input: { $ifNull: ['$workflow', []] },
+                      as: 'workflowStep',
+                      in: {
+                        $and: [
+                          { $eq: [{ $ifNull: ['$$workflowStep.office', '$$workflowStep.name'] }, '$$assignedOffice'] },
+                          {
+                            $in: [
+                              { $toLower: { $ifNull: ['$$workflowStep.status', ''] } },
+                              ['approved', 'completed', 'cleared'],
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    },
+  ],
+});
+
 export const propertyOfficeWorkflowFilter = {
   departmentStatus: 'Approved',
+  ...officeAssignmentFilter('Property / Asset Office'),
 };
 
 export const isRequestVisibleToOffice = (clearance = {}, office = '') => {
@@ -181,6 +265,12 @@ export const isRequestVisibleToOffice = (clearance = {}, office = '') => {
   const normalizedOffice = normalizeOfficeName(office);
 
   if (!normalizedOffice) return true;
+  if (clearance?.manualRoutingEnabled === true) {
+    return clearance.departmentStatus === 'Approved'
+      && (clearance.assignedDepartments || []).some(
+        (assigned) => normalizeRoutedOffice(assigned).toLowerCase() === normalizeRoutedOffice(office).toLowerCase(),
+      );
+  }
   if (!normalizedCurrent) return false;
 
   if (normalizedOffice === 'property / asset office' && clearance?.departmentStatus !== 'Approved') return false;
