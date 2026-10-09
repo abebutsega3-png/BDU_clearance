@@ -8,7 +8,7 @@ import {
 	returnTransportClearance,
 	startTransportReview,
 } from '../controllers/transportClearanceController.js';
-import { getVehicleRecordById, getVehicleRecords } from '../controllers/transportVehicleController.js';
+import { createVehicleRecord, getVehicleRecordById, getVehicleRecords, searchAssignableEmployees } from '../controllers/transportVehicleController.js';
 import {
 	getTransportClearanceHistory,
 	getTransportClearanceHistoryEntry,
@@ -28,6 +28,8 @@ router.get('/requests/:requestId', authMiddleware, getTransportRequestById);
 router.patch('/requests/:requestId/start-review', authMiddleware, startTransportReview);
 router.patch('/requests/:requestId/approve', authMiddleware, approveTransportClearance);
 router.patch('/requests/:requestId/return', authMiddleware, returnTransportClearance);
+router.get('/employees/search', authMiddleware, searchAssignableEmployees);
+router.post('/assigned-vehicles/records', authMiddleware, createVehicleRecord);
 router.get('/assigned-vehicles', authMiddleware, getVehicleRecords);
 router.get('/assigned-vehicles/:vehicleId', authMiddleware, getVehicleRecordById);
 router.get('/history', authMiddleware, getTransportClearanceHistory);

@@ -71,14 +71,19 @@ const userSchema = new mongoose.Schema({
             requireOfficerComment: { type: Boolean, default: false }
         },
         assetCategories: {
-            type: [{ name: { type: String, trim: true }, description: { type: String, trim: true, default: '' }, enabled: { type: Boolean, default: true } }],
+            type: [{
+                name: { type: String, trim: true },
+                categoryCode: { type: String, trim: true, uppercase: true },
+                description: { type: String, trim: true, default: '' },
+                enabled: { type: Boolean, default: true }
+            }],
             default: [
-                { name: 'Computer / Laptop', description: 'Computers, laptops, accessories', enabled: true },
-                { name: 'Monitor', description: 'Computer monitors and displays', enabled: true },
-                { name: 'Printer', description: 'Printers and scanners', enabled: true },
-                { name: 'Office Furniture', description: 'Tables, chairs, office furniture', enabled: true },
-                { name: 'Laboratory Equipment', description: 'University laboratory equipment', enabled: true },
-                { name: 'Other Equipment', description: 'Other university assets', enabled: true }
+                { name: 'Computer / Laptop', categoryCode: 'LAP', description: 'Computers, laptops, accessories', enabled: true },
+                { name: 'Monitor', categoryCode: 'MON', description: 'Computer monitors and displays', enabled: true },
+                { name: 'Printer', categoryCode: 'PRN', description: 'Printers and scanners', enabled: true },
+                { name: 'Office Furniture', categoryCode: 'FUR', description: 'Tables, chairs, office furniture', enabled: true },
+                { name: 'Laboratory Equipment', categoryCode: 'LAB', description: 'University laboratory equipment', enabled: true },
+                { name: 'Other Equipment', categoryCode: 'OTH', description: 'Other university assets', enabled: true }
             ]
         },
         assetStatuses: {
@@ -109,7 +114,11 @@ const userSchema = new mongoose.Schema({
             inSystemNotifications: { type: Boolean, default: true },
             emailNotifications: { type: Boolean, default: true },
             newRequestEmail: { type: Boolean, default: true },
-            returnedRequestEmail: { type: Boolean, default: true }
+            returnedRequestEmail: { type: Boolean, default: true },
+            assetReturnEmail: { type: Boolean, default: true },
+            clearanceApprovedEmail: { type: Boolean, default: true },
+            clearanceReturnedEmail: { type: Boolean, default: true },
+            systemNotificationEmail: { type: Boolean, default: true }
         }
     },
     createdAt: {

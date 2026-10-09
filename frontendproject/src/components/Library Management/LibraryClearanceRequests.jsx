@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/authContext';
 import {
   User,
   BookCheck,
@@ -20,12 +21,27 @@ const libraryChecklistItems = [
   'Lost or damaged materials',
   'Library account and other obligations',
 ];
+const checklistSettingByItem = {
+  'Borrowed books and circulation records': 'borrowedBooksChecked',
+  'Unreturned or overdue materials': 'unreturnedBooksChecked',
+  'Outstanding fines and charges': 'outstandingMaterialsChecked',
+  'Lost or damaged materials': 'lostDamagedMaterialsChecked',
+  'Library account and other obligations': 'libraryAccountChecked',
+};
+const DEFAULT_CLEARANCE_RULES = {
+  checkUnreturnedBooks: true,
+  checkOverdueBooks: true,
+  checkOutstandingFines: true,
+  checkLostDamagedBooks: true,
+  requireChecklistCompletion: true,
+};
+const DEFAULT_CHECKLIST_SETTINGS = Object.fromEntries(Object.values(checklistSettingByItem).map((key) => [key, true]));
 
 const normalizeMaterialStatus = (material) => String(material.status || material.recordStatus || '').trim().toLowerCase();
 const isUnresolvedMaterial = (material) => ['borrowed', 'outstanding', 'overdue'].includes(normalizeMaterialStatus(material));
 const getMaterialFineBalance = (material) => Number(material.fineBalance ?? Math.max(0, Number(material.fineAmount || 0) - Number(material.finePaidAmount || 0)));
 
-const createLibraryChecklist = (savedItems = [], request = {}, records = []) => {
+const createLibraryChecklist = (savedItems = [], request = {}, records = [], checklistSettings = DEFAULT_CHECKLIST_SETTINGS) => {
   const savedChecklist = Array.isArray(savedItems) ? savedItems : [];
   const recordMaterials = records.flatMap((record) => Array.isArray(record.materials) ? record.materials : []);
   const materials = recordMaterials.length ? recordMaterials : (Array.isArray(request.materials) ? request.materials : []);
@@ -42,7 +58,7 @@ const createLibraryChecklist = (savedItems = [], request = {}, records = []) => 
   );
   const finesClear = outstandingFineAmount <= 0;
   const otherObligationsClear = !['Pending', 'Not Clear'].includes(request.otherObligationsStatus)
-    && (hasMaterialRecords || !Array.isArray(request.outstandingItems) || request.outstandingItems.length === 0);
+    && (!Array.isArray(request.outstandingItems) || request.outstandingItems.length === 0);
   const noLostOrDamagedMaterials = !materials.some((material) => (
     ['lost', 'damaged'].includes(normalizeMaterialStatus(material))
     || /^(lost|damaged)$/i.test(String(material.condition || material.currentCondition || '').trim())
@@ -55,7 +71,7 @@ const createLibraryChecklist = (savedItems = [], request = {}, records = []) => 
     'Library account and other obligations': otherObligationsClear,
   };
 
-  return libraryChecklistItems.map((item) => {
+  return libraryChecklistItems.filter((item) => checklistSettings[checklistSettingByItem[item]]).map((item) => {
     const saved = savedChecklist.find((entry) => entry.item === item);
     const status = ['Cleared', 'Pending', 'N/A'].includes(saved?.status) ? saved.status : 'Pending';
     return {
@@ -68,6 +84,8 @@ const createLibraryChecklist = (savedItems = [], request = {}, records = []) => 
 
 export default function LibraryClearanceViewModal({ requestId, onClose, onRefresh }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const userId = user?._id || user?.id || localStorage.getItem('userId') || '';
   const [data, setData] = useState(null);
   const [employee, setEmployee] = useState(null);
   const [libraryRecords, setLibraryRecords] = useState([]);
@@ -78,6 +96,8 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
   const [verificationResult, setVerificationResult] = useState('Clear');
   const [comment, setComment] = useState('');
   const [returnReason, setReturnReason] = useState('');
+  const [clearanceRules, setClearanceRules] = useState(DEFAULT_CLEARANCE_RULES);
+  const [checklistSettings, setChecklistSettings] = useState(DEFAULT_CHECKLIST_SETTINGS);
   const [errorMsg, setErrorMsg] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const headers = useMemo(() => ({ Authorization: `Bearer ${localStorage.getItem('token') || ''}` }), []);
@@ -97,8 +117,23 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
   );
   const finesClear = outstandingFineAmount <= 0;
   const otherObligationsClear = !['Pending', 'Not Clear'].includes(data?.otherObligationsStatus)
-    && (hasMaterialRecords || !Array.isArray(data?.outstandingItems) || data.outstandingItems.length === 0);
-  const hasOutstanding = !borrowedItemsClear || !finesClear || !otherObligationsClear;
+    && (!Array.isArray(data?.outstandingItems) || data.outstandingItems.length === 0);
+  const hasOverdueMaterials = materials.some((material) => {
+    const status = normalizeMaterialStatus(material);
+    const dueDate = material.dueDate ? new Date(material.dueDate).toISOString().slice(0, 10) : '';
+    return isUnresolvedMaterial(material) && (status === 'overdue' || (dueDate && dueDate < new Date().toISOString().slice(0, 10)));
+  });
+  const hasLostOrDamagedMaterials = materials.some((material) => (
+    ['lost', 'damaged'].includes(normalizeMaterialStatus(material))
+    || /^(lost|damaged)$/i.test(String(material.condition || material.currentCondition || '').trim())
+  ));
+  const hasConfiguredOutstanding = (
+    (clearanceRules.checkUnreturnedBooks && !borrowedItemsClear)
+    || (clearanceRules.checkOverdueBooks && hasOverdueMaterials)
+    || (clearanceRules.checkOutstandingFines && !finesClear)
+    || (clearanceRules.checkLostDamagedBooks && hasLostOrDamagedMaterials)
+    || (checklistSettings.libraryAccountChecked && !otherObligationsClear)
+  );
 
   const fetchDetails = useCallback(async (signal) => {
     try {
@@ -117,7 +152,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
       setComment(request.libraryComment || request.comment || '');
       setReturnReason(request.libraryReturnReason || request.returnReason || request.remarks || '');
 
-      const [recordsResult, employeesResult] = request.employeeId
+      const [recordsResult, employeesResult, settingsResult] = request.employeeId
         ? await Promise.allSettled([
             axios.get('http://localhost:3000/api/library/records', {
               params: { employeeId: request.employeeId },
@@ -126,15 +161,21 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
               signal,
             }),
             axios.get('http://localhost:3000/api/employee', { headers, timeout: 12000, signal }),
+            userId ? axios.get(`http://localhost:3000/api/library-settings/${encodeURIComponent(userId)}`, { headers, timeout: 12000, signal }) : Promise.resolve({ data: {} }),
           ])
-        : [];
+        : [null, null, null];
       if (signal?.aborted) return;
 
       const records = recordsResult?.status === 'fulfilled'
         ? Array.isArray(recordsResult.value.data?.records) ? recordsResult.value.data.records : []
         : [];
       setLibraryRecords(records);
-      setLibraryChecklist(createLibraryChecklist(request.libraryChecklist, request, records));
+      const settings = settingsResult?.status === 'fulfilled' ? settingsResult.value.data || {} : {};
+      const nextRules = { ...DEFAULT_CLEARANCE_RULES, ...(settings.clearanceRules || {}) };
+      const nextChecklistSettings = { ...DEFAULT_CHECKLIST_SETTINGS, ...(settings.clearanceChecklist || {}) };
+      setClearanceRules(nextRules);
+      setChecklistSettings(nextChecklistSettings);
+      setLibraryChecklist(createLibraryChecklist(request.libraryChecklist, request, records, nextChecklistSettings));
       const employeeRecords = employeesResult?.status === 'fulfilled'
         ? employeesResult.value.data?.employees || []
         : [];
@@ -144,7 +185,9 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
         ? recordsResult.reason
         : employeesResult?.status === 'rejected'
           ? employeesResult.reason
-          : null;
+          : settingsResult?.status === 'rejected'
+            ? settingsResult.reason
+            : null;
       if (relatedDataFailure) {
         console.error('Unable to load all related library clearance details:', relatedDataFailure);
         setErrorMsg(relatedDataFailure.response?.data?.message || 'Request loaded, but some related employee or library record details could not be retrieved.');
@@ -159,7 +202,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [headers, requestId]);
+  }, [headers, requestId, userId]);
 
   useEffect(() => {
     if (!requestId) return undefined;
@@ -183,11 +226,11 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
   };
 
   const handleApprove = async () => {
-    if (!checklistComplete) {
+    if (clearanceRules.requireChecklistCompletion && !checklistComplete) {
       setErrorMsg('Resolve every Library checklist item as Cleared or N/A before approving.');
       return;
     }
-    if (verificationResult !== 'Clear' || !borrowedItemsClear || !finesClear || !otherObligationsClear) {
+    if (verificationResult !== 'Clear' || hasConfiguredOutstanding) {
       setErrorMsg('Clear all library obligations before approving the clearance.');
       return;
     }
@@ -260,8 +303,8 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
     outstanding: materials.filter(isUnresolvedMaterial).length,
     returned: materials.filter((item) => ['returned', 'cleared', 'approved', 'completed'].includes(normalizeMaterialStatus(item))).length,
   };
-  const checklistComplete = libraryChecklist.length === libraryChecklistItems.length
-    && libraryChecklist.every((item) => item.status !== 'Pending');
+  const checklistComplete = !clearanceRules.requireChecklistCompletion
+    || libraryChecklist.every((item) => item.status !== 'Pending');
   const canReview = ['In Progress', 'Under Review'].includes(libraryStatus);
   const formattedDate = (value, options = { year: 'numeric', month: 'short', day: 'numeric' }) => {
     if (!value) return '-';
@@ -335,7 +378,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
                 </tbody>
               </table>
             </div>
-            {hasOutstanding && <p className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">Outstanding material or library fees must be resolved before clearance can be approved.</p>}
+            {hasConfiguredOutstanding && <p className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">Outstanding items covered by enabled Library rules must be resolved before clearance can be approved.</p>}
           </section>
 
           {showChecklist && <section className="space-y-3 rounded-lg border border-slate-200 p-3 sm:p-4">
@@ -355,7 +398,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
 
           {canReview && <section className="grid gap-3 sm:grid-cols-2">
             <label className="block font-semibold text-slate-700">Officer Comment <span className="font-normal text-slate-400">(optional)</span>
-              <textarea rows={2} placeholder={hasOutstanding ? 'Employee has outstanding library materials or fees.' : 'No outstanding library obligations.'} value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-teal-600" />
+              <textarea rows={2} placeholder={hasConfiguredOutstanding ? 'Employee has outstanding library materials or fees.' : 'No outstanding library obligations.'} value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-teal-600" />
             </label>
             <label className="block font-semibold text-slate-700">Return Reason <span className="font-normal text-rose-600">(required to return)</span>
               <textarea rows={2} placeholder="Describe the outstanding library obligation." value={returnReason} onChange={(event) => setReturnReason(event.target.value)} className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-rose-500" />
@@ -396,7 +439,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
             >
               <BookOpen size={13} /> View Asset Records
             </button>
-            {canReview && <button type="button" onClick={handleApprove} disabled={!checklistComplete || hasOutstanding} title={hasOutstanding ? 'Resolve outstanding library materials and fees before approving.' : !checklistComplete ? 'Complete the checklist before approving.' : ''} className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={13} /> Approve Clearance</button>}
+            {canReview && <button type="button" onClick={handleApprove} disabled={!checklistComplete || hasConfiguredOutstanding} title={hasConfiguredOutstanding ? 'Resolve outstanding items required by the Library clearance rules.' : !checklistComplete ? 'Complete the checklist before approving.' : ''} className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={13} /> Approve Clearance</button>}
             <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-100">Close</button>
           </div>
         </footer>

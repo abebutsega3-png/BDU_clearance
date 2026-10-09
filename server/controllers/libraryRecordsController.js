@@ -2,6 +2,17 @@ import LibraryClearance from '../models/LibraryClearance.js';
 import Clearance from '../models/clearance.js';
 import Employee from '../models/employee.js';
 
+const allowedMaterialTypes = new Set(['Book', 'Journal', 'Laptop', 'Equipment', 'Other']);
+const allowedMaterialConditions = new Set(['Good', 'Fair', 'Damaged']);
+const isValidDateOnly = (value) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+};
+
 const normalizeStatus = (clearance) => {
   if (clearance.status === 'Approved' || clearance.status === 'Completed') return 'Returned';
   if (clearance.status === 'Returned') return 'Overdue';
@@ -199,27 +210,55 @@ export const issueLibraryMaterial = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Complete all required employee, material, and loan fields.' });
     }
 
-    const borrowedAt = new Date(borrowDate);
-    const dueAt = new Date(dueDate);
-    if (Number.isNaN(borrowedAt.getTime()) || Number.isNaN(dueAt.getTime()) || dueAt < borrowedAt) {
-      return res.status(400).json({ success: false, message: 'Enter valid loan dates and a due date on or after the borrowed date.' });
+    const normalizedTitle = String(title).trim();
+    const normalizedMaterialId = String(materialId).trim();
+    const normalizedRemark = String(remark).trim();
+    if (normalizedTitle.length > 200 || normalizedRemark.length > 1000) {
+      return res.status(400).json({ success: false, message: 'Title must be 200 characters or fewer and remark must be 1000 characters or fewer.' });
     }
+    if (!/^[A-Za-z0-9-]{1,100}$/.test(normalizedMaterialId)) {
+      return res.status(400).json({ success: false, message: 'Accession / ISBN / Tag Number may contain letters, numbers, and hyphens only.' });
+    }
+    if (!allowedMaterialTypes.has(String(materialType).trim()) || !allowedMaterialConditions.has(String(condition).trim())) {
+      return res.status(400).json({ success: false, message: 'Select a valid material type and initial condition.' });
+    }
+    if (publicationYear !== undefined && publicationYear !== null && String(publicationYear).trim() !== '') {
+      const yearText = String(publicationYear).trim();
+      const currentYear = new Date().getUTCFullYear();
+      if (!/^\d{4}$/.test(yearText) || Number(yearText) < 1000 || Number(yearText) > currentYear) {
+        return res.status(400).json({ success: false, message: `Publication year must be a valid four-digit year between 1000 and ${currentYear}.` });
+      }
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (!isValidDateOnly(borrowDate) || borrowDate > today) {
+      return res.status(400).json({ success: false, message: 'Issue / Borrowed Date must be valid and cannot be in the future.' });
+    }
+    if (!isValidDateOnly(dueDate) || dueDate < today || dueDate <= borrowDate) {
+      return res.status(400).json({ success: false, message: 'Due Date must be valid, not in the past, and after the borrowed date.' });
+    }
+    const borrowedAt = new Date(`${borrowDate}T00:00:00.000Z`);
+    const dueAt = new Date(`${dueDate}T00:00:00.000Z`);
 
     const employee = await Employee.findOne({ employeeId: String(employeeId).trim(), status: 'Active' })
       .select('employeeId fullName department position campus')
       .lean();
     if (!employee) return res.status(404).json({ success: false, message: 'Active employee was not found.' });
+    if (![employee.fullName, employee.department, employee.campus].every((value) => (
+      typeof value === 'string' && value.trim() && !/^\d+$/.test(value.trim())
+    ))) {
+      return res.status(400).json({ success: false, message: 'The selected employee is missing a valid name, department, or campus.' });
+    }
 
     const clearance = await Clearance.findOne({
       employeeId: employee.employeeId,
       status: { $nin: ['Completed', 'Cancelled', 'Rejected', 'Final HR Clearance Completed'] },
     }).sort({ createdAt: -1 });
 
-    const normalizedMaterialId = String(materialId).trim();
     const alreadyIssued = await LibraryClearance.exists({
       materials: {
         $elemMatch: {
-          materialId: normalizedMaterialId,
+          materialId: { $regex: `^${normalizedMaterialId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
           status: { $in: ['Borrowed', 'Outstanding', 'Overdue'] },
         },
       },
@@ -243,14 +282,14 @@ export const issueLibraryMaterial = async (req, res) => {
 
     libraryRecord.materials.push({
       materialId: normalizedMaterialId,
-      title: String(title).trim(),
+      title: normalizedTitle,
       materialType: String(materialType).trim(),
       isbn: normalizedMaterialId,
       publicationYear: publicationYear ? Number(publicationYear) : null,
       condition: String(condition).trim(),
       borrowDate: borrowedAt,
       dueDate: dueAt,
-      remark: String(remark).trim(),
+      remark: normalizedRemark,
       status: 'Borrowed',
     });
     libraryRecord.campus = employee.campus;

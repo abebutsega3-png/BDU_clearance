@@ -5,7 +5,6 @@ import {
 	Bell,
 	Bus,
 	ClipboardList,
-	FileCheck2,
 	History,
 	LayoutDashboard,
 	LogOut,
@@ -17,7 +16,6 @@ import { useAuth } from '../../context/authContext';
 const navigationItems = [
 	{ label: 'Dashboard', path: '/transport-office', icon: LayoutDashboard, end: true },
 	{ label: 'Transport Clearance Request', path: '/transport-office/requests', icon: ClipboardList },
-	{ label: 'Vehicle Management', path: '/transport-office/vehicles', icon: Bus },
 	{ label: 'Assigned Vehicles Record', path: '/transport-office/assigned-vehicles', icon: Bus },
 	{ label: 'Transport Clearance History', path: '/transport-office/history', icon: History },
 	{ label: 'Reports', path: '/transport-office/reports', icon: BarChart3 },
@@ -33,22 +31,23 @@ export default function TransportSidebar() {
 		<aside className="fixed bottom-0 left-0 top-16 z-40 flex w-16 flex-col bg-[#102744] text-slate-200 shadow-xl md:w-64">
 			<nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4 md:px-3" aria-label="Transport officer navigation">
 				{navigationItems.map(({ label, path, icon: Icon, end }) => (
-					<NavLink
-						key={path}
-						to={path}
-						end={end}
-						title={label}
-						className={({ isActive }) =>
-							`flex min-h-11 items-center justify-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition md:justify-start ${
-								isActive
-									? 'bg-teal-600 text-white shadow-sm'
-									: 'text-slate-300 hover:bg-white/10 hover:text-white'
-							}`
-						}
-					>
-						<Icon size={18} className="shrink-0" />
-						<span className="hidden md:inline">{label}</span>
-					</NavLink>
+					<div key={path}>
+						<NavLink
+							to={label === 'Reports' ? `${path}?reportType=summary` : path}
+							end={end}
+							title={label}
+							className={({ isActive }) =>
+								`flex min-h-11 items-center justify-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition md:justify-start ${
+									isActive
+										? 'bg-teal-600 text-white shadow-sm'
+										: 'text-slate-300 hover:bg-white/10 hover:text-white'
+								}`
+							}
+						>
+							<Icon size={18} className="shrink-0" />
+							<span className="hidden md:inline">{label}</span>
+						</NavLink>
+					</div>
 				))}
 			</nav>
 

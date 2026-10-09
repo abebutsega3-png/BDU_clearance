@@ -14,6 +14,9 @@ const verifyUser = async (req, res, next) => {
     } catch {
         return res.status(401).json({ success: false, message: "Authentication token is expired or invalid." });
     }
+    if (decoded.tokenUse === 'refresh') {
+        return res.status(401).json({ success: false, message: "Refresh tokens cannot be used to access protected resources." });
+    }
 
     if (mongoose.connection.readyState !== 1) {
         return res.status(503).json({

@@ -59,6 +59,19 @@ const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
+const nextCalendarDate = (value) => {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const isTextWithLetters = (value) => /[\p{L}]/u.test(String(value || '').trim());
+const isValidIsoDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
 
 const emptyAssetForm = {
   assetId: '',
@@ -168,6 +181,64 @@ export default function ICTAssetManager() {
   const handleAddAsset = async (event) => {
     event.preventDefault();
     setAssetFormError('');
+    const assetId = newAsset.assetId.trim();
+    const serialNumber = newAsset.serialNumber.trim();
+    const assetName = newAsset.assetName.trim();
+    const brand = newAsset.brand.trim();
+    const model = newAsset.model.trim();
+    const currentDate = today();
+
+    if (!/^[A-Za-z0-9-]+$/.test(assetId)) {
+      setAssetFormError('Asset ID may contain letters, numbers, and hyphens only.');
+      return;
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9: -]*[A-Za-z0-9]$/.test(serialNumber)) {
+      setAssetFormError('Serial Number must contain letters or numbers; spaces, hyphens, and colons are also allowed.');
+      return;
+    }
+    if (!isTextWithLetters(assetName)) {
+      setAssetFormError('Asset Name must include letters and cannot contain numbers only.');
+      return;
+    }
+    if (!isTextWithLetters(brand) || !isTextWithLetters(model)) {
+      setAssetFormError('Brand and Model are required and cannot contain numbers only.');
+      return;
+    }
+    if (!assetTypes.includes(newAsset.assetType)) {
+      setAssetFormError('Select a valid asset category/type.');
+      return;
+    }
+    if (!['New', 'Good', 'Fair', 'Refurbished', 'Damaged', 'Lost'].includes(newAsset.condition)) {
+      setAssetFormError('Select a valid asset condition.');
+      return;
+    }
+    if (!['Assigned', 'Available', 'Under Maintenance'].includes(newAsset.assetStatus)) {
+      setAssetFormError('Select a valid asset status.');
+      return;
+    }
+    if (newAsset.assetStatus === 'Assigned') {
+      if (!selectedEmployee?.employeeId || !isTextWithLetters(selectedEmployee.fullName)
+        || !isTextWithLetters(selectedEmployee.department) || !isTextWithLetters(selectedEmployee.campus)) {
+        setAssetFormError('Select an active employee with valid name, department, and campus details.');
+        return;
+      }
+      if (!isValidIsoDate(newAsset.assignedDate) || newAsset.assignedDate > currentDate) {
+        setAssetFormError('Assignment Date must be a valid date and cannot be in the future.');
+        return;
+      }
+      if (!isValidIsoDate(newAsset.returnDueDate) || newAsset.returnDueDate <= newAsset.assignedDate || newAsset.returnDueDate <= currentDate) {
+        setAssetFormError('Return / Renewal Due Date must be a valid future date after the Assignment Date.');
+        return;
+      }
+    } else if (!isTextWithLetters(newAsset.campus)) {
+      setAssetFormError('Campus is required and cannot contain numbers only.');
+      return;
+    }
+    if (newAsset.purchaseDate && (!isValidIsoDate(newAsset.purchaseDate) || newAsset.purchaseDate > currentDate)) {
+      setAssetFormError('Purchase Date must be valid and cannot be in the future.');
+      return;
+    }
+
     if (newAsset.assetStatus === 'Assigned' && !selectedEmployee) {
       setAssetFormError('Select an employee before registering the asset as assigned.');
       return;
@@ -180,11 +251,11 @@ export default function ICTAssetManager() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newAsset,
-          assetId: newAsset.assetId.trim(),
-          serialNumber: newAsset.serialNumber.trim(),
-          assetName: newAsset.assetName.trim(),
-          brand: newAsset.brand.trim(),
-          model: newAsset.model.trim(),
+          assetId,
+          serialNumber,
+          assetName,
+          brand,
+          model,
           notes: newAsset.remarks.trim(),
           campus: selectedEmployee?.campus || newAsset.campus.trim(),
           location: newAsset.location.trim(),
@@ -592,7 +663,7 @@ export default function ICTAssetManager() {
                     Asset ID / Tag Number <span className="text-red-600">*</span>
                     <span className="relative block">
                       <Tag size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                      <input required value={newAsset.assetId} onChange={(event) => setNewAsset({ ...newAsset, assetId: event.target.value })} placeholder="BDU-ICT-LAP-042" className={`${assetInputClass} pl-9`} />
+                      <input required maxLength={80} pattern="[A-Za-z0-9-]+" title="Use letters, numbers, and hyphens only." value={newAsset.assetId} onChange={(event) => setNewAsset({ ...newAsset, assetId: event.target.value })} placeholder="BDU-ICT-LAP-042" className={`${assetInputClass} pl-9`} />
                     </span>
                     <span className="mt-1 block font-normal text-slate-500">e.g. BDU-ICT-LAP-042</span>
                   </label>
@@ -600,7 +671,7 @@ export default function ICTAssetManager() {
                     Serial Number <span className="text-red-600">*</span>
                     <span className="relative block">
                       <Barcode size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                      <input required value={newAsset.serialNumber} onChange={(event) => setNewAsset({ ...newAsset, serialNumber: event.target.value })} placeholder="SN: 5CD1234XYZ" className={`${assetInputClass} pl-9`} />
+                      <input required maxLength={100} pattern="[A-Za-z0-9][A-Za-z0-9: -]*[A-Za-z0-9]" title="Use letters and numbers; spaces, hyphens, and colons are allowed." value={newAsset.serialNumber} onChange={(event) => setNewAsset({ ...newAsset, serialNumber: event.target.value })} placeholder="SN: 5CD1234XYZ" className={`${assetInputClass} pl-9`} />
                     </span>
                     <span className="mt-1 block font-normal text-slate-500">e.g. SN: 5CD1234XYZ</span>
                   </label>
@@ -608,7 +679,7 @@ export default function ICTAssetManager() {
                     Asset Name <span className="text-red-600">*</span>
                     <span className="relative block">
                       <Laptop size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                      <input required value={newAsset.assetName} onChange={(event) => setNewAsset({ ...newAsset, assetName: event.target.value })} placeholder={'HP EliteBook 840 G8'} className={`${assetInputClass} pl-9`} />
+                      <input required maxLength={120} value={newAsset.assetName} onChange={(event) => setNewAsset({ ...newAsset, assetName: event.target.value })} placeholder={'HP EliteBook 840 G8'} className={`${assetInputClass} pl-9`} />
                     </span>
                     <span className="mt-1 block font-normal text-slate-500">e.g. HP EliteBook 840 G8, Dell Monitor</span>
                   </label>
@@ -626,9 +697,9 @@ export default function ICTAssetManager() {
                     Brand / Model <span className="text-red-600">*</span>
                     <div className="mt-1 flex overflow-hidden rounded border border-slate-300 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
                       <span className="flex items-center border-r border-slate-300 bg-slate-50 px-2 text-slate-500"><Tag size={14} /></span>
-                      <input required aria-label="Asset brand" value={newAsset.brand} onChange={(event) => setNewAsset({ ...newAsset, brand: event.target.value })} placeholder="Brand" className="min-w-0 w-2/5 px-2 py-2 text-xs font-normal outline-none" />
+                      <input required maxLength={80} aria-label="Asset brand" value={newAsset.brand} onChange={(event) => setNewAsset({ ...newAsset, brand: event.target.value })} placeholder="Brand" className="min-w-0 w-2/5 px-2 py-2 text-xs font-normal outline-none" />
                       <span className="flex items-center border-x border-slate-200 px-2 text-slate-400">/</span>
-                      <input required aria-label="Asset model" value={newAsset.model} onChange={(event) => setNewAsset({ ...newAsset, model: event.target.value })} placeholder="Model" className="min-w-0 flex-1 px-2 py-2 text-xs font-normal outline-none" />
+                      <input required maxLength={80} aria-label="Asset model" value={newAsset.model} onChange={(event) => setNewAsset({ ...newAsset, model: event.target.value })} placeholder="Model" className="min-w-0 flex-1 px-2 py-2 text-xs font-normal outline-none" />
                     </div>
                   </div>
                   {newAsset.assetStatus !== 'Assigned' && (
@@ -636,7 +707,7 @@ export default function ICTAssetManager() {
                       Campus <span className="text-red-600">*</span>
                       <span className="relative block">
                         <MapPin size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input required value={newAsset.campus} onChange={(event) => setNewAsset({ ...newAsset, campus: event.target.value })} placeholder="Main Campus" className={`${assetInputClass} pl-9`} />
+                        <input required maxLength={120} value={newAsset.campus} onChange={(event) => setNewAsset({ ...newAsset, campus: event.target.value })} placeholder="Main Campus" className={`${assetInputClass} pl-9`} />
                       </span>
                     </label>
                   )}
@@ -714,14 +785,14 @@ export default function ICTAssetManager() {
                       Assignment Date <span className="text-red-600">*</span>
                       <span className="relative block">
                         <CalendarDays size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input required type="date" value={newAsset.assignedDate} onChange={(event) => setNewAsset({ ...newAsset, assignedDate: event.target.value })} className={`${assetInputClass} pl-9`} />
+                        <input required type="date" max={today()} value={newAsset.assignedDate} onChange={(event) => setNewAsset({ ...newAsset, assignedDate: event.target.value })} className={`${assetInputClass} pl-9`} />
                       </span>
                     </label>
                     <label className={assetLabelClass}>
                       Return / Renewal Due Date <span className="text-red-600">*</span>
                       <span className="relative block">
                         <CalendarDays size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input required type="date" min={newAsset.assignedDate} value={newAsset.returnDueDate} onChange={(event) => setNewAsset({ ...newAsset, returnDueDate: event.target.value })} className={`${assetInputClass} pl-9`} />
+                        <input required type="date" min={nextCalendarDate(newAsset.assignedDate && newAsset.assignedDate > today() ? newAsset.assignedDate : today())} value={newAsset.returnDueDate} onChange={(event) => setNewAsset({ ...newAsset, returnDueDate: event.target.value })} className={`${assetInputClass} pl-9`} />
                       </span>
                     </label>
                   </div>
@@ -784,7 +855,7 @@ export default function ICTAssetManager() {
                       Purchase Date
                       <span className="relative block">
                         <CalendarDays size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input type="date" value={newAsset.purchaseDate} onChange={(event) => setNewAsset({ ...newAsset, purchaseDate: event.target.value })} className={`${assetInputClass} pl-9`} />
+                        <input type="date" max={today()} value={newAsset.purchaseDate} onChange={(event) => setNewAsset({ ...newAsset, purchaseDate: event.target.value })} className={`${assetInputClass} pl-9`} />
                       </span>
                     </label>
                   </div>

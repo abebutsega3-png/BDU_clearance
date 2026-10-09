@@ -8,14 +8,24 @@ const libraryOfficerSettingsSchema = new mongoose.Schema(
       unique: true,
       ref: 'User'
     },
+    generalSettings: {
+      libraryName: { type: String, trim: true, default: 'Bahir Dar University Library' },
+      officeName: { type: String, trim: true, default: 'Library Office' },
+      contactEmail: { type: String, trim: true, lowercase: true, default: '' },
+      phoneNumber: { type: String, trim: true, default: '' },
+      location: { type: String, trim: true, default: '' }
+    },
+    clearanceRules: {
+      checkUnreturnedBooks: { type: Boolean, default: true },
+      checkOverdueBooks: { type: Boolean, default: true },
+      checkOutstandingFines: { type: Boolean, default: true },
+      checkLostDamagedBooks: { type: Boolean, default: true },
+      requireChecklistCompletion: { type: Boolean, default: true }
+    },
     notificationPreferences: {
       newClearanceRequest: { type: Boolean, default: true },
       resubmittedClearance: { type: Boolean, default: true },
-      verificationRequired: { type: Boolean, default: true },
-      clearanceApproved: { type: Boolean, default: true },
-      clearanceReturned: { type: Boolean, default: true },
-      employeeInformationUpdated: { type: Boolean, default: true },
-      systemNotifications: { type: Boolean, default: true }
+      clearanceStatusUpdated: { type: Boolean, default: true }
     },
     clearanceChecklist: {
       borrowedBooksChecked: { type: Boolean, default: true },

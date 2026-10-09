@@ -78,6 +78,7 @@ import { LibraryReports } from './components/Library Management/LibraryActivityP
 import LibraryReport from './components/Library Management/libraryreport';
 import LibraryClearanceHistory from './components/Library Management/libraryClearance History';
 import LibrarySettings from './components/Library Management/LibrarySettings';
+import LibraryDashboardSettings from './components/Library Management/LibraryDashboardSettings';
 import LibraryProfile from './components/Library Management/LibraryProfile';
 import PropertyLayout from './components/Property Officer/propertysidbar';
 import PropertyDashboard from './page/propertydashboared';
@@ -87,6 +88,7 @@ import Propertreport from './components/Property Officer/propertreport';
 import PropertyClearanceHistory from './components/Property Officer/propertyclearancehistory';
 import PropertyNotifications from './components/Property Officer/propertynotification';
 import PropertySettings from './components/Property Officer/propertysetting';
+import PropertyDashboardSettings from './components/Property Officer/PropertyDashboardSettings';
 import PropertyProfile from './components/Property Officer/propertyprofile';
 import FinanceOfficerDashboard from './page/finance officerdashboared';
 import FinanceClearanceRequestPage from './components/Finance Officer/FinanceClearancerequest';
@@ -491,6 +493,7 @@ function MainLayout() {
             <Route path="clearance-history" element={<PropertyClearanceHistory />} />
             <Route path="notifications" element={<PropertyNotifications />} />
             <Route path="settings" element={<PropertySettings />} />
+            <Route path="dashboard-settings" element={<PropertyDashboardSettings />} />
             <Route path="profile" element={<PropertyProfile />} />
           </Route>
           <Route
@@ -511,6 +514,7 @@ function MainLayout() {
           <Route path="/library-office/reports" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryReport /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/library-office/notifications" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryNotifications /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/library-office/profile" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryProfile /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
+          <Route path="/library-office/dashboard-settings" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibraryDashboardSettings /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/library-office/settings" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Library Officer", "library officer"]}><LibraryDashboard><LibrarySettings /></LibraryDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route
             path="/department-head/clearance-requests"

@@ -5,6 +5,30 @@ import User from '../models/User.js';
 import { recordAuditLog } from './auditLogger.js';
 import { sendNotificationEmail } from '../utils/emailService.js';
 
+const refreshCookieName = 'bdu_refresh_token';
+const refreshTokenSecret = () => process.env.JWT_REFRESH_KEY || process.env.JWT_KEY;
+const refreshCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/api/auth',
+  maxAge: 30 * 24 * 60 * 60 * 1000
+});
+const clearRefreshCookie = (res) => {
+  const { maxAge, ...options } = refreshCookieOptions();
+  res.clearCookie(refreshCookieName, options);
+};
+const getRefreshToken = (req) => {
+  const cookieHeader = req.headers.cookie || '';
+  const cookie = cookieHeader.split(';').map((item) => item.trim()).find((item) => item.startsWith(`${refreshCookieName}=`));
+  return cookie ? cookie.slice(refreshCookieName.length + 1) : '';
+};
+const createAccessToken = (user) => jwt.sign(
+  { _id: user._id, role: user.role, tokenVersion: user.tokenVersion || 0, tokenUse: 'access' },
+  process.env.JWT_KEY,
+  { expiresIn: '12h' }
+);
+
 const login = async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
@@ -41,11 +65,13 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    const token = jwt.sign(
-      { _id: user._id, role: user.role, tokenVersion: user.tokenVersion || 0 },
-      process.env.JWT_KEY,
-      { expiresIn: '10d' }
+    const token = createAccessToken(user);
+    const refreshToken = jwt.sign(
+      { _id: user._id, tokenVersion: user.tokenVersion || 0, tokenUse: 'refresh' },
+      refreshTokenSecret(),
+      { expiresIn: '30d' }
     );
+    res.cookie(refreshCookieName, refreshToken, refreshCookieOptions());
 
     const loginTimestamp = new Date();
     void User.updateOne(
@@ -90,6 +116,52 @@ const login = async (req, res) => {
     console.log(error.message);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
+};
+
+const refresh = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database unavailable. Please try again.',
+    });
+  }
+
+  const refreshToken = getRefreshToken(req);
+  if (!refreshToken) {
+    return res.status(401).json({ success: false, message: 'Sign-in session expired. Please sign in again.' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, refreshTokenSecret());
+    if (decoded.tokenUse !== 'refresh' || !decoded._id) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ success: false, message: 'Sign-in session is invalid. Please sign in again.' });
+    }
+
+    const user = await User.findById(decoded._id)
+      .select('_id role status tokenVersion')
+      .maxTimeMS(5000)
+      .lean();
+    if (!user || user.status !== 'Active' || (decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ success: false, message: 'Sign-in session expired. Please sign in again.' });
+    }
+
+    return res.status(200).json({ success: true, token: createAccessToken(user) });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {
+      clearRefreshCookie(res);
+      return res.status(401).json({ success: false, message: 'Sign-in session expired. Please sign in again.' });
+    }
+
+    console.error('Session refresh failed:', error.message);
+    return res.status(503).json({ success: false, message: 'Unable to refresh your session. Please try again.' });
+  }
+};
+
+const logout = (req, res) => {
+  clearRefreshCookie(res);
+  return res.status(200).json({ success: true });
 };
 
 const verify = async (req, res) => {
@@ -157,4 +229,4 @@ const getProfile = async (req, res) => {
   }
 };
 
-export { login, verify, getProfile };
+export { login, refresh, logout, verify, getProfile };

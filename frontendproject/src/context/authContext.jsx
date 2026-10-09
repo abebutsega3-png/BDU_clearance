@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import axios from 'axios';
 
 const userContext = createContext();
+let refreshPromise;
 
 const isAuthenticationFailure = (error) => {
   if (error.response?.status !== 401 || error.config?.url?.includes('/api/auth/login')) return false;
@@ -26,16 +27,42 @@ const AuthProvider = ({ children }) => {
   useEffect(() => {
     const interceptorId = axios.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error) => {
+        const request = error.config;
         if (
-          isAuthenticationFailure(error)
-          && !error.config?.suppressAutomaticLogout
-          && localStorage.getItem('token')
+          !isAuthenticationFailure(error)
+          || request?._retry
+          || request?.suppressAutomaticLogout
+          || !localStorage.getItem('token')
         ) {
-          localStorage.removeItem('token');
-          setUser(null);
+          return Promise.reject(error);
         }
-        return Promise.reject(error);
+
+        request._retry = true;
+        try {
+          if (!refreshPromise) {
+            refreshPromise = axios.post('/api/auth/refresh', {}, { withCredentials: true })
+              .finally(() => { refreshPromise = null; });
+          }
+          const response = await refreshPromise;
+          if (!response.data?.token) throw new Error('Session refresh did not return an access token.');
+          localStorage.setItem('token', response.data.token);
+          if (request.headers?.set) request.headers.set('Authorization', `Bearer ${response.data.token}`);
+          else request.headers = { ...request.headers, Authorization: `Bearer ${response.data.token}` };
+          return axios(request);
+        } catch (refreshError) {
+          if (refreshError.response?.status === 401) {
+            if (String(request.url || '').includes('/api/property/dashboard/employees/search')) {
+              const params = new URLSearchParams(window.location.search);
+              params.set('resumeEmployeeSearch', 'true');
+              if (request.params?.search) params.set('employeeSearch', request.params.search);
+              sessionStorage.setItem('postLoginReturnTo', `${window.location.pathname}?${params.toString()}`);
+            }
+            localStorage.removeItem('token');
+            setUser(null);
+          }
+          return Promise.reject(refreshError);
+        }
       }
     );
 
@@ -123,12 +150,16 @@ const AuthProvider = ({ children }) => {
     setUser((currentUser) => ({ ...currentUser, ...userData }));
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(({ redirect = true, clearUser = true } = {}) => {
     verificationId.current += 1;
-    setUser(null);
-    setAuthError('');
+    if (clearUser) {
+      setUser(null);
+      setAuthError('');
+    }
     localStorage.removeItem('token');
-    window.location.replace('/login');
+    void axios.post('/api/auth/logout', {}, { withCredentials: true })
+      .catch((error) => console.error('Unable to clear server sign-in session:', error.message));
+    if (redirect) window.location.replace('/login');
   }, []);
 
   return (

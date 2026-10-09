@@ -268,7 +268,7 @@ function PropertyLayoutContent() {
                     <Link role="menuitem" to="/property/profile#security" onClick={closeAccountMenu} className="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-slate-50">
                       <LockKeyhole size={17} className="text-slate-500" /> {t('Change Password', 'የይለፍ ቃል ቀይር')}
                     </Link>
-                    <Link role="menuitem" to="/property/settings" onClick={closeAccountMenu} className="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-slate-50">
+                    <Link role="menuitem" to="/property/dashboard-settings" onClick={closeAccountMenu} className="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-slate-50">
                       <Settings size={17} className="text-slate-500" /> {t('Property / Asset Settings', 'የንብረት ቅንብሮች')}
                     </Link>
                   </div>

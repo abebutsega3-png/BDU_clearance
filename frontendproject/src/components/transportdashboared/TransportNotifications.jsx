@@ -60,6 +60,7 @@ export default function TransportNotifications() {
       try {
         const response = await axios.get(API_URL, { ...authConfig(), signal: controller.signal });
         setNotifications(response.data.notifications || []);
+        window.dispatchEvent(new Event('transport-notifications-updated'));
       } catch (requestError) {
         if (!controller.signal.aborted) {
           setError(requestError.response?.data?.message || 'Unable to load Transport notifications.');
@@ -83,6 +84,7 @@ export default function TransportNotifications() {
     try {
       await axios.patch(`${API_URL}/${notification._id}/read`, {}, authConfig());
       setNotifications((current) => current.map((item) => String(item._id) === String(notification._id) ? { ...item, isRead: true } : item));
+      window.dispatchEvent(new Event('transport-notifications-updated'));
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to update the notification.');
     } finally {
@@ -95,6 +97,7 @@ export default function TransportNotifications() {
     try {
       await axios.patch(`${API_URL}/mark-all-read`, {}, authConfig());
       setNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
+      window.dispatchEvent(new Event('transport-notifications-updated'));
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Unable to mark notifications as read.');
     } finally {

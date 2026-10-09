@@ -43,11 +43,21 @@ export default function Login() {
         localStorage.setItem('token', response.data.token);
         login(response.data.user);
         const dashboardPath = getDashboardPath(response.data.user?.role);
+        const savedReturnTo = sessionStorage.getItem('postLoginReturnTo');
+        sessionStorage.removeItem('postLoginReturnTo');
+        let savedDestination = '';
+        if (savedReturnTo?.startsWith('/') && !savedReturnTo.startsWith('//')) {
+          const savedUrl = new URL(savedReturnTo, window.location.origin);
+          if (savedUrl.origin === window.location.origin && canAccessPathForRole(savedUrl.pathname, response.data.user?.role)) {
+            savedDestination = `${savedUrl.pathname}${savedUrl.search}${savedUrl.hash}`;
+          }
+        }
         const requestedLocation = location.state?.from;
         const requestedPath = requestedLocation?.pathname;
-        const destination = requestedPath && canAccessPathForRole(requestedPath, response.data.user?.role)
+        const destination = savedDestination
+          || (requestedPath && canAccessPathForRole(requestedPath, response.data.user?.role)
           ? { pathname: requestedPath, search: requestedLocation.search || '', hash: requestedLocation.hash || '' }
-          : dashboardPath || '/unauthorized';
+          : dashboardPath || '/unauthorized');
         navigate(destination, { replace: true });
         return;
       }

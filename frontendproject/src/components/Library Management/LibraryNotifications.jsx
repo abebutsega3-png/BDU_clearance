@@ -42,6 +42,7 @@ export default function LibraryNotifications() {
       });
       setNotifications((current) => current.filter((item) => item._id !== id));
       setUnreadCount((current) => Math.max(0, current - (notifications.find((item) => item._id === id)?.isRead ? 0 : 1)));
+      window.dispatchEvent(new Event('library-notifications-updated'));
     } catch (err) {
       console.error('Error deleting notification:', err);
     }
@@ -58,6 +59,7 @@ export default function LibraryNotifications() {
         headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
       });
       fetchNotifications();
+      window.dispatchEvent(new Event('library-notifications-updated'));
     } catch (err) {
       console.error('Error marking as read:', err);
     }
@@ -70,6 +72,7 @@ export default function LibraryNotifications() {
         headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
       });
       fetchNotifications();
+      window.dispatchEvent(new Event('library-notifications-updated'));
     } catch (err) {
       console.error('Error marking all as read:', err);
     }

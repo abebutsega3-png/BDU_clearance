@@ -30,6 +30,20 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/unread-count', authMiddleware, async (req, res) => {
+  try {
+    const unreadCount = await Notification.countDocuments({
+      recipientId: req.user._id,
+      type: { $in: [...LIBRARY_NOTIFICATION_TYPES] },
+      isRead: false
+    });
+    return res.status(200).json({ unreadCount });
+  } catch (error) {
+    console.error('Error fetching unread library notification count:', error);
+    return res.status(500).json({ message: 'Error fetching unread notification count.' });
+  }
+});
+
 router.patch('/mark-all-read', authMiddleware, async (req, res) => {
   try {
     await Notification.updateMany(

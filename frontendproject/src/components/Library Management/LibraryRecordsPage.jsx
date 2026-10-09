@@ -31,6 +31,23 @@ const statusBadge = {
   Lost: 'bg-slate-200 text-slate-700',
 };
 
+const MATERIAL_TYPES = ['Book', 'Journal', 'Laptop', 'Equipment', 'Other'];
+const MATERIAL_CONDITIONS = ['Good', 'Fair', 'Damaged'];
+const MATERIAL_ID_PATTERN = /^[A-Za-z0-9-]+$/;
+
+const getLocalDateInputValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getNextDateInputValue = (value) => {
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + 1);
+  return getLocalDateInputValue(date);
+};
+
 const formatDate = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -354,8 +371,10 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
   const [employees, setEmployees] = useState([]);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [message, setMessage] = useState('');
+  const [employeeLoadError, setEmployeeLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const today = new Date();
+  const todayValue = getLocalDateInputValue(today);
   const defaultDueDate = new Date(today);
   defaultDueDate.setDate(defaultDueDate.getDate() + 31);
   const [form, setForm] = useState({
@@ -364,8 +383,8 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
     materialId: '',
     publicationYear: String(today.getFullYear()),
     condition: 'Good',
-    borrowDate: today.toISOString().slice(0, 10),
-    dueDate: defaultDueDate.toISOString().slice(0, 10),
+    borrowDate: todayValue,
+    dueDate: getLocalDateInputValue(defaultDueDate),
     remark: '',
   });
 
@@ -376,9 +395,9 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
         const { data } = await axios.get('http://localhost:3000/api/employee', {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-        setEmployees(Array.isArray(data?.employees) ? data.employees : []);
-      } catch {
-        setEmployees([]);
+        setEmployees(Array.isArray(data?.employees) ? data.employees.filter((employee) => employee.status === 'Active') : []);
+      } catch (loadError) {
+        setEmployeeLoadError(loadError.response?.data?.message || 'Unable to load active employees. Please try again.');
       }
     };
 
@@ -389,16 +408,57 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
     ...employee,
     displayName: employee.fullName || [employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(' '),
   }));
-  const selectedEmployee = employeeOptions.find((employee) => (
-    `${employee.employeeId} / ${employee.displayName}` === employeeSearch
+  const normalizedEmployeeSearch = employeeSearch.trim().toLocaleLowerCase();
+  const selectedByIdOrLabel = employeeOptions.find((employee) => (
+    [employee.employeeId, `${employee.employeeId} / ${employee.displayName}`]
+      .some((value) => value.toLocaleLowerCase() === normalizedEmployeeSearch)
   ));
+  const nameMatches = employeeOptions.filter((employee) => employee.displayName.toLocaleLowerCase() === normalizedEmployeeSearch);
+  const selectedEmployee = selectedByIdOrLabel || (nameMatches.length === 1 ? nameMatches[0] : null);
   const inputClassName = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100';
-  const updateForm = (event) => setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  const updateForm = (event) => {
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+    setMessage('');
+  };
 
   const submit = async (event) => {
     event.preventDefault();
     if (!selectedEmployee) {
       setMessage('Select an employee from the employee list.');
+      return;
+    }
+    if (!selectedEmployee.displayName?.trim() || /^\d+$/.test(selectedEmployee.displayName.trim())
+      || !selectedEmployee.department?.trim() || /^\d+$/.test(selectedEmployee.department.trim())
+      || !selectedEmployee.campus?.trim() || /^\d+$/.test(selectedEmployee.campus.trim())) {
+      setMessage('Selected employee name, department, and campus must contain valid database text values.');
+      return;
+    }
+    if (!form.title.trim()) {
+      setMessage('Book title / name is required.');
+      return;
+    }
+    if (!MATERIAL_ID_PATTERN.test(form.materialId.trim())) {
+      setMessage('Accession / ISBN / Tag Number may contain letters, numbers, and hyphens only.');
+      return;
+    }
+    if (form.publicationYear && (!/^\d{4}$/.test(form.publicationYear) || Number(form.publicationYear) > today.getFullYear() || Number(form.publicationYear) < 1000)) {
+      setMessage(`Publication year must be a valid four-digit year between 1000 and ${today.getFullYear()}.`);
+      return;
+    }
+    if (!MATERIAL_TYPES.includes(form.materialType) || !MATERIAL_CONDITIONS.includes(form.condition)) {
+      setMessage('Select a valid material type and initial condition.');
+      return;
+    }
+    if (!form.borrowDate || form.borrowDate > todayValue) {
+      setMessage('Issue / Borrowed Date must be valid and cannot be in the future.');
+      return;
+    }
+    if (!form.dueDate || form.dueDate < todayValue || form.dueDate <= form.borrowDate) {
+      setMessage('Due Date must be valid, not in the past, and after the borrowed date.');
+      return;
+    }
+    if (form.title.trim().length > 200 || form.remark.trim().length > 1000) {
+      setMessage('Title must be 200 characters or fewer and remark must be 1000 characters or fewer.');
       return;
     }
 
@@ -409,6 +469,9 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
       const { data } = await axios.post(LIBRARY_RECORDS_API, {
         employeeId: selectedEmployee.employeeId,
         ...form,
+        title: form.title.trim(),
+        materialId: form.materialId.trim(),
+        remark: form.remark.trim(),
       }, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -441,13 +504,29 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
               onChange={(event) => { setEmployeeSearch(event.target.value); setMessage(''); }}
               placeholder="Search by employee ID or name"
               required
+              aria-invalid={Boolean(employeeLoadError)}
               className={inputClassName}
             />
             <datalist id="library-employee-options">
               {employeeOptions.map((employee) => (
-                <option key={employee.employeeId} value={`${employee.employeeId} / ${employee.displayName}`} />
+                <React.Fragment key={employee.employeeId}>
+                  <option value={employee.employeeId} />
+                  <option value={employee.displayName} />
+                  <option value={`${employee.employeeId} / ${employee.displayName}`} />
+                </React.Fragment>
               ))}
             </datalist>
+            {employeeLoadError && <span role="alert" className="mt-1 block text-rose-600">{employeeLoadError}</span>}
+            {!selectedEmployee && nameMatches.length > 1 && <span className="mt-1 block text-amber-700">More than one employee has this name. Search by employee ID to select the right person.</span>}
+          </label>
+          <label className="block text-xs font-medium text-slate-700">
+            Employee Name (Auto-filled)
+            <input
+              value={selectedEmployee?.displayName || ''}
+              readOnly
+              placeholder="Select an employee"
+              className={`${inputClassName} bg-slate-100 text-slate-600`}
+            />
           </label>
           <label className="block text-xs font-medium text-slate-700">
             Department / Campus (Auto-filled)
@@ -465,26 +544,26 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-xs font-medium text-slate-700">
               Material Type
-              <select name="materialType" value={form.materialType} onChange={updateForm} className={inputClassName}>
-                {['Book', 'Journal', 'Laptop', 'Equipment', 'Other'].map((type) => <option key={type}>{type}</option>)}
+              <select name="materialType" value={form.materialType} onChange={updateForm} required className={inputClassName}>
+                {MATERIAL_TYPES.map((type) => <option key={type}>{type}</option>)}
               </select>
             </label>
             <label className="block text-xs font-medium text-slate-700">
               Book Title / Name
-              <input name="title" value={form.title} onChange={updateForm} required className={inputClassName} />
+              <input name="title" value={form.title} onChange={updateForm} required maxLength={200} className={inputClassName} />
             </label>
             <label className="block text-xs font-medium text-slate-700">
               Accession / ISBN / Tag Number
-              <input name="materialId" value={form.materialId} onChange={updateForm} required className={inputClassName} />
+              <input name="materialId" value={form.materialId} onChange={updateForm} required maxLength={100} pattern="[A-Za-z0-9-]+" title="Use letters, numbers, and hyphens only." className={inputClassName} />
             </label>
             <label className="block text-xs font-medium text-slate-700">
               Publication Year
-              <input type="number" name="publicationYear" value={form.publicationYear} min="1000" max={today.getFullYear()} onChange={updateForm} className={inputClassName} />
+              <input type="text" inputMode="numeric" name="publicationYear" value={form.publicationYear} minLength={4} maxLength={4} pattern="[0-9]{4}" title={`Enter a four-digit year from 1000 to ${today.getFullYear()}.`} onChange={updateForm} className={inputClassName} />
             </label>
             <label className="block text-xs font-medium text-slate-700">
               Initial Condition
-              <select name="condition" value={form.condition} onChange={updateForm} className={inputClassName}>
-                {['Good', 'Fair', 'Damaged'].map((condition) => <option key={condition}>{condition}</option>)}
+              <select name="condition" value={form.condition} onChange={updateForm} required className={inputClassName}>
+                {MATERIAL_CONDITIONS.map((condition) => <option key={condition}>{condition}</option>)}
               </select>
             </label>
           </div>
@@ -495,15 +574,15 @@ function IssueMaterialModal({ onCancel, onAssigned }) {
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-xs font-medium text-slate-700">
               Issue / Borrowed Date
-              <input type="date" name="borrowDate" value={form.borrowDate} onChange={updateForm} required className={inputClassName} />
+              <input type="date" name="borrowDate" value={form.borrowDate} max={todayValue} onChange={updateForm} required className={inputClassName} />
             </label>
             <label className="block text-xs font-medium text-slate-700">
               Due Date
-              <input type="date" name="dueDate" value={form.dueDate} min={form.borrowDate} onChange={updateForm} required className={inputClassName} />
+              <input type="date" name="dueDate" value={form.dueDate} min={form.borrowDate ? getNextDateInputValue(form.borrowDate) : todayValue} onChange={updateForm} required className={inputClassName} />
             </label>
             <label className="block text-xs font-medium text-slate-700 sm:col-span-2">
               Remark / Note
-              <textarea name="remark" value={form.remark} onChange={updateForm} rows="2" className={inputClassName} />
+              <textarea name="remark" value={form.remark} onChange={updateForm} rows="2" maxLength={1000} className={inputClassName} />
             </label>
           </div>
         </fieldset>

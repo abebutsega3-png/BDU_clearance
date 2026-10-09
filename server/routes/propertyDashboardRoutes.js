@@ -3,6 +3,7 @@ import { getDashboardData, startReview } from '../controllers/propertyDashboardC
 import {
   createPropertyAsset,
   getPropertyAssetRecords,
+  searchAssignableEmployees,
   getPropertyAssetById,
   returnPropertyAssetToStore,
   updatePropertyAsset
@@ -12,6 +13,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.get('/dashboard', getDashboardData);
+router.get('/employees/search', authMiddleware, searchAssignableEmployees);
 router.get('/assets', getPropertyAssetRecords);
 router.get('/assets/:assetId', getPropertyAssetById);
 router.post('/assets', authMiddleware, createPropertyAsset);

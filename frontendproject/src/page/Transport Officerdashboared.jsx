@@ -33,7 +33,10 @@ import TransportClearanceRequests from '../components/transportdashboared/Transp
 import AssignedVehicleRecords from '../components/transportdashboared/AssignedVehicleRecords';
 import TransportClearanceHistory from '../components/transportdashboared/TransportClearanceHistory';
 import TransportReports from '../components/transportdashboared/TransportReports';
+import TransportProfile from '../components/transportdashboared/TransportProfile';
 import TransportNotifications from '../components/transportdashboared/TransportNotifications';
+import TransportChangePassword from '../components/transportdashboared/TransportChangePassword';
+import TransportDashboardSettings from '../components/transportdashboared/TransportDashboardSettings';
 
 const summaryCards = [
 	{ key: 'pendingRequests', label: 'Pending Requests', icon: Clock3, color: 'amber' },
@@ -89,6 +92,9 @@ export default function TransportOfficerDashboard() {
 	const isHistoryPage = location.pathname === '/transport-office/history';
 	const isReportsPage = location.pathname === '/transport-office/reports';
 	const isNotificationsPage = location.pathname === '/transport-office/notifications';
+	const isProfilePage = location.pathname === '/transport-office/profile';
+	const isChangePasswordPage = location.pathname === '/transport-office/change-password';
+	const isSettingsPage = location.pathname === '/transport-office/settings';
 	const [dashboardData, setDashboardData] = useState(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState('');
@@ -96,7 +102,7 @@ export default function TransportOfficerDashboard() {
 
 	useEffect(() => {
 		const controller = new AbortController();
-		if (isRequestsPage || isAssignedVehiclesPage || isHistoryPage || isReportsPage || isNotificationsPage) return () => controller.abort();
+		if (isRequestsPage || isAssignedVehiclesPage || isHistoryPage || isReportsPage || isNotificationsPage || isProfilePage || isChangePasswordPage || isSettingsPage) return () => controller.abort();
 
 		const fetchDashboard = async () => {
 			setLoading(true);
@@ -120,7 +126,7 @@ export default function TransportOfficerDashboard() {
 
 		fetchDashboard();
 		return () => controller.abort();
-	}, [retryCount, isRequestsPage, isAssignedVehiclesPage, isHistoryPage, isReportsPage, isNotificationsPage]);
+	}, [retryCount, isRequestsPage, isAssignedVehiclesPage, isHistoryPage, isReportsPage, isNotificationsPage, isProfilePage, isChangePasswordPage, isSettingsPage]);
 
 	const summary = dashboardData?.summary || {};
 	const fleet = dashboardData?.fleet || {};
@@ -140,7 +146,7 @@ export default function TransportOfficerDashboard() {
 			<TransportSidebar />
 			<main className="min-h-[calc(100vh-4rem)] px-4 py-5 pl-20 sm:px-6 sm:pl-24 md:ml-64 md:px-8 md:pl-8">
 				<div className="mx-auto w-full max-w-7xl space-y-5">
-					{isRequestsPage ? <TransportClearanceRequests /> : isAssignedVehiclesPage ? <AssignedVehicleRecords /> : isHistoryPage ? <TransportClearanceHistory /> : isReportsPage ? <TransportReports /> : isNotificationsPage ? <TransportNotifications /> : <>
+					{isRequestsPage ? <TransportClearanceRequests /> : isAssignedVehiclesPage ? <AssignedVehicleRecords /> : isHistoryPage ? <TransportClearanceHistory /> : isReportsPage ? <TransportReports /> : isNotificationsPage ? <TransportNotifications /> : isProfilePage ? <TransportProfile /> : isChangePasswordPage ? <TransportChangePassword /> : isSettingsPage ? <TransportDashboardSettings /> : <>
 					{error && (
 						<div className="flex flex-col gap-3 rounded-md border border-rose-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
 							<div className="flex items-start gap-2 text-sm text-rose-700">

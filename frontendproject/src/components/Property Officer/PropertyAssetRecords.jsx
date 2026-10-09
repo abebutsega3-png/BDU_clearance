@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { usePropertyLanguage } from './propertyLanguage';
 import { useAuth } from '../../context/authContext';
@@ -24,8 +24,8 @@ import {
 const EMPTY_ASSET_FORM = {
   assetId: '',
   assetName: '',
-  assetType: 'Electronics',
-  category: 'Electronics',
+  assetType: '',
+  category: '',
   serialNumber: '',
   handoverVoucher: '',
   model: '',
@@ -43,15 +43,24 @@ const EMPTY_ASSET_FORM = {
 
 const DEFAULT_ASSET_STATUSES = ['Available', 'Assigned', 'Outstanding', 'Damaged', 'Lost', 'Under Maintenance'];
 const ASSET_TYPES = ['Laptop', 'Desktop', 'Printer', 'Monitor', 'Furniture', 'Vehicle', 'Other'];
+const CAMPUS_OPTIONS = ['Main Campus', 'Woreta Campus', 'Medical Campus', 'Tibebe Ghion Campus'];
 const normalizeEmployeeId = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const containsLettersOnly = (value) => /\p{L}/u.test(value) && !/[\p{N}]/u.test(value);
+const getTodayDateInputValue = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+};
 
 function AssetField({ label, required = false, children }) {
+  const isControlWrapper = children.type === 'div';
   const childClasses = children.props.className?.replace('asset-input', '') || '';
   return (
-    <label className="block space-y-1 text-[10px] font-semibold text-slate-600">
+    <label className="block space-y-1 text-xs font-semibold text-slate-600">
       <span>{label}{required && <span className="text-rose-600"> *</span>}</span>
       {React.cloneElement(children, {
-        className: `w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-100 ${childClasses}`.trim()
+        className: isControlWrapper
+          ? childClasses.trim()
+          : `w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-100 ${childClasses}`.trim()
       })}
     </label>
   );
@@ -60,7 +69,9 @@ function AssetField({ label, required = false, children }) {
 export default function AssetRecords() {
   const { t } = usePropertyLanguage();
   const { logout } = useAuth();
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const selectedEmployeeId = searchParams.get('employeeId') || '';
   const selectedRequestId = searchParams.get('requestId') || '';
 
@@ -89,7 +100,6 @@ export default function AssetRecords() {
   const [employeeLoadError, setEmployeeLoadError] = useState('');
   const [employeeAuthExpired, setEmployeeAuthExpired] = useState(false);
   const [employeeLookupAttempted, setEmployeeLookupAttempted] = useState(false);
-  const employeeLookupStarted = useRef(false);
   const [assignmentEnabled, setAssignmentEnabled] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [showEmployeeResults, setShowEmployeeResults] = useState(false);
@@ -184,18 +194,19 @@ export default function AssetRecords() {
     }
   };
 
-  const openAssetForm = (asset = null) => {
+  const openAssetForm = useCallback((asset = null) => {
     setFormError('');
     setActionError('');
     setEditingAssetId(asset?.assetId || '');
     setEmployeeLoadError('');
     setEmployeeAuthExpired(false);
     setEmployeeLookupAttempted(false);
-    employeeLookupStarted.current = false;
+    setEmployees([]);
+    setLoadingEmployees(false);
     setEmployeeSearch(asset?.employeeId && asset.employeeId !== 'N/A' ? asset.employeeId : '');
     setShowEmployeeResults(false);
     setAssignmentEnabled(Boolean(asset?.employeeId && asset.employeeId !== 'N/A'));
-    const defaultCategory = configuredCategories.find((item) => item.enabled !== false)?.name || filterOptions.assetTypes[0] || 'Electronics';
+    const defaultCategory = configuredCategories.find((item) => item.enabled !== false)?.name || '';
     setAssetForm(asset ? {
       ...EMPTY_ASSET_FORM,
       ...asset,
@@ -203,7 +214,7 @@ export default function AssetRecords() {
       assetType: asset.assetType || asset.category || 'General Equipment',
       category: asset.category || asset.assetType || 'General Equipment',
       purchaseDate: asset.purchaseDate ? new Date(asset.purchaseDate).toISOString().slice(0, 10) : '',
-      purchaseValue: asset.purchaseValue ? String(asset.purchaseValue) : '',
+      purchaseValue: asset.purchaseValue != null ? String(asset.purchaseValue) : '',
       assignedDate: asset.assignedDate ? new Date(asset.assignedDate).toISOString().slice(0, 10) : ''
     } : {
       ...EMPTY_ASSET_FORM,
@@ -212,25 +223,60 @@ export default function AssetRecords() {
       assetType: 'Laptop'
     });
     setIsAssetFormOpen(true);
+  }, [configuredCategories]);
+
+  const resumeEmployeeSearch = searchParams.get('resumeEmployeeSearch');
+  useEffect(() => {
+    if (resumeEmployeeSearch !== 'true') return;
+    const savedEmployeeSearch = searchParams.get('employeeSearch') || '';
+    openAssetForm();
+    setAssignmentEnabled(true);
+    setEmployeeSearch(savedEmployeeSearch);
+    setShowEmployeeResults(true);
+    setSearchParams((currentParams) => {
+      const nextParams = new URLSearchParams(currentParams);
+      nextParams.delete('resumeEmployeeSearch');
+      nextParams.delete('employeeSearch');
+      return nextParams;
+    }, { replace: true });
+  }, [openAssetForm, resumeEmployeeSearch, searchParams, setSearchParams]);
+
+  const handleEmployeeSignIn = () => {
+    const returnParams = new URLSearchParams(searchParams);
+    returnParams.set('resumeEmployeeSearch', 'true');
+    if (employeeSearch.trim()) returnParams.set('employeeSearch', employeeSearch.trim());
+    const returnTo = `/property/asset-records?${returnParams.toString()}`;
+    sessionStorage.setItem('postLoginReturnTo', returnTo);
+    logout({ redirect: false, clearUser: false });
+    navigate('/login', {
+      replace: true,
+      state: { from: { ...location, pathname: '/property/asset-records', search: `?${returnParams.toString()}` } }
+    });
   };
 
   useEffect(() => {
-    if (!isAssetFormOpen || !assignmentEnabled || employeeLookupStarted.current) return;
+    if (!isAssetFormOpen || !assignmentEnabled) return;
+    const search = employeeSearch.trim();
+    if (!search) return;
     let active = true;
-    employeeLookupStarted.current = true;
+    const controller = new AbortController();
     const fetchEmployees = async () => {
       setLoadingEmployees(true);
       setEmployeeLoadError('');
+      setEmployeeAuthExpired(false);
       try {
-        const response = await axios.get('http://localhost:3000/api/employee', {
+        const response = await axios.get('/api/property/dashboard/employees/search', {
+          params: { search },
+          signal: controller.signal,
           headers: { Authorization: `******'token') || ''}` },
-          suppressAutomaticLogout: true
         });
         const records = Array.isArray(response.data?.employees) ? response.data.employees : [];
         if (!active) return;
         setEmployees(records);
       } catch (error) {
-        console.error('Unable to load employees for asset assignment:', error);
+        if (!active || axios.isCancel(error)) return;
+        console.error('Unable to search employees for asset assignment:', error);
+        setEmployees([]);
         if (active && error.response?.status === 401) {
           setEmployeeAuthExpired(true);
           setEmployeeLoadError(t(
@@ -238,15 +284,19 @@ export default function AssetRecords() {
             'የመግቢያ ጊዜዎ አብቅቷል። ሰራተኞችን ለመፈለግ እንደገና ይግቡ።'
           ));
         } else if (active) {
-          setEmployeeLoadError(error.response?.data?.message || t('Unable to load employees. Please retry.', 'ሰራተኞችን መጫን አልተቻለም። እንደገና ይሞክሩ።'));
+          setEmployeeLoadError(error.response?.data?.message || t('Unable to search employees. Please retry.', 'ሰራተኞችን መፈለግ አልተቻለም። እንደገና ይሞክሩ።'));
         }
       } finally {
-        setLoadingEmployees(false);
+        if (active) setLoadingEmployees(false);
       }
     };
-    fetchEmployees();
-    return () => { active = false; };
-  }, [isAssetFormOpen, assignmentEnabled, employeeLookupAttempted, logout, t]);
+    const timeout = window.setTimeout(fetchEmployees, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [isAssetFormOpen, assignmentEnabled, employeeSearch, employeeLookupAttempted, t]);
 
   const matchingEmployees = employees.filter((employee) => {
     const term = employeeSearch.trim().toLowerCase();
@@ -305,21 +355,75 @@ export default function AssetRecords() {
   const handleSaveAsset = async (event) => {
     event.preventDefault();
     setFormError('');
-    const purchaseValue = assetForm.purchaseValue === '' ? 0 : Number(assetForm.purchaseValue);
-    if (!Number.isFinite(purchaseValue) || purchaseValue < 0) {
-      setFormError(t('Purchase value must be zero or greater.', 'የግዢ ዋጋ ዜሮ ወይም ከዚያ በላይ መሆን አለበት።'));
+    const purchaseValueText = String(assetForm.purchaseValue ?? '').trim();
+    const purchaseValue = Number(purchaseValueText);
+    if (!/^\d+(?:\.\d{1,2})?$/.test(purchaseValueText) || !Number.isFinite(purchaseValue) || purchaseValue < 0) {
+      setFormError(t('Purchase value must be a non-negative number with up to two decimal places.', 'የግዢ ዋጋ ከዜሮ ያላነሰ እና እስከ ሁለት የአስርዮሽ ቦታ ያለው ቁጥር መሆን አለበት።'));
       return;
     }
-    if (assetForm.employeeId.trim() && !assetForm.employeeName.trim()) {
-      setFormError(t('Enter the assigned employee name, or clear the employee ID.', 'የተመደበውን የሰራተኛ ስም ያስገቡ ወይም የሰራተኛ መለያ ቁጥሩን ያጥፉ።'));
+    const originalAssetId = editingAssetId
+      ? assets.find((asset) => asset.assetId === editingAssetId)?.assetId
+      : '';
+    if (!/^[A-Za-z0-9-]+$/.test(assetForm.assetId.trim()) && assetForm.assetId !== originalAssetId) {
+      setFormError(t('Asset tag may contain only letters, numbers, and hyphens.', 'የንብረት መለያ ፊደል፣ ቁጥር እና ሰረዝ ብቻ ሊይዝ ይችላል።'));
       return;
     }
-    if (assignmentEnabled && !employees.some((employee) => employee.employeeId === assetForm.employeeId.trim())) {
-      setFormError(t('Select a valid employee from the employee list.', 'ከሰራተኞች ዝርዝር ትክክለኛ ሰራተኛ ይምረጡ።'));
+    if (!containsLettersOnly(assetForm.assetName.trim())) {
+      setFormError(t('Asset name must contain letters and cannot be numeric.', 'የንብረት ስም ፊደል መያዝ እና ቁጥር ብቻ አለመሆን አለበት።'));
       return;
     }
-    if (!String(assetForm.assetId || '').trim()) {
-      setFormError(t('Asset tag / property code is required.', 'የንብረት መለያ / ኮድ ያስፈልጋል።'));
+    if (!assetForm.category.trim()) {
+      setFormError(t('Select an asset category.', 'የንብረት ምድብ ይምረጡ።'));
+      return;
+    }
+    const originalAssetType = editingAssetId
+      ? assets.find((asset) => asset.assetId === editingAssetId)?.assetType
+      : '';
+    if (!ASSET_TYPES.includes(assetForm.assetType) && assetForm.assetType !== originalAssetType) {
+      setFormError(t('Select a valid asset type.', 'ትክክለኛ የንብረት አይነት ይምረጡ።'));
+      return;
+    }
+    if (!assetForm.model.trim() || !/\p{L}/u.test(assetForm.model.trim())) {
+      setFormError(t('Model / Make must include at least one letter.', 'ሞዴል / አምራች ቢያንስ አንድ ፊደል መያዝ አለበት።'));
+      return;
+    }
+    if (!/^[A-Za-z0-9-]+$/.test(assetForm.serialNumber.trim())) {
+      setFormError(t('Serial number is required and may contain only letters, numbers, and hyphens.', 'ተከታታይ ቁጥር ያስፈልጋል፤ ፊደል፣ ቁጥር እና ሰረዝ ብቻ ሊይዝ ይችላል።'));
+      return;
+    }
+    const todayString = getTodayDateInputValue();
+    if (!assetForm.purchaseDate || !/^\d{4}-\d{2}-\d{2}$/.test(assetForm.purchaseDate)
+      || Number.isNaN(new Date(`${assetForm.purchaseDate}T00:00:00Z`).getTime())
+      || new Date(`${assetForm.purchaseDate}T00:00:00Z`).toISOString().slice(0, 10) !== assetForm.purchaseDate
+      || assetForm.purchaseDate > todayString) {
+      setFormError(t('Purchase date must be a valid date and cannot be in the future.', 'የግዢ ቀን ትክክለኛ መሆን እና ወደፊት ቀን አለመሆን አለበት።'));
+      return;
+    }
+    if (!['New', 'Good', 'Fair', 'Damaged', 'Lost'].includes(assetForm.condition)) {
+      setFormError(t('Select a valid asset condition.', 'ትክክለኛ የንብረት ሁኔታ ይምረጡ።'));
+      return;
+    }
+    if (!DEFAULT_ASSET_STATUSES.includes(assetForm.status) && !configuredStatuses.some((item) => item.name === assetForm.status)) {
+      setFormError(t('Select a valid inventory status.', 'ትክክለኛ የንብረት ሁኔታ ይምረጡ።'));
+      return;
+    }
+    if (assetForm.handoverVoucher.trim() && !/^[A-Za-z0-9-]+$/.test(assetForm.handoverVoucher.trim())) {
+      setFormError(t('Voucher number may contain only letters, numbers, and hyphens.', 'የቫውቸር ቁጥር ፊደል፣ ቁጥር እና ሰረዝ ብቻ ሊይዝ ይችላል።'));
+      return;
+    }
+    if (!CAMPUS_OPTIONS.includes(assetForm.campus) && !filterOptions.campuses.includes(assetForm.campus)) {
+      setFormError(t('Select a valid campus.', 'ትክክለኛ ግቢ ይምረጡ።'));
+      return;
+    }
+    if (!assetForm.location.trim()) {
+      setFormError(t('Building / Room / Store Location is required.', 'የሕንፃ / ክፍል / መጋዘን ቦታ ያስፈልጋል።'));
+      return;
+    }
+    if (assignmentEnabled && (!assetForm.employeeId.trim()
+      || !employees.some((employee) => employee.employeeId === assetForm.employeeId.trim())
+      || !containsLettersOnly(assetForm.employeeName.trim())
+      || !containsLettersOnly(assetForm.department.trim()))) {
+      setFormError(t('Select an active employee with a valid name and department from the employee list.', 'ከሰራተኞች ዝርዝር ትክክለኛ ስምና የሥራ ክፍል ያለውን ንቁ ሰራተኛ ይምረጡ።'));
       return;
     }
 
@@ -625,10 +729,10 @@ export default function AssetRecords() {
               <h3 className="flex items-center gap-2 text-xs font-bold text-teal-800"><Tag size={14} />{t('Basic Asset Information', 'መሰረታዊ የንብረት መረጃ')}</h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <AssetField label={t('Asset Tag / Property Code', 'የንብረት መለያ / ኮድ')} required>
-                  <input required value={assetForm.assetId} disabled={Boolean(editingAssetId)} onChange={(event) => setAssetForm((form) => ({ ...form, assetId: event.target.value }))} className="asset-input disabled:bg-slate-100" />
+                  <input required pattern="[A-Za-z0-9-]+" title={t('Use letters, numbers, and hyphens only.', 'ፊደል፣ ቁጥር እና ሰረዝ ብቻ ይጠቀሙ።')} value={assetForm.assetId} disabled={Boolean(editingAssetId)} onChange={(event) => setAssetForm((form) => ({ ...form, assetId: event.target.value }))} className="asset-input disabled:bg-slate-100" />
                 </AssetField>
                 <AssetField label={t('Asset Name', 'የንብረት ስም')} required>
-                  <input required value={assetForm.assetName} onChange={(event) => setAssetForm((form) => ({ ...form, assetName: event.target.value }))} placeholder={t('e.g. Dell Latitude 5520', 'ለምሳሌ፦ Dell Latitude 5520')} className="asset-input" />
+                  <input required value={assetForm.assetName} onChange={(event) => setAssetForm((form) => ({ ...form, assetName: event.target.value }))} placeholder={t('e.g. Laptop', 'ለምሳሌ፦ Laptop')} className="asset-input" />
                 </AssetField>
                 <AssetField label={t('Asset Category', 'የንብረት ምድብ')} required>
                   <select required value={assetForm.category} onChange={(event) => setAssetForm((form) => ({ ...form, category: event.target.value }))} className="asset-input">
@@ -636,26 +740,27 @@ export default function AssetRecords() {
                       ...configuredCategories.filter((item) => item.enabled !== false).map((item) => item.name),
                       ...(editingAssetId ? filterOptions.assetTypes : []),
                       ...(editingAssetId ? assets.map((asset) => asset.category || asset.assetType) : []),
-                      assetForm.category
+                      ...(editingAssetId ? [assetForm.category] : [])
                     ].filter(Boolean))].map((value) => <option key={value} value={value}>{value}</option>)}
                   </select>
                 </AssetField>
-                <AssetField label={t('Asset Type', 'የንብረት አይነት')}>
-                  <select value={assetForm.assetType} onChange={(event) => setAssetForm((form) => ({ ...form, assetType: event.target.value }))} className="asset-input">
-                    {[...new Set([...ASSET_TYPES, assetForm.assetType].filter(Boolean))].map((value) => <option key={value}>{value}</option>)}
+                <AssetField label={t('Asset Type', 'የንብረት አይነት')} required>
+                  <select required value={assetForm.assetType} onChange={(event) => setAssetForm((form) => ({ ...form, assetType: event.target.value }))} className="asset-input">
+                    <option value="">{t('Select asset type', 'የንብረት አይነት ይምረጡ')}</option>
+                    {ASSET_TYPES.map((value) => <option key={value}>{value}</option>)}
                   </select>
                 </AssetField>
                 <AssetField label={t('Model / Make', 'ሞዴል / አምራች')} required={!editingAssetId}>
-                  <input required={!editingAssetId} value={assetForm.model} onChange={(event) => setAssetForm((form) => ({ ...form, model: event.target.value }))} placeholder={t('Model / make', 'ሞዴል / አምራች')} className="asset-input" />
+                  <input required value={assetForm.model} onChange={(event) => setAssetForm((form) => ({ ...form, model: event.target.value }))} placeholder={t('Model / make', 'ሞዴል / አምራች')} className="asset-input" />
                 </AssetField>
                 <AssetField label={t('Serial Number', 'ተከታታይ ቁጥር')} required={!editingAssetId}>
-                  <input required={!editingAssetId} value={assetForm.serialNumber} onChange={(event) => setAssetForm((form) => ({ ...form, serialNumber: event.target.value }))} className="asset-input" />
+                  <input required pattern="[A-Za-z0-9-]+" title={t('Use letters, numbers, and hyphens only.', 'ፊደል፣ ቁጥር እና ሰረዝ ብቻ ይጠቀሙ።')} value={assetForm.serialNumber} onChange={(event) => setAssetForm((form) => ({ ...form, serialNumber: event.target.value }))} className="asset-input" />
                 </AssetField>
                 <AssetField label={t('Purchase / Acquisition Date', 'የግዢ / የማግኘት ቀን')} required={!editingAssetId}>
-                  <input required={!editingAssetId} type="date" value={assetForm.purchaseDate} onChange={(event) => setAssetForm((form) => ({ ...form, purchaseDate: event.target.value }))} className="asset-input" />
+                  <input required type="date" max={getTodayDateInputValue()} value={assetForm.purchaseDate} onChange={(event) => setAssetForm((form) => ({ ...form, purchaseDate: event.target.value }))} className="asset-input" />
                 </AssetField>
                 <AssetField label={t('Purchase Value (ETB)', 'የግዢ ዋጋ (ብር)')} required={!editingAssetId}>
-                  <input required={!editingAssetId} type="number" min="0" step="0.01" value={assetForm.purchaseValue} onChange={(event) => setAssetForm((form) => ({ ...form, purchaseValue: event.target.value }))} className="asset-input" />
+                  <input required type="number" min="0" step="0.01" value={assetForm.purchaseValue} onChange={(event) => setAssetForm((form) => ({ ...form, purchaseValue: event.target.value }))} className="asset-input" />
                 </AssetField>
                 <AssetField label={t('Condition', 'ሁኔታ')} required>
                   <select required value={assetForm.condition} onChange={(event) => setAssetForm((form) => ({ ...form, condition: event.target.value }))} className="asset-input">
@@ -680,9 +785,10 @@ export default function AssetRecords() {
                   <input type="checkbox" checked={assignmentEnabled} onChange={(event) => {
                     const enabled = event.target.checked;
                     setAssignmentEnabled(enabled);
-                    employeeLookupStarted.current = false;
                     setEmployeeLookupAttempted(false);
                     setEmployeeLoadError('');
+                    setEmployees([]);
+                    setLoadingEmployees(false);
                     setAssetForm((form) => ({
                       ...form,
                       employeeId: enabled ? form.employeeId === 'N/A' ? '' : form.employeeId : '',
@@ -714,13 +820,20 @@ export default function AssetRecords() {
                           onFocus={() => { setShowEmployeeResults(true); setActiveEmployeeResult(0); }}
                           onKeyDown={handleEmployeeSearchKeyDown}
                           onChange={(event) => {
-                          setEmployeeSearch(event.target.value);
-                          setShowEmployeeResults(true);
-                          setActiveEmployeeResult(0);
-                          setAssetForm((form) => ({ ...form, employeeId: '', employeeName: '', department: '' }));
-                        }}
+                            const value = event.target.value;
+                            setEmployeeSearch(value);
+                            setShowEmployeeResults(true);
+                            setActiveEmployeeResult(0);
+                            if (!value.trim()) {
+                              setEmployees([]);
+                              setLoadingEmployees(false);
+                              setEmployeeLoadError('');
+                              setEmployeeAuthExpired(false);
+                            }
+                            setAssetForm((form) => ({ ...form, employeeId: '', employeeName: '', department: '' }));
+                          }}
                           placeholder={t('Type employee ID (or name)', 'የሰራተኛ መለያ (ወይም ስም) ያስገቡ')}
-                          className="asset-input pl-9"
+                          className="w-full rounded-md border border-slate-200 bg-white px-3 py-3 pl-10 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                         />
                         {showEmployeeResults && (
                           <div id="asset-employee-results" role="listbox" aria-label={t('Matching employees', 'የተዛመዱ ሰራተኞች')} className="absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
@@ -742,9 +855,9 @@ export default function AssetRecords() {
                                 <span className="block text-[9px] text-slate-500">{employee.department || employee.departmentName || t('Department not recorded', 'የሥራ ክፍል አልተመዘገበም')}</span>
                               </button>
                             ))}
-                            {!loadingEmployees && matchingEmployees.length > 0 && <p className="sticky bottom-0 border-t border-slate-100 bg-slate-50 px-3 py-1 text-[9px] text-slate-500">{employeeSearch.trim() ? `${matchingEmployees.length} ${t('matching employees', 'የተዛመዱ ሰራተኞች')}${matchingEmployees.length > visibleEmployeeResults.length ? ` · ${t('showing first 8', 'የመጀመሪያዎቹ 8 ይታያሉ')}` : ''}` : t('Start typing an employee ID to narrow the list.', 'ዝርዝሩን ለማጥበብ የሰራተኛ መለያ ያስገቡ።')}</p>}
+                            {!loadingEmployees && matchingEmployees.length > 0 && <p className="sticky bottom-0 border-t border-slate-100 bg-slate-50 px-3 py-1 text-[9px] text-slate-500">{`${matchingEmployees.length} ${t('matching active employees', 'የተዛመዱ ንቁ ሰራተኞች')}`}</p>}
                             {!loadingEmployees && employees.length > 0 && !matchingEmployees.length && <p className="p-2 text-[10px] text-slate-500">{t('No employees match this search.', 'ከዚህ ፍለጋ ጋር የሚዛመድ ሰራተኛ የለም።')}</p>}
-                            {!loadingEmployees && !employees.length && !employeeLoadError && <p className="p-2 text-[10px] text-slate-500">{t('No employees are available.', 'ምንም ሰራተኛ የለም።')}</p>}
+                            {!loadingEmployees && !employees.length && !employeeLoadError && <p className="p-2 text-[10px] text-slate-500">{employeeSearch.trim() ? t('No active employees match this search.', 'ከዚህ ፍለጋ ጋር የሚዛመድ ንቁ ሰራተኛ የለም።') : t('Start typing an employee ID or name to search.', 'ለመፈለግ የሰራተኛ መለያ ወይም ስም ያስገቡ።')}</p>}
                           </div>
                         )}
                       </div>
@@ -756,10 +869,10 @@ export default function AssetRecords() {
                       <input readOnly required value={assetForm.department === 'N/A' ? '' : assetForm.department} placeholder={t('Assigned employee department', 'የተመደበው ሰራተኛ የሥራ ክፍል')} className="asset-input bg-slate-50" />
                     </AssetField>
                     <AssetField label={t('Handover / Property Voucher No.', 'የርክክብ / የንብረት ቫውቸር ቁጥር')}>
-                      <input value={assetForm.handoverVoucher} onChange={(event) => setAssetForm((form) => ({ ...form, handoverVoucher: event.target.value }))} placeholder="PV-2023-ICT-015" className="asset-input" />
+                      <input pattern="[A-Za-z0-9-]*" title={t('Use letters, numbers, and hyphens only.', 'ፊደል፣ ቁጥር እና ሰረዝ ብቻ ይጠቀሙ።')} value={assetForm.handoverVoucher} onChange={(event) => setAssetForm((form) => ({ ...form, handoverVoucher: event.target.value }))} placeholder="PV-2023-ICT-015" className="asset-input" />
                     </AssetField>
                   </div>
-                  {employeeLoadError && <div role="alert" className="flex items-center justify-between gap-2 rounded border border-rose-200 bg-white p-2 text-[10px] text-rose-700"><span>{employeeLoadError}</span>{employeeAuthExpired ? <button type="button" onClick={logout} className="shrink-0 font-semibold underline">{t('Sign in again', 'እንደገና ይግቡ')}</button> : <button type="button" onClick={() => { employeeLookupStarted.current = false; setEmployeeLookupAttempted((attempt) => !attempt); }} className="shrink-0 font-semibold underline">{t('Retry', 'እንደገና ይሞክሩ')}</button>}</div>}
+                  {employeeLoadError && <div role="alert" className="flex items-center justify-between gap-2 rounded border border-rose-200 bg-white p-2 text-[10px] text-rose-700"><span>{employeeLoadError}</span>{employeeAuthExpired ? <button type="button" onClick={handleEmployeeSignIn} className="shrink-0 font-semibold underline">{t('Sign in again', 'እንደገና ይግቡ')}</button> : <button type="button" onClick={() => setEmployeeLookupAttempted((attempt) => !attempt)} className="shrink-0 font-semibold underline">{t('Retry', 'እንደገና ይሞክሩ')}</button>}</div>}
                   <div className="flex items-start gap-2 rounded border border-blue-100 bg-white p-2 text-[9px] text-blue-700"><Info size={13} className="mt-0.5 shrink-0" /><span>{t('The assigned employee will be linked to this asset for tracking and clearance verification during the exit process.', 'የተመደበው ሰራተኛ በስራ መልቀቂያ ሂደት ውስጥ ለክትትልና ለክሊራንስ ማረጋገጫ ከዚህ ንብረት ጋር ይገናኛል።')}</span></div>
                 </>
               )}
@@ -769,12 +882,12 @@ export default function AssetRecords() {
               <h3 className="flex items-center gap-2 text-xs font-bold text-teal-800"><MapPin size={14} />{t('Location & Remarks', 'ቦታ እና አስተያየቶች')}</h3>
               <div className="grid gap-3 md:grid-cols-3">
                 <AssetField label={t('Campus', 'ግቢ')} required={!editingAssetId}>
-                  <select required={!editingAssetId} value={assetForm.campus} onChange={(event) => setAssetForm((form) => ({ ...form, campus: event.target.value }))} className="asset-input">
-                    {[...new Set([...(filterOptions.campuses || []), 'Main Campus', assetForm.campus].filter(Boolean))].map((value) => <option key={value}>{value}</option>)}
+                  <select required value={assetForm.campus} onChange={(event) => setAssetForm((form) => ({ ...form, campus: event.target.value }))} className="asset-input">
+                    {[...new Set([...CAMPUS_OPTIONS, ...(filterOptions.campuses || []), assetForm.campus].filter(Boolean))].map((value) => <option key={value}>{value}</option>)}
                   </select>
                 </AssetField>
                 <AssetField label={t('Building / Room / Store Location', 'ሕንፃ / ክፍል / መጋዘን')} required={!editingAssetId}>
-                  <input required={!editingAssetId} value={assetForm.location} onChange={(event) => setAssetForm((form) => ({ ...form, location: event.target.value }))} placeholder={t('Building / room / store', 'ህንፃ / ክፍል / መጋዘን')} className="asset-input" />
+                  <input required value={assetForm.location} onChange={(event) => setAssetForm((form) => ({ ...form, location: event.target.value }))} placeholder={t('Building / room / store', 'ህንፃ / ክፍል / መጋዘን')} className="asset-input" />
                 </AssetField>
                 <AssetField label={t('Remarks', 'አስተያየት')}>
                   <textarea maxLength={500} value={assetForm.remarks} onChange={(event) => setAssetForm((form) => ({ ...form, remarks: event.target.value }))} placeholder={t('Enter remarks', 'አስተያየት ያስገቡ')} className="asset-input min-h-10 resize-y" />

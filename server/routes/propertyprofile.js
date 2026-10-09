@@ -6,7 +6,22 @@ import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 const allowedNotificationKeys = ['newClearanceRequest', 'requestResubmitted', 'employeeInformationUpdated', 'propertyVerificationRequired', 'clearanceApproved', 'clearanceReturned', 'assetReturn', 'actionRequired', 'systemNotification'];
-const allowedEmailKeys = ['inSystemNotifications', 'emailNotifications', 'newRequestEmail', 'returnedRequestEmail'];
+const allowedEmailKeys = ['inSystemNotifications', 'emailNotifications', 'newRequestEmail', 'returnedRequestEmail', 'assetReturnEmail', 'clearanceApprovedEmail', 'clearanceReturnedEmail', 'systemNotificationEmail'];
+
+router.post('/logout-all-devices', authMiddleware, async (req, res) => {
+	try {
+		const user = await User.findByIdAndUpdate(
+			req.user._id,
+			{ $inc: { tokenVersion: 1 } },
+			{ new: true }
+		).select('_id name role');
+		if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+		return res.json({ success: true, message: 'All sessions have been signed out.' });
+	} catch (error) {
+		console.error('Unable to sign out all property officer sessions:', error);
+		return res.status(500).json({ success: false, message: 'Unable to sign out all devices.' });
+	}
+});
 
 router.get('/me', authMiddleware, async (req, res) => {
 	try {
@@ -66,20 +81,28 @@ router.put('/me', authMiddleware, async (req, res) => {
 				.map((item) => ({ key: item.key.slice(0, 80), label: item.label.slice(0, 120), enabled: Boolean(item.enabled) }));
 		}
 		if (Array.isArray(propertySettings?.assetCategories)) {
-			if (propertySettings.assetCategories.some((item) => !item || typeof item.name !== 'string' || !item.name.trim())) {
-				return res.status(400).json({ success: false, message: 'Every asset category needs a name.' });
+			if (propertySettings.assetCategories.some((item) =>
+				!item
+				|| typeof item.name !== 'string'
+				|| !item.name.trim()
+				|| typeof item.categoryCode !== 'string'
+				|| !/^[A-Z0-9_-]{2,20}$/i.test(item.categoryCode.trim())
+			)) {
+				return res.status(400).json({ success: false, message: 'Every asset category needs a name and a valid code (2-20 letters, numbers, hyphens, or underscores).' });
 			}
 			const categories = propertySettings.assetCategories.map((item) => ({
 					name: item.name.trim().slice(0, 100),
+					categoryCode: item.categoryCode.trim().toUpperCase(),
 					description: typeof item.description === 'string' ? item.description.trim().slice(0, 240) : '',
-					enabled: item.enabled !== false
+					enabled: typeof item.enabled === 'boolean' ? item.enabled : true
 				}));
 			const categoryNames = categories.map((item) => item.name.toLowerCase());
 			if (new Set(categoryNames).size !== categoryNames.length) {
 				return res.status(400).json({ success: false, message: 'Asset category names must be unique.' });
 			}
-			if (!categories.some((item) => item.enabled)) {
-				return res.status(400).json({ success: false, message: 'At least one asset category must remain active.' });
+			const categoryCodes = categories.map((item) => item.categoryCode.toLowerCase());
+			if (new Set(categoryCodes).size !== categoryCodes.length) {
+				return res.status(400).json({ success: false, message: 'Asset category codes must be unique.' });
 			}
 			updates['propertySettings.assetCategories'] = categories;
 		}

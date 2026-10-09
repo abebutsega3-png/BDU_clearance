@@ -5,6 +5,8 @@ import User from '../models/User.js';
 import Employee from '../models/employee.js';
 import Department from '../models/department.js';
 import Role from '../models/role.js';
+import LibraryClearance from '../models/LibraryClearance.js';
+import LibraryOfficerSettings from '../models/LibraryOfficerSettings.js';
 import { isDepartmentHead } from '../utils/roleHelpers.js';
 import {
   FINAL_HR_STAGE,
@@ -26,6 +28,7 @@ import { notifyFinanceOfficers } from './financeclearancerequestController.js';
 import { isDepartmentNotificationEnabled } from './notificationcontroller.js';
 import { notifyTransportOfficers } from '../utils/transportNotifications.js';
 import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
+import { dispatchNotificationEmails } from '../utils/notificationEmailDispatcher.js';
 
 const libraryChecklistItems = [
 	'Borrowed books and circulation records',
@@ -34,6 +37,27 @@ const libraryChecklistItems = [
 	'Lost or damaged materials',
 	'Library account and other obligations',
 ];
+const libraryChecklistItemBySetting = {
+	borrowedBooksChecked: libraryChecklistItems[0],
+	unreturnedBooksChecked: libraryChecklistItems[1],
+	outstandingMaterialsChecked: libraryChecklistItems[2],
+	lostDamagedMaterialsChecked: libraryChecklistItems[3],
+	libraryAccountChecked: libraryChecklistItems[4],
+};
+const defaultLibraryChecklist = Object.fromEntries(Object.keys(libraryChecklistItemBySetting).map((key) => [key, true]));
+const defaultLibraryRules = {
+	checkUnreturnedBooks: true,
+	checkOverdueBooks: true,
+	checkOutstandingFines: true,
+	checkLostDamagedBooks: true,
+	requireChecklistCompletion: true,
+};
+
+const libraryNotificationPreferenceKey = (type) => {
+	if (type === 'Clearance Resubmitted') return 'resubmittedClearance';
+	if (['CLEARANCE_READY_FOR_LIBRARY', 'Clearance Awaiting Your Review'].includes(type)) return 'newClearanceRequest';
+	return 'clearanceStatusUpdated';
+};
 
 const hasTransportOffice = (clearance) => [
 	...(Array.isArray(clearance?.requiredOffices) ? clearance.requiredOffices : []),
@@ -244,13 +268,21 @@ const resolveDepartmentAssignment = async (department) => {
 
 const notifyLibraryOfficers = async ({ clearance, type, title, message, actionText = 'Review' }) => {
 	try {
-		const libraryOfficers = await User.find({ role: { $regex: '^library officer$', $options: 'i' } }).select('_id name');
+		const libraryOfficers = await User.find({ role: { $regex: '^library officer$', $options: 'i' } }).select('_id name email employeeId');
+		const settings = await LibraryOfficerSettings.find({
+			userId: { $in: libraryOfficers.map((officer) => officer._id) },
+		}).select('userId notificationPreferences deliveryPreferences').lean();
+		const settingsByUserId = new Map(settings.map((item) => [String(item.userId), item]));
+		const preferenceKey = libraryNotificationPreferenceKey(type);
 		const requestId = clearance.requestId || null;
 		const notifications = [];
+		const emailOnlyNotifications = [];
 		for (const officer of libraryOfficers) {
 			const exists = await Notification.exists({ recipientId: officer._id, type, relatedRequestId: requestId });
-			if (!exists) {
-				notifications.push({
+			if (exists) continue;
+			const officerSettings = settingsByUserId.get(String(officer._id));
+			if (officerSettings?.notificationPreferences?.[preferenceKey] === false) continue;
+			const notification = {
 					recipientId: officer._id,
 					targetName: officer.name || 'Library Officer',
 					title,
@@ -261,10 +293,15 @@ const notifyLibraryOfficers = async ({ clearance, type, title, message, actionTe
 					relatedRequestId: requestId,
 					clearanceRequestId: requestId,
 					isRead: false,
-				});
+			};
+			if (officerSettings?.deliveryPreferences?.inSystemNotifications !== false) {
+					notifications.push(notification);
+			} else if (officerSettings?.deliveryPreferences?.emailNotifications !== false) {
+					emailOnlyNotifications.push({ ...notification, employeeId: clearance.employeeId || officer.employeeId || '' });
 			}
 		}
 		if (notifications.length) await Notification.insertMany(notifications);
+		if (emailOnlyNotifications.length) await dispatchNotificationEmails(emailOnlyNotifications);
 	} catch (error) {
 		console.error('Unable to notify Library Officers:', error.message);
 	}
@@ -816,6 +853,7 @@ const addClearance = async (req, res) => {
 const updateClearance = async (req, res) => {
 	try {
 		const { libraryDecision, ...requestUpdates } = req.body || {};
+		let libraryRequestForDecision = null;
 		delete requestUpdates.requestSource;
 		delete requestUpdates.requestedByRole;
 		delete requestUpdates.isHRInitiated;
@@ -858,8 +896,11 @@ const updateClearance = async (req, res) => {
 			const requestFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };
-			const existingClearance = await Clearance.findOne(requestFilter).select('departmentStatus').lean();
+			const existingClearance = await Clearance.findOne(requestFilter)
+				.select('departmentStatus employeeId outstandingItems borrowedItemsStatus libraryFine outstandingLibraryFine outstandingFineAmount otherObligationsStatus')
+				.lean();
 			if (!existingClearance) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
+			libraryRequestForDecision = existingClearance;
 			if (existingClearance.departmentStatus !== 'Approved') {
 				return res.status(400).json({ success: false, message: 'This request is waiting for Department Head approval.' });
 			}
@@ -1001,8 +1042,63 @@ const updateClearance = async (req, res) => {
 			if (requestUpdates.libraryChecklist !== undefined && (!Array.isArray(requestUpdates.libraryChecklist) || requestUpdates.libraryChecklist.some((item) => !item || !libraryChecklistItems.includes(item.item) || !['Cleared', 'Pending', 'N/A'].includes(item.status)))) {
 				return res.status(400).json({ success: false, message: 'Library checklist items must be Cleared, Pending, or N/A.' });
 			}
-			if (status === 'Completed' && (!Array.isArray(requestUpdates.libraryChecklist) || requestUpdates.libraryChecklist.length !== libraryChecklistItems.length || new Set(requestUpdates.libraryChecklist.map((item) => item.item)).size !== libraryChecklistItems.length || requestUpdates.libraryChecklist.some((item) => item.status === 'Pending'))) {
-				return res.status(400).json({ success: false, message: 'Resolve every Library checklist item as Cleared or N/A before approving.' });
+			if (status === 'Completed') {
+				const [librarySettings, libraryRecords] = await Promise.all([
+					LibraryOfficerSettings.findOne({ userId: req.user._id }).select('clearanceRules clearanceChecklist').lean(),
+					LibraryClearance.find({ employeeId: libraryRequestForDecision.employeeId })
+						.select('materials outstandingFineAmount borrowedItemsStatus otherObligationsStatus')
+						.lean(),
+				]);
+				const rules = { ...defaultLibraryRules, ...(librarySettings?.clearanceRules || {}) };
+				const checklistSettings = { ...defaultLibraryChecklist, ...(librarySettings?.clearanceChecklist || {}) };
+				const requiredChecklistItems = Object.entries(libraryChecklistItemBySetting)
+					.filter(([key]) => checklistSettings[key])
+					.map(([, item]) => item);
+				const submittedChecklist = Array.isArray(requestUpdates.libraryChecklist) ? requestUpdates.libraryChecklist : [];
+				if (rules.requireChecklistCompletion && (
+					requiredChecklistItems.some((requiredItem) => !submittedChecklist.some((item) => item.item === requiredItem && item.status !== 'Pending'))
+					|| new Set(submittedChecklist.map((item) => item.item)).size !== submittedChecklist.length
+				)) {
+					return res.status(400).json({ success: false, message: 'Resolve every enabled Library checklist item as Cleared or N/A before approving.' });
+				}
+
+				const materials = libraryRecords.flatMap((record) => Array.isArray(record.materials) ? record.materials : []);
+				const unresolvedMaterials = materials.filter((material) => ['borrowed', 'outstanding', 'overdue'].includes(String(material.status || '').toLowerCase()));
+				const overdueMaterials = materials.filter((material) => {
+					const statusValue = String(material.status || '').toLowerCase();
+					const dueDate = material.dueDate ? new Date(material.dueDate).toISOString().slice(0, 10) : '';
+					return ['borrowed', 'outstanding', 'overdue'].includes(statusValue)
+						&& (statusValue === 'overdue' || (dueDate && dueDate < new Date().toISOString().slice(0, 10)));
+				});
+				const fineBalance = Math.max(
+					Number(existingClearance.outstandingFineAmount || 0),
+					Number(existingClearance.libraryFine || existingClearance.outstandingLibraryFine || 0),
+					...libraryRecords.map((record) => Number(record.outstandingFineAmount || 0)),
+					...materials.map((material) => Math.max(0, Number(material.fineAmount || 0) - Number(material.finePaidAmount || 0))),
+					0,
+				);
+				const hasLostOrDamagedMaterials = materials.some((material) => (
+					['lost', 'damaged'].includes(String(material.status || '').toLowerCase())
+					|| /^(lost|damaged)$/i.test(String(material.condition || '').trim())
+				));
+				const hasOtherOutstandingItems = Array.isArray(existingClearance.outstandingItems) && existingClearance.outstandingItems.length > 0;
+
+				if (rules.checkUnreturnedBooks && (
+					unresolvedMaterials.length > 0
+					|| libraryRecords.some((record) => record.borrowedItemsStatus === 'Not Clear')
+				)) return res.status(400).json({ success: false, message: 'Resolve unreturned library materials before approving this clearance.' });
+				if (rules.checkOverdueBooks && overdueMaterials.length > 0) {
+					return res.status(400).json({ success: false, message: 'Resolve overdue library materials before approving this clearance.' });
+				}
+				if (rules.checkOutstandingFines && fineBalance > 0) {
+					return res.status(400).json({ success: false, message: 'Outstanding library fines must be paid before approving this clearance.' });
+				}
+				if (checklistSettings.libraryAccountChecked && hasOtherOutstandingItems) {
+					return res.status(400).json({ success: false, message: 'Resolve other Library account obligations before approving this clearance.' });
+				}
+				if (rules.checkLostDamagedBooks && hasLostOrDamagedMaterials) {
+					return res.status(400).json({ success: false, message: 'Resolve lost or damaged library materials before approving this clearance.' });
+				}
 			}
 			requestUpdates.libraryStatus = status;
 			requestUpdates.libraryVerificationResult = verificationResult;

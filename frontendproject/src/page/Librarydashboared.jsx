@@ -19,6 +19,7 @@ import {
 import LibrarySidebar from '../components/Library Management/librarysidbar';
 import LibraryNavbar from '../components/Library Management/librarynavbar';
 import SummaryCards from '../components/Library Management/Summary Cards';
+import { LibraryLanguageProvider } from '../components/Library Management/LibraryLanguage';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const EMPTY_DASHBOARD = {
@@ -196,7 +197,11 @@ const Dashboard = ({ children }) => {
 };
 
 function DashboardShell({ children }) {
-  return <div className="min-h-screen bg-slate-100"><LibrarySidebar /><div className="ml-72 min-h-screen"><LibraryNavbar />{children}</div></div>;
+  return (
+    <LibraryLanguageProvider>
+      <div className="min-h-screen bg-slate-100"><LibrarySidebar /><div className="ml-72 min-h-screen"><LibraryNavbar />{children}</div></div>
+    </LibraryLanguageProvider>
+  );
 }
 
 function MetricCard({ icon: Icon, label, value, tint }) {

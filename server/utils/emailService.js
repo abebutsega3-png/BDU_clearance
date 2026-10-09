@@ -12,9 +12,13 @@ const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (character
 export const sendNotificationEmail = async ({ recipient, title, message, actionLink, notificationKey }) => {
   try {
     const settings = await SystemSettings.findOne().select('notifications').lean();
+    const propertyEmailPreferences = recipient?.propertySettings?.emailPreferences;
     if (settings?.notifications?.emailNotifications === false
       || (notificationKey && settings?.notifications?.notifyWhen?.[notificationKey] === false)
-      || recipient?.notificationPreferences?.emailNotifications === false) {
+      || recipient?.notificationPreferences?.emailNotifications === false
+      || propertyEmailPreferences?.emailNotifications === false
+      || propertyEmailPreferences?.systemNotificationEmail === false
+      || (notificationKey && propertyEmailPreferences?.[notificationKey] === false)) {
       return { sent: false, reason: 'Email notifications are disabled.' };
     }
 

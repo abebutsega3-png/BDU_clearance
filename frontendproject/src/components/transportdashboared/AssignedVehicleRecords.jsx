@@ -1,11 +1,43 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Bus, CheckCircle2, Eye, LoaderCircle, Search, X } from 'lucide-react';
+import { AlertTriangle, Bus, CheckCircle2, Eye, LoaderCircle, Plus, Search, X } from 'lucide-react';
 
 const API_URL = 'http://localhost:3000/api/transport/assigned-vehicles';
+const CREATE_API_URL = `${API_URL}/records`;
 const REQUEST_API_URL = 'http://localhost:3000/api/transport/requests';
+const DEPARTMENTS_API_URL = 'http://localhost:3000/api/departments';
+const EMPLOYEE_SEARCH_API_URL = 'http://localhost:3000/api/transport/employees/search';
 const statusOptions = ['Assigned', 'Returned', 'Available', 'Under Maintenance', 'Lost'];
+const vehicleTypes = ['Bus', 'Minibus', 'Sedan', 'SUV', 'Pick-up', 'Pickup', 'Van', 'Truck', 'Motorcycle', 'Other Vehicle'];
+const newVehicleStatuses = ['Assigned', 'Available', 'Under Maintenance', 'Lost'];
+const vehicleConditions = ['New', 'Good', 'Fair', 'Damaged'];
+const emptyVehicleForm = {
+  vehicleNumber: '',
+  vehicleType: '',
+  make: '',
+  model: '',
+  manufacturingYear: '',
+  color: '',
+  seatingCapacity: '',
+  currentMileage: '',
+  chassisNumber: '',
+  engineNumber: '',
+  purchaseValue: '',
+  department: '',
+  status: '',
+  condition: '',
+  employeeId: '',
+  employeeName: '',
+  assignmentDate: '',
+  returnDate: '',
+  registrationDate: '',
+  registrationExpiryDate: '',
+  insuranceExpiryDate: '',
+  lastMaintenanceDate: '',
+  nextMaintenanceDate: '',
+  remarks: '',
+};
 const vehicleChecklistFields = ['vehicleReturned', 'vehicleCondition', 'vehicleKeysReturned', 'vehicleDocumentsReturned', 'vehicleAccessoriesReturned'];
 const transportChecklistFields = [...vehicleChecklistFields, 'noOutstandingIssue', 'vehicleHandover', 'transportRecords', 'noUnreturnedTransportProperty', 'noOtherObligation'];
 
@@ -54,6 +86,17 @@ export default function AssignedVehicleRecords() {
   const [decisionError, setDecisionError] = useState('');
   const [decisionMessage, setDecisionMessage] = useState('');
   const [decisionLoading, setDecisionLoading] = useState(false);
+  const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
+  const [newVehicle, setNewVehicle] = useState(emptyVehicleForm);
+  const [addVehicleError, setAddVehicleError] = useState('');
+  const [isSavingVehicle, setIsSavingVehicle] = useState(false);
+  const [recordsRefresh, setRecordsRefresh] = useState(0);
+  const [departments, setDepartments] = useState([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employeeResults, setEmployeeResults] = useState([]);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
 
   useEffect(() => {
     setSearch(searchParams.get('search') || '');
@@ -124,7 +167,186 @@ export default function AssignedVehicleRecords() {
 
     loadRecords();
     return () => controller.abort();
-  }, [search, department, status, vehicleType]);
+  }, [search, department, status, vehicleType, recordsRefresh]);
+
+  useEffect(() => {
+    const searchTerm = employeeSearch.trim();
+    if (!isAddVehicleOpen || !searchTerm || selectedEmployee) return undefined;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setEmployeeSearchLoading(true);
+      try {
+        const response = await axios.get(EMPLOYEE_SEARCH_API_URL, {
+          ...authConfig(),
+          params: { search: searchTerm },
+          signal: controller.signal,
+        });
+        setEmployeeResults(Array.isArray(response.data.employees) ? response.data.employees : []);
+      } catch (requestError) {
+        if (!controller.signal.aborted) {
+          setEmployeeResults([]);
+          setAddVehicleError(requestError.response?.data?.message || 'Unable to search active employees.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setEmployeeSearchLoading(false);
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [employeeSearch, isAddVehicleOpen, selectedEmployee]);
+
+  const addVehicleRecord = async (event) => {
+    event.preventDefault();
+    setAddVehicleError('');
+    const vehicleNumber = newVehicle.vehicleNumber.trim();
+    const make = newVehicle.make.trim();
+    const model = newVehicle.model.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{1,29}$/.test(vehicleNumber)) {
+      setAddVehicleError('Plate number must be 2–30 letters, numbers, or hyphens only.');
+      return;
+    }
+    if (!vehicleTypes.includes(newVehicle.vehicleType)) {
+      setAddVehicleError('Select a valid vehicle type.');
+      return;
+    }
+    if (!/[\p{L}]/u.test(make)) {
+      setAddVehicleError('Make / Brand is required and cannot contain numbers only.');
+      return;
+    }
+    const chassisNumber = newVehicle.chassisNumber.trim();
+    if (!chassisNumber) {
+      setAddVehicleError('Chassis / serial number is required.');
+      return;
+    }
+    if (!newVehicleStatuses.includes(newVehicle.status)) {
+      setAddVehicleError('Select a valid vehicle status.');
+      return;
+    }
+    if (!vehicleConditions.includes(newVehicle.condition)) {
+      setAddVehicleError('Select the vehicle condition.');
+      return;
+    }
+    if (newVehicle.status === 'Assigned' && !selectedEmployee) {
+      setAddVehicleError('Search for and select an active employee before assigning this vehicle.');
+      return;
+    }
+    if (selectedEmployee && newVehicle.status !== 'Assigned') {
+      setAddVehicleError('Change the vehicle status to Assigned or clear the selected employee.');
+      return;
+    }
+    const currentYear = new Date().getFullYear();
+    if (newVehicle.manufacturingYear && (!/^\d{4}$/.test(newVehicle.manufacturingYear)
+      || Number(newVehicle.manufacturingYear) < 1900 || Number(newVehicle.manufacturingYear) > currentYear)) {
+      setAddVehicleError(`Manufacturing year must be between 1900 and ${currentYear}.`);
+      return;
+    }
+    if (newVehicle.seatingCapacity && (!/^\d+$/.test(newVehicle.seatingCapacity) || Number(newVehicle.seatingCapacity) < 1)) {
+      setAddVehicleError('Seating capacity must be a positive whole number.');
+      return;
+    }
+    if (newVehicle.currentMileage && (!/^\d+(?:\.\d{1,2})?$/.test(newVehicle.currentMileage) || Number(newVehicle.currentMileage) < 0)) {
+      setAddVehicleError('Current mileage must be a non-negative number.');
+      return;
+    }
+    if (!/^\d+(?:\.\d{1,2})?$/.test(newVehicle.purchaseValue) || !Number.isFinite(Number(newVehicle.purchaseValue)) || Number(newVehicle.purchaseValue) <= 0) {
+      setAddVehicleError('Purchase value must be a positive amount in ETB.');
+      return;
+    }
+    const validDate = (date) => {
+      if (!date) return true;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+      const [year, month, day] = date.split('-').map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    if (![newVehicle.registrationDate, newVehicle.registrationExpiryDate, newVehicle.insuranceExpiryDate, newVehicle.lastMaintenanceDate, newVehicle.nextMaintenanceDate, newVehicle.assignmentDate, newVehicle.returnDate].every(validDate)) {
+      setAddVehicleError('Enter valid calendar dates for the vehicle records.');
+      return;
+    }
+    if (newVehicle.assignmentDate && newVehicle.assignmentDate > today) {
+      setAddVehicleError('Assignment date cannot be in the future.');
+      return;
+    }
+    if (newVehicle.returnDate && (!newVehicle.assignmentDate || newVehicle.returnDate <= newVehicle.assignmentDate)) {
+      setAddVehicleError('Return / renewal due date must be after the assignment date.');
+      return;
+    }
+    if (newVehicle.registrationDate && newVehicle.registrationDate > today) {
+      setAddVehicleError('Registration date cannot be in the future.');
+      return;
+    }
+    if (newVehicle.registrationDate && newVehicle.registrationExpiryDate
+      && newVehicle.registrationExpiryDate <= newVehicle.registrationDate) {
+      setAddVehicleError('Registration expiry date must be after the registration date.');
+      return;
+    }
+    if (newVehicle.lastMaintenanceDate && newVehicle.lastMaintenanceDate > today) {
+      setAddVehicleError('Last maintenance date cannot be in the future.');
+      return;
+    }
+    if (newVehicle.nextMaintenanceDate && newVehicle.nextMaintenanceDate < today) {
+      setAddVehicleError('Next maintenance date must be today or in the future.');
+      return;
+    }
+    if (newVehicle.lastMaintenanceDate && newVehicle.nextMaintenanceDate
+      && newVehicle.nextMaintenanceDate <= newVehicle.lastMaintenanceDate) {
+      setAddVehicleError('Next maintenance date must be after the last maintenance date.');
+      return;
+    }
+
+    setIsSavingVehicle(true);
+    try {
+      await axios.post(CREATE_API_URL, {
+        ...newVehicle,
+        vehicleNumber,
+        make,
+        model,
+        employeeId: selectedEmployee?.employeeId || '',
+        employeeName: selectedEmployee?.fullName || '',
+        department: selectedEmployee?.department || newVehicle.department,
+        remarks: newVehicle.remarks.trim(),
+        manufacturingYear: newVehicle.manufacturingYear ? Number(newVehicle.manufacturingYear) : undefined,
+        seatingCapacity: newVehicle.seatingCapacity ? Number(newVehicle.seatingCapacity) : undefined,
+        currentMileage: newVehicle.currentMileage ? Number(newVehicle.currentMileage) : undefined,
+        purchaseValue: Number(newVehicle.purchaseValue),
+      }, authConfig());
+      setNewVehicle(emptyVehicleForm);
+      setEmployeeSearch('');
+      setSelectedEmployee(null);
+      setEmployeeSearchLoading(false);
+      setIsAddVehicleOpen(false);
+      setRecordsRefresh((current) => current + 1);
+    } catch (requestError) {
+      setAddVehicleError(requestError.response?.data?.message || 'Unable to add the vehicle record.');
+    } finally {
+      setIsSavingVehicle(false);
+    }
+  };
+
+  const openAddVehicleForm = async () => {
+    setAddVehicleError('');
+    setNewVehicle(emptyVehicleForm);
+    setEmployeeSearch('');
+    setEmployeeResults([]);
+    setSelectedEmployee(null);
+    setEmployeeSearchLoading(false);
+    setIsAddVehicleOpen(true);
+    setDepartmentsLoading(true);
+    try {
+      const response = await axios.get(DEPARTMENTS_API_URL, authConfig());
+      setDepartments((response.data.departments || [])
+        .filter((item) => item.status === 'Active')
+        .map((item) => item.name)
+        .filter(Boolean));
+    } catch (requestError) {
+      setAddVehicleError(requestError.response?.data?.message || 'Unable to load departments.');
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  };
 
   const openVehicle = async (vehicleNumber) => {
     setSelectedVehicle({ vehicleNumber });
@@ -197,7 +419,16 @@ export default function AssignedVehicleRecords() {
           <h1 className="mt-1 text-xl font-bold text-slate-900">Assigned Vehicle Records</h1>
           <p className="mt-1 text-xs text-slate-500">View current assignments and available vehicle assignment history.</p>
         </div>
-        <p className="text-xs text-slate-500">{records.length} record{records.length === 1 ? '' : 's'}</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs text-slate-500">{records.length} record{records.length === 1 ? '' : 's'}</p>
+          <button
+            type="button"
+            onClick={openAddVehicleForm}
+            className="inline-flex items-center gap-2 rounded-md bg-teal-700 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-800"
+          >
+            <Plus size={15} />Add Vehicle Record
+          </button>
+        </div>
       </header>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.5fr)_repeat(3,minmax(145px,1fr))]">
@@ -310,9 +541,21 @@ export default function AssignedVehicleRecords() {
                     <DetailItem label="Plate Number" value={selectedVehicle.plateNumber} />
                     <DetailItem label="Vehicle Type" value={selectedVehicle.vehicleType} />
                     <DetailItem label="Make / Model" value={selectedVehicle.makeModel} />
+                    <DetailItem label="Manufacturing Year" value={selectedVehicle.manufacturingYear} />
+                    <DetailItem label="Color" value={selectedVehicle.color} />
+                    <DetailItem label="Seating Capacity" value={selectedVehicle.seatingCapacity} />
+                    <DetailItem label="Current Mileage (km)" value={selectedVehicle.currentMileage} />
+                    <DetailItem label="Chassis Number (VIN)" value={selectedVehicle.chassisNumber} />
+                    <DetailItem label="Engine Number" value={selectedVehicle.engineNumber} />
+                    <DetailItem label="Purchase Value (ETB)" value={selectedVehicle.purchaseValue ? Number(selectedVehicle.purchaseValue).toLocaleString() : '—'} />
                     <DetailItem label="Assigned Employee" value={selectedVehicle.employeeName} />
                     <DetailItem label="Employee ID" value={selectedVehicle.employeeId} />
                     <DetailItem label="Department" value={selectedVehicle.department} />
+                    <DetailItem label="Registration Date" value={formatDate(selectedVehicle.registrationDate)} />
+                    <DetailItem label="Registration Expiry Date" value={formatDate(selectedVehicle.registrationExpiryDate)} />
+                    <DetailItem label="Insurance Expiry Date" value={formatDate(selectedVehicle.insuranceExpiryDate)} />
+                    <DetailItem label="Last Maintenance Date" value={formatDate(selectedVehicle.lastMaintenanceDate)} />
+                    <DetailItem label="Next Maintenance Date" value={formatDate(selectedVehicle.nextMaintenanceDate)} />
                     <DetailItem label="Assignment Date" value={formatDate(selectedVehicle.assignedDate)} />
                     <DetailItem label="Return Date" value={formatDate(selectedVehicle.returnDate)} />
                     <DetailItem label="Assignment Status" value={selectedVehicle.status} />
@@ -352,6 +595,160 @@ export default function AssignedVehicleRecords() {
             <footer className="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-6">
               <button type="button" onClick={closeVehicle} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Close</button>
             </footer>
+          </section>
+        </div>
+      )}
+
+      {isAddVehicleOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSavingVehicle) setIsAddVehicleOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="add-vehicle-title" className="w-full max-w-3xl overflow-hidden rounded-md bg-white shadow-2xl">
+            <header className="flex items-center justify-between bg-teal-700 px-4 py-3 text-white sm:px-5">
+              <div>
+                <h2 id="add-vehicle-title" className="flex items-center gap-2 text-base font-bold"><Plus size={18} />Add New Vehicle</h2>
+                <p className="mt-0.5 pl-6 text-[11px] text-teal-100">Transport Officer · Register a university vehicle</p>
+              </div>
+              <button type="button" aria-label="Close add vehicle form" disabled={isSavingVehicle} onClick={() => setIsAddVehicleOpen(false)} className="rounded p-1 hover:bg-white/10 disabled:opacity-50"><X size={18} /></button>
+            </header>
+            <form onSubmit={addVehicleRecord} className="max-h-[80vh] space-y-4 overflow-y-auto p-4 sm:p-5">
+              {addVehicleError && <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{addVehicleError}</p>}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="text-xs font-semibold text-slate-700">Plate Number *
+                  <input required maxLength={30} value={newVehicle.vehicleNumber} onChange={(event) => setNewVehicle({ ...newVehicle, vehicleNumber: event.target.value })} placeholder="e.g. BDU-12345" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Vehicle Type *
+                  <select required value={newVehicle.vehicleType} onChange={(event) => setNewVehicle({ ...newVehicle, vehicleType: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-teal-600">
+                    <option value="">Select type</option>
+                    {vehicleTypes.map((type) => <option key={type}>{type}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Make / Brand *
+                  <input required maxLength={80} value={newVehicle.make} onChange={(event) => setNewVehicle({ ...newVehicle, make: event.target.value })} placeholder="e.g. Toyota" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Model
+                  <input maxLength={80} value={newVehicle.model} onChange={(event) => setNewVehicle({ ...newVehicle, model: event.target.value })} placeholder="e.g. Hilux" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Manufacturing Year
+                  <input type="number" min="1900" max={new Date().getFullYear()} step="1" value={newVehicle.manufacturingYear} onChange={(event) => setNewVehicle({ ...newVehicle, manufacturingYear: event.target.value })} placeholder="e.g. 2022" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Color
+                  <input maxLength={40} value={newVehicle.color} onChange={(event) => setNewVehicle({ ...newVehicle, color: event.target.value })} placeholder="e.g. White" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Seating Capacity
+                  <input type="number" min="1" step="1" value={newVehicle.seatingCapacity} onChange={(event) => setNewVehicle({ ...newVehicle, seatingCapacity: event.target.value })} placeholder="e.g. 25" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Current Mileage (km)
+                  <input type="number" min="0" step="0.01" value={newVehicle.currentMileage} onChange={(event) => setNewVehicle({ ...newVehicle, currentMileage: event.target.value })} placeholder="e.g. 12500" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Chassis / Serial Number *
+                  <input required minLength={1} maxLength={40} value={newVehicle.chassisNumber} onChange={(event) => setNewVehicle({ ...newVehicle, chassisNumber: event.target.value })} placeholder="Enter unique chassis / serial number" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Purchase Value (ETB) *
+                  <input required type="number" min="0.01" step="0.01" value={newVehicle.purchaseValue} onChange={(event) => setNewVehicle({ ...newVehicle, purchaseValue: event.target.value })} placeholder="e.g. 2500000" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Engine Number
+                  <input maxLength={40} value={newVehicle.engineNumber} onChange={(event) => setNewVehicle({ ...newVehicle, engineNumber: event.target.value })} placeholder="Enter engine number" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <div className="relative text-xs font-semibold text-slate-700 sm:col-span-2">
+                  <label htmlFor="vehicle-employee-search">Assign to Employee (ID / Name)</label>
+                  <div className="relative mt-1">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input id="vehicle-employee-search" maxLength={100} value={employeeSearch} onChange={(event) => {
+                      setEmployeeSearch(event.target.value);
+                      setEmployeeSearchLoading(Boolean(event.target.value.trim()));
+                      setSelectedEmployee(null);
+                      setNewVehicle({ ...newVehicle, employeeId: '', employeeName: '' });
+                      setAddVehicleError('');
+                    }} placeholder="Search active employee by ID or name" className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm font-normal outline-none focus:border-teal-600" />
+                    {employeeSearchLoading && <LoaderCircle size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-teal-700" />}
+                  </div>
+                  {selectedEmployee && (
+                    <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-normal text-emerald-900">
+                      Selected: <strong>{selectedEmployee.fullName}</strong> · {selectedEmployee.employeeId} · {selectedEmployee.department}
+                      <button type="button" onClick={() => {
+                        setSelectedEmployee(null);
+                        setEmployeeSearch('');
+                        setNewVehicle({ ...newVehicle, employeeId: '', employeeName: '' });
+                      }} className="ml-2 font-semibold underline">Clear</button>
+                    </div>
+                  )}
+                  {!selectedEmployee && employeeResults.length > 0 && (
+                    <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                      {employeeResults.map((employee) => (
+                        <li key={employee.employeeId}>
+                          <button type="button" onClick={() => {
+                            setSelectedEmployee(employee);
+                            setEmployeeSearchLoading(false);
+                            setAddVehicleError('');
+                            setEmployeeSearch(`${employee.fullName} (${employee.employeeId})`);
+                            setEmployeeResults([]);
+                            setNewVehicle((current) => ({
+                              ...current,
+                              employeeId: employee.employeeId,
+                              employeeName: employee.fullName,
+                              department: employee.department || '',
+                            }));
+                          }} className="w-full px-3 py-2 text-left font-normal hover:bg-teal-50">
+                            <span className="font-semibold">{employee.fullName}</span>
+                            <span className="ml-2 text-slate-500">{employee.employeeId} · {employee.department}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!selectedEmployee && employeeSearch.trim().length > 0 && !employeeSearchLoading && employeeResults.length === 0 && (
+                    <p className="mt-1 text-[11px] font-normal text-slate-500">No active employees found.</p>
+                  )}
+                </div>
+                <label className="text-xs font-semibold text-slate-700">Assigned Department
+                  <select value={newVehicle.department} onChange={(event) => setNewVehicle({ ...newVehicle, department: event.target.value })} disabled={departmentsLoading || Boolean(selectedEmployee)} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-teal-600 disabled:bg-slate-100">
+                    <option value="">{departmentsLoading ? 'Loading departments...' : 'Select department'}</option>
+                    {departments.map((name) => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Vehicle Status *
+                  <select required value={newVehicle.status} onChange={(event) => setNewVehicle({ ...newVehicle, status: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-teal-600">
+                    <option value="">Select status</option>
+                    {newVehicleStatuses.map((statusOption) => <option key={statusOption}>{statusOption}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Initial Condition *
+                  <select required value={newVehicle.condition} onChange={(event) => setNewVehicle({ ...newVehicle, condition: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-teal-600">
+                    <option value="">Select condition</option>
+                    {vehicleConditions.map((condition) => <option key={condition}>{condition}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Assignment Date
+                  <input type="date" max={new Date().toISOString().slice(0, 10)} value={newVehicle.assignmentDate} onChange={(event) => setNewVehicle({ ...newVehicle, assignmentDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Return / Renewal Due Date
+                  <input type="date" min={newVehicle.assignmentDate || undefined} value={newVehicle.returnDate} onChange={(event) => setNewVehicle({ ...newVehicle, returnDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Registration Date
+                  <input type="date" max={new Date().toISOString().slice(0, 10)} value={newVehicle.registrationDate} onChange={(event) => setNewVehicle({ ...newVehicle, registrationDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Registration Expiry Date
+                  <input type="date" min={newVehicle.registrationDate || undefined} value={newVehicle.registrationExpiryDate} onChange={(event) => setNewVehicle({ ...newVehicle, registrationExpiryDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Insurance Expiry Date
+                  <input type="date" min={new Date().toISOString().slice(0, 10)} value={newVehicle.insuranceExpiryDate} onChange={(event) => setNewVehicle({ ...newVehicle, insuranceExpiryDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Last Maintenance Date
+                  <input type="date" max={new Date().toISOString().slice(0, 10)} value={newVehicle.lastMaintenanceDate} onChange={(event) => setNewVehicle({ ...newVehicle, lastMaintenanceDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Next Maintenance Date
+                  <input type="date" min={new Date().toISOString().slice(0, 10)} value={newVehicle.nextMaintenanceDate} onChange={(event) => setNewVehicle({ ...newVehicle, nextMaintenanceDate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Remarks
+                  <textarea rows={3} maxLength={1000} value={newVehicle.remarks} onChange={(event) => setNewVehicle({ ...newVehicle, remarks: event.target.value })} placeholder="Optional notes" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-teal-600" />
+                </label>
+              </div>
+              <footer className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+                <button type="button" disabled={isSavingVehicle} onClick={() => setIsAddVehicleOpen(false)} className="rounded-md border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isSavingVehicle} className="inline-flex items-center gap-2 rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">
+                  {isSavingVehicle ? <><LoaderCircle size={14} className="animate-spin" />Saving...</> : <><Plus size={14} />Save Vehicle</>}
+                </button>
+              </footer>
+            </form>
           </section>
         </div>
       )}
