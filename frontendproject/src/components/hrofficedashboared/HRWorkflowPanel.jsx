@@ -192,7 +192,9 @@ export default function HRWorkflowPanel() {
       if (!response.data?.success) {
         throw new Error(response.data?.message || 'The clearance request was not forwarded.');
       }
-      setNotice(`${employeeName(activeRequest)}'s request was approved and sent to the Department Head.`);
+      setNotice(response.data.departmentApprovalSkipped
+        ? `${employeeName(activeRequest)}'s request passed HR review and was sent to the selected clearance offices. Department Head self-approval was skipped.`
+        : `${employeeName(activeRequest)}'s request was approved and sent to the Department Head.`);
       setRequest(null);
       setLoadingQueue(true);
       await loadQueue();

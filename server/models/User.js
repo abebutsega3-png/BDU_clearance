@@ -28,9 +28,24 @@ const userSchema = new mongoose.Schema({
     role: {
         type: String,
         trim: true,
-        required: true
+        default: 'Employee'
     },
-        department: { type: String, trim: true, default: '' },
+    roles: {
+        type: [String],
+        default: ['Employee'],
+        validate: {
+            validator: function (value) {
+                return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item.trim());
+            },
+            message: 'User must have at least one role.'
+        }
+    },
+    activeRole: {
+        type: String,
+        trim: true,
+        default: 'Employee'
+    },
+    department: { type: String, trim: true, default: '' },
         departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
         status: { type: String, enum: ['Active', 'Inactive'], default: 'Active' },
     profileImage: {
@@ -145,6 +160,17 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     }
+});
+
+userSchema.pre('save', async function () {
+    const normalizedRoles = Array.isArray(this.roles) && this.roles.length
+        ? [...new Set(this.roles.map((item) => String(item).trim()).filter(Boolean))]
+        : [String(this.role || 'Employee').trim() || 'Employee'];
+
+    this.roles = normalizedRoles;
+    this.role = this.activeRole || this.role || normalizedRoles[0] || 'Employee';
+    this.activeRole = this.activeRole || this.role || normalizedRoles[0] || 'Employee';
+    this.updatedAt = new Date();
 });
 
 userSchema.index({ email: 1 }, { collation: { locale: 'en', strength: 2 } });

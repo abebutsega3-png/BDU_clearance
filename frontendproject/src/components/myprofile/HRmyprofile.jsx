@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/authContext';
 import { changeMyPassword, fetchMyProfile, updateMyProfile } from '../../until/MyprofileHelper';
 import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
 import UniversitySeal from '../UniversitySeal';
-import { 
+import {
   User, Briefcase, ShieldCheck, Lock, Clock, Edit,
   Upload, Bell, ArrowLeft, Eye, EyeOff
 } from 'lucide-react';
@@ -13,6 +13,7 @@ import {
 export default function UserProfile() {
   const { user, login } = useAuth();
   const { pathname, search } = useLocation();
+  const navigate = useNavigate();
   const isEmployeeProfile = pathname === '/employee/profile';
   const [activeTab, setActiveTab] = useState(() => new URLSearchParams(search).get('tab') === 'password' ? 'password' : 'personal');
   const [editing, setEditing] = useState(false);
@@ -23,14 +24,14 @@ export default function UserProfile() {
   const [photoSaving, setPhotoSaving] = useState(false);
 
   const defaultProfile = {
-    fullName: user?.name || "HR Officer",
-    employeeId: "BDU-HR-0007",
-    gender: "Female",
-    dateOfBirth: "April 16, 1992",
+    fullName: user?.name || (isEmployeeProfile ? 'Employee' : 'HR Officer'),
+    employeeId: user?.employeeId || (isEmployeeProfile ? '' : 'BDU-HR-0007'),
+    gender: isEmployeeProfile ? '' : 'Female',
+    dateOfBirth: isEmployeeProfile ? '' : 'April 16, 1992',
     phoneNumber: user?.phoneNumber || "",
     email: user?.email || "",
-    department: "Not assigned",
-    position: "HR Officer",
+    department: user?.department || 'Not assigned',
+    position: user?.position || user?.activeRole || user?.role || (isEmployeeProfile ? 'Employee' : 'HR Officer'),
     jobGrade: "Grade 8",
     employmentType: "Full Time",
     hireDate: "January 15, 2021",
@@ -40,7 +41,7 @@ export default function UserProfile() {
     workEmail: "hr.officer@bdu.edu.et",
     officeLocation: "HR Office, Room 203",
     aboutMe: "Dedicated HR professional with strong experience in employee relations, HR operations, and organizational development. Committed to supporting the university's mission by fostering a positive and productive work environment.",
-    role: user?.role || "HR Officer",
+    role: user?.activeRole || user?.role || (isEmployeeProfile ? 'Employee' : 'HR Officer'),
     accountStatus: "Active",
     lastLogin: "May 24, 2024 10:30 AM",
     accountCreated: "January 15, 2021"
@@ -171,6 +172,125 @@ export default function UserProfile() {
             </button>
           </form>
         )}
+      </div>
+    );
+  }
+
+  if (isEmployeeProfile) {
+    const assignedRoles = Array.isArray(user?.roles) ? user.roles : [user?.activeRole || user?.role].filter(Boolean);
+    const roleTitle = assignedRoles.length ? assignedRoles.join(', ') : userData.position || 'Employee';
+
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800">
+        <div className="hidden lg:block"><EmployeeSidebar /></div>
+        {menuOpen && (
+          <>
+            <button type="button" aria-label="Close menu" className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" onClick={() => setMenuOpen(false)} />
+            <div className="relative z-50 lg:hidden"><EmployeeSidebar onNavigate={() => setMenuOpen(false)} /></div>
+          </>
+        )}
+        <EmployeeNavbar onMenuClick={() => setMenuOpen(true)} />
+
+        <main className="px-4 py-6 sm:px-6 lg:ml-72 lg:px-8">
+          {activeTab === 'password' ? (
+            <EmployeeChangePasswordCard
+              userId={user?._id}
+              onBack={() => navigate('/employee-dashboard')}
+            />
+          ) : (
+          <form onSubmit={saveProfile} className="mx-auto w-full max-w-4xl rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+            <div className="mb-6 border-b border-slate-100 pb-5">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">Account</p>
+              <h1 className="mt-2 text-2xl font-bold text-slate-900">Profile</h1>
+              <p className="mt-1 text-sm text-slate-500">Your authenticated employee account details.</p>
+            </div>
+
+            <div className="mb-7 flex flex-wrap items-center gap-4">
+              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-2 border-blue-100 bg-slate-50">
+                {photoPreview
+                  ? <img src={photoPreview} alt="Profile" className="h-full w-full object-cover" />
+                  : <UniversitySeal className="h-16 w-16" />}
+              </div>
+              <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-800 transition hover:bg-blue-100 ${photoSaving ? 'pointer-events-none opacity-60' : ''}`}>
+                <Upload size={16} />
+                {photoSaving ? 'Uploading...' : 'Change Profile Photo'}
+                <input type="file" accept="image/jpeg,image/png,image/gif" onChange={handlePhotoChange} className="sr-only" disabled={photoSaving} />
+              </label>
+              <span className="text-xs text-slate-500">JPG, PNG, or GIF. Maximum 2 MB.</span>
+            </div>
+
+            <div className="space-y-5">
+              <label className="block text-sm font-medium text-slate-700">
+                Full Name
+                <input
+                  value={userData.fullName || ''}
+                  onChange={(event) => updateField('fullName', event.target.value)}
+                  autoComplete="name"
+                  className="mt-2 block w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Email Address
+                <input
+                  type="email"
+                  value={userData.email || ''}
+                  onChange={(event) => updateField('email', event.target.value)}
+                  autoComplete="email"
+                  className="mt-2 block w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Role / Title
+                <input
+                  value={roleTitle}
+                  readOnly
+                  className="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-normal text-slate-600"
+                />
+              </label>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Department
+                <input
+                  value={userData.department || 'Not assigned'}
+                  readOnly
+                  className="mt-2 block w-full rounded-lg border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-normal text-slate-600"
+                />
+              </label>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Phone Number
+                <input
+                  type="tel"
+                  value={userData.phoneNumber || ''}
+                  onChange={(event) => updateField('phoneNumber', event.target.value)}
+                  autoComplete="tel"
+                  placeholder="Enter phone number"
+                  className="mt-2 block w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+            </div>
+
+            {message && (
+              <p role="status" className={`mt-5 rounded-lg px-4 py-3 text-sm ${
+                message.toLowerCase().includes('unable') || message.toLowerCase().includes('please choose')
+                  ? 'bg-red-50 text-red-700'
+                  : 'bg-blue-50 text-blue-800'
+              }`}>
+                {message}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={saving || !user?._id}
+              className="mt-6 rounded-lg bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+            >
+              {saving ? 'Saving Profile...' : 'Save Profile Changes'}
+            </button>
+          </form>
+          )}
+        </main>
       </div>
     );
   }
@@ -486,6 +606,106 @@ function HRPasswordPanel() {
         </form>
       </section>
     </main>
+  );
+}
+
+function EmployeeChangePasswordCard({ userId, onBack }) {
+  const [values, setValues] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [visibleFields, setVisibleFields] = useState({});
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (values.newPassword !== values.confirmPassword) {
+      setMessage('New passwords do not match.');
+      return;
+    }
+    if (values.newPassword.length < 6) {
+      setMessage('New password must be at least 6 characters.');
+      return;
+    }
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const result = await changeMyPassword(userId, {
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+      });
+      setMessage(result.message || 'Password changed successfully.');
+      setValues({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Unable to change password.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-indigo-700">
+        <ArrowLeft size={16} /> Back to Dashboard
+      </button>
+
+      <div className="mt-5 text-center">
+        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
+          <ShieldCheck size={28} />
+        </span>
+        <h1 className="mt-4 text-2xl font-bold text-slate-900">Change Password</h1>
+        <p className="mt-1 text-sm text-slate-500">Update your password to keep your account secure.</p>
+      </div>
+
+      <form onSubmit={submit} className="mt-6 space-y-4">
+        {[
+          ['currentPassword', 'Current Password', 'Enter current password', 'current-password', 1],
+          ['newPassword', 'New Password', 'Enter new password', 'new-password', 6],
+          ['confirmPassword', 'Confirm New Password', 'Confirm new password', 'new-password', 6],
+        ].map(([name, label, placeholder, autoComplete, minLength]) => (
+          <label key={name} className="block text-sm font-medium text-slate-700">
+            {label}
+            <span className="relative mt-1.5 block">
+              <Lock size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                name={name}
+                type={visibleFields[name] ? 'text' : 'password'}
+                value={values[name]}
+                onChange={(event) => setValues((current) => ({ ...current, [name]: event.target.value }))}
+                placeholder={placeholder}
+                autoComplete={autoComplete}
+                required
+                minLength={minLength}
+                className="h-12 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-11 text-sm font-normal text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              />
+              <button
+                type="button"
+                onClick={() => setVisibleFields((current) => ({ ...current, [name]: !current[name] }))}
+                aria-label={`${visibleFields[name] ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                {visibleFields[name] ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </span>
+          </label>
+        ))}
+
+        {message && (
+          <p role="status" className={`rounded-lg px-3 py-2.5 text-sm ${
+            message.toLowerCase().includes('success') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+          }`}>
+            {message}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving || !userId}
+          className="flex h-12 w-full items-center justify-center rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+        >
+          {saving ? 'Updating Password...' : 'Update Password'}
+        </button>
+      </form>
+    </section>
   );
 }
 

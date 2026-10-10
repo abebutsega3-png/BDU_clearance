@@ -25,7 +25,6 @@ const getCertificateErrorMessage = (error, fallback) => {
   return error.response?.data?.message || error.message || fallback;
 };
 const authConfig = () => ({
-  suppressAutomaticLogout: true,
   headers: { Authorization: `******'token') || ''}` },
 });
 const displayReviewerName = (value) => {
@@ -158,7 +157,6 @@ export default function CertificatePreview() {
     }
     let active = true;
     axios.get(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}`, {
-      suppressAutomaticLogout: true,
       headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
     }).then(({ data }) => {
       if (active && data?.clearance) setClearance((current) => ({ ...current, ...data.clearance }));

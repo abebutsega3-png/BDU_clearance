@@ -39,7 +39,12 @@ const statusStyles = {
 
 const formatDate = (value) => value ? new Date(value).toLocaleDateString() : '-';
 const formatReturnedDate = (value) => value ? new Date(value).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '-';
-const defaultLastWorkingDate = '2026-09-28';
+const getLocalDateOnly = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export default function MyClearancePage() {
   const { user } = useAuth();
@@ -59,13 +64,20 @@ export default function MyClearancePage() {
   const [cancelCandidate, setCancelCandidate] = useState(null);
   const [cancellationReason, setCancellationReason] = useState('');
   const [resolutionRemark, setResolutionRemark] = useState('');
+  const [returnedForm, setReturnedForm] = useState({
+    clearanceType: '',
+    reason: '',
+    lastWorkingDate: '',
+    relievingDate: '',
+    remark: '',
+  });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [formData, setFormData] = useState({
     clearanceReason: '',
     reason: '',
     remark: 'Thank you.',
-    lastWorkingDate: defaultLastWorkingDate,
+    lastWorkingDate: getLocalDateOnly(),
     file: null,
     confirmed: false,
   });
@@ -185,7 +197,7 @@ export default function MyClearancePage() {
         department,
         clearanceReason: formData.clearanceReason,
         reason: formData.reason,
-        requestDate: new Date().toISOString().slice(0, 10),
+        requestDate: getLocalDateOnly(),
         lastWorkingDate: formData.lastWorkingDate,
         remarks: formData.remark,
       });
@@ -197,7 +209,7 @@ export default function MyClearancePage() {
           clearanceReason: separationTypes[0] || '',
           reason: '',
           remark: '',
-          lastWorkingDate: defaultLastWorkingDate,
+          lastWorkingDate: getLocalDateOnly(),
           file: null,
           confirmed: false,
         });
@@ -216,7 +228,10 @@ export default function MyClearancePage() {
   const progressSteps = requests.length ? [...progressInfo.steps, progressInfo.finalHRStep] : [];
   const returnedStep = progressInfo.returnedStep;
   const isReturnedRequest = Boolean(returnedStep) || ['Returned', 'Rejected', 'returned', 'rejected'].includes(String(currentRequest?.status || ''));
+  const isHRReturnedRequest = isReturnedRequest
+    && (currentRequest?.initialHRStatus === 'Returned' || /^hr officer$/i.test(String(currentRequest?.returnedOffice || '')));
   const isResolvableReturn = isReturnedRequest && currentRequest?.returnResolvable !== false && currentRequest?.isResolvable !== false;
+
   const requestProgressInfo = (request) => {
     const info = computeClearanceProgress(request);
     return {
@@ -228,18 +243,51 @@ export default function MyClearancePage() {
   const handleResubmit = async () => {
     const clearanceId = currentRequest?._id || currentRequest?.requestId;
     if (!clearanceId || !resolutionRemark.trim()) return;
+    if (isHRReturnedRequest) {
+      const clearanceType = returnedForm.clearanceType
+        || currentRequest.clearanceType
+        || currentRequest.clearanceReason
+        || currentRequest.type
+        || 'Resignation';
+      const requestDate = String(currentRequest.requestDate || currentRequest.createdAt || '').slice(0, 10);
+      if (!clearanceType.trim()) {
+        setError('Select a clearance type before resubmitting your request.');
+        return;
+      }
+      if (!returnedForm.reason.trim()) {
+        setError('Please enter the reason for your clearance request.');
+        return;
+      }
+      if (!returnedForm.lastWorkingDate || (requestDate && returnedForm.lastWorkingDate < requestDate)) {
+        setError('Last working date cannot be earlier than the request date.');
+        return;
+      }
+      if (returnedForm.relievingDate && returnedForm.lastWorkingDate > returnedForm.relievingDate) {
+        setError('Last working date cannot be after relieving date.');
+        return;
+      }
+    }
     setResubmitting(true);
     setError('');
     try {
       const response = await updateClearance(clearanceId, {
         resubmitted: true,
         resolutionRemark: resolutionRemark.trim(),
+        ...(isHRReturnedRequest ? {
+          clearanceType: returnedForm.clearanceType || currentRequest.clearanceType || currentRequest.clearanceReason || currentRequest.type || 'Resignation',
+          reason: returnedForm.reason.trim(),
+          lastWorkingDate: returnedForm.lastWorkingDate,
+          relievingDate: returnedForm.relievingDate,
+          remarks: returnedForm.remark,
+        } : {}),
       });
       if (response.clearance) {
         setRequests((current) => current.map((request) => request._id === response.clearance._id ? response.clearance : request));
         setResolutionRemark('');
         setResolving(false);
-        setMessage('Your request has been resubmitted for clearance review.');
+        setMessage(isHRReturnedRequest
+          ? 'Your corrected request has been resubmitted to HR for review.'
+          : 'Your request has been resubmitted for clearance review.');
       }
     } catch (requestError) {
       setError(requestError?.message || 'Unable to resubmit your clearance request.');
@@ -318,7 +366,7 @@ export default function MyClearancePage() {
                 <label className="mb-2 block text-[12px] font-semibold text-slate-700">Last Working Date <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input type="date" name="lastWorkingDate" value={formData.lastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
+                  <input type="date" name="lastWorkingDate" min={getLocalDateOnly()} value={formData.lastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
                 </div>
               </div>
 
@@ -403,7 +451,19 @@ export default function MyClearancePage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        <button type="button" onClick={() => { setSelectedRequestId(request.requestId); setResolving(false); setResolutionRemark(''); setError(''); }} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 font-semibold text-blue-700 hover:bg-blue-100">
+                        <button type="button" onClick={() => {
+                          setSelectedRequestId(request.requestId);
+                          setResolving(false);
+                          setResolutionRemark('');
+                          setReturnedForm({
+                            clearanceType: request.clearanceType || request.clearanceReason || request.type || 'Resignation',
+                            reason: request.reason || '',
+                            lastWorkingDate: String(request.lastWorkingDate || '').slice(0, 10),
+                            relievingDate: String(request.relievingDate || '').slice(0, 10),
+                            remark: request.remarks || '',
+                          });
+                          setError('');
+                        }} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 font-semibold text-blue-700 hover:bg-blue-100">
                           View
                         </button>
                         {['Pending', 'PENDING'].includes(requestStatus) && (
@@ -521,10 +581,68 @@ export default function MyClearancePage() {
 
                   {isResolvableReturn && (!resolving ? (
                     <button type="button" onClick={() => setResolving(true)} className="mt-4 inline-flex w-full items-center justify-center rounded-md bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700">
-                      Resolve Issue
+                      {isHRReturnedRequest ? 'Edit Returned Request' : 'Resolve Issue'}
                     </button>
                   ) : (
                     <div className="mt-4 space-y-3">
+                      {isHRReturnedRequest && (
+                        <div className="space-y-3 rounded-lg border border-amber-200 bg-white p-3">
+                          <p className="text-[12px] font-semibold text-slate-700">Correct your request information</p>
+                          <label className="block text-[12px] font-semibold text-slate-700">
+                            Clearance Type
+                            <select
+                              value={returnedForm.clearanceType || currentRequest.clearanceType || currentRequest.clearanceReason || currentRequest.type || 'Resignation'}
+                              onChange={(event) => setReturnedForm((current) => ({ ...current, clearanceType: event.target.value }))}
+                              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] font-normal outline-none focus:border-blue-500"
+                            >
+                              {!separationTypes.includes(returnedForm.clearanceType || currentRequest.clearanceType || currentRequest.clearanceReason || currentRequest.type || 'Resignation') && (
+                                <option value={returnedForm.clearanceType || currentRequest.clearanceType || currentRequest.clearanceReason || currentRequest.type || 'Resignation'}>
+                                  {returnedForm.clearanceType || currentRequest.clearanceType || currentRequest.clearanceReason || currentRequest.type || 'Resignation'}
+                                </option>
+                              )}
+                              {separationTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                            </select>
+                          </label>
+                          <label className="block text-[12px] font-semibold text-slate-700">
+                            Reason
+                            <textarea
+                              value={returnedForm.reason}
+                              onChange={(event) => setReturnedForm((current) => ({ ...current, reason: event.target.value }))}
+                              rows={3}
+                              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] font-normal outline-none focus:border-blue-500"
+                            />
+                          </label>
+                          <label className="block text-[12px] font-semibold text-slate-700">
+                            Last Working Date
+                            <input
+                              type="date"
+                              min={String(currentRequest?.requestDate || currentRequest?.createdAt || '').slice(0, 10)}
+                              value={returnedForm.lastWorkingDate}
+                              onChange={(event) => setReturnedForm((current) => ({ ...current, lastWorkingDate: event.target.value }))}
+                              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] font-normal outline-none focus:border-blue-500"
+                            />
+                          </label>
+                          <label className="block text-[12px] font-semibold text-slate-700">
+                            Relieving Date (Optional)
+                            <input
+                              type="date"
+                              min={returnedForm.lastWorkingDate || String(currentRequest?.requestDate || currentRequest?.createdAt || '').slice(0, 10)}
+                              value={returnedForm.relievingDate}
+                              onChange={(event) => setReturnedForm((current) => ({ ...current, relievingDate: event.target.value }))}
+                              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] font-normal outline-none focus:border-blue-500"
+                            />
+                          </label>
+                          <label className="block text-[12px] font-semibold text-slate-700">
+                            Additional Remark (Optional)
+                            <textarea
+                              value={returnedForm.remark}
+                              onChange={(event) => setReturnedForm((current) => ({ ...current, remark: event.target.value }))}
+                              rows={2}
+                              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] font-normal outline-none focus:border-blue-500"
+                            />
+                          </label>
+                        </div>
+                      )}
                       <label className="block text-[12px] font-semibold text-slate-700" htmlFor="resolution-remark">Resolution Remark</label>
                       <textarea id="resolution-remark" value={resolutionRemark} onChange={(event) => setResolutionRemark(event.target.value)} rows={3} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-700 outline-none focus:border-blue-500" placeholder="Describe how you resolved the returned issue." />
                       <button type="button" onClick={handleResubmit} disabled={resubmitting || !resolutionRemark.trim()} className="inline-flex w-full items-center justify-center rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">

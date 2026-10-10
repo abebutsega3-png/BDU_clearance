@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Search, UserPlus } from 'lucide-react';
 import axios from 'axios';
 import { fetchEmployees } from '../../until/EmployeeHelper';
-import { createUser } from '../../until/UserHelper';
+import { createUser, fetchUser } from '../../until/UserHelper';
 import { AdminTranslatedView } from '../admindashboared/AdminLanguage';
 
 const inputClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 const roleOptions = [
+	'Employee',
 	'Administrator',
 	'Department Head',
 	'Library Officer',
@@ -23,6 +24,7 @@ export default function AddUser() {
 	const [employees, setEmployees] = useState([]);
 	const [roles, setRoles] = useState(roleOptions);
 	const [employeeId, setEmployeeId] = useState('');
+	const [username, setUsername] = useState('');
 	const [employeeSearch, setEmployeeSearch] = useState('');
 	const [loadingEmployees, setLoadingEmployees] = useState(true);
 	const [showPassword, setShowPassword] = useState(false);
@@ -30,7 +32,11 @@ export default function AddUser() {
 	const [error, setError] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [loadingRoles, setLoadingRoles] = useState(true);
-	const [selectedRole, setSelectedRole] = useState('');
+	const [loadingExistingUser, setLoadingExistingUser] = useState(false);
+	const [userLookupFailed, setUserLookupFailed] = useState(false);
+	const [selectedRoles, setSelectedRoles] = useState([]);
+	const [existingRoles, setExistingRoles] = useState([]);
+	const [existingUser, setExistingUser] = useState(null);
 
 	const loadEmployees = async () => {
 		setLoadingEmployees(true);
@@ -65,8 +71,67 @@ export default function AddUser() {
 	}, []);
 
 	useEffect(() => {
-		setSelectedRole((currentRole) => roles.includes(currentRole) ? currentRole : roles[0] || '');
+		setSelectedRoles((currentRoles) => {
+			if (currentRoles.length) {
+				return currentRoles.filter((role) => roles.includes(role));
+			}
+			return roles.includes('Employee') ? ['Employee'] : (roles[0] ? [roles[0]] : []);
+		});
 	}, [roles]);
+
+	useEffect(() => {
+		if (!employeeId || loadingRoles) {
+			if (!employeeId) {
+				setSelectedRoles([]);
+				setExistingRoles([]);
+				setExistingUser(null);
+				setUsername('');
+			}
+			return undefined;
+		}
+
+		let active = true;
+		setLoadingExistingUser(true);
+		setUserLookupFailed(false);
+		setSelectedRoles([]);
+		setExistingRoles([]);
+		setExistingUser(null);
+		setUsername('');
+
+		fetchUser(employeeId)
+			.then((userData) => {
+				if (!active) return;
+				setExistingUser(userData);
+				setUsername(userData?.username || '');
+				const assignedRoles = Array.isArray(userData?.roles)
+					? userData.roles
+					: userData?.role
+						? [userData.role]
+						: [];
+				const normalizedRoles = [...new Set(assignedRoles.filter(Boolean))];
+				setExistingRoles(normalizedRoles);
+				setRoles((currentRoles) => {
+					const nextRoles = [...new Set([...currentRoles, ...normalizedRoles])];
+					return nextRoles.length === currentRoles.length ? currentRoles : nextRoles;
+				});
+				setSelectedRoles(normalizedRoles.length ? normalizedRoles : ['Employee']);
+			})
+			.catch((requestError) => {
+				if (!active) return;
+				if (requestError.response?.status === 404) {
+					setSelectedRoles(['Employee']);
+					return;
+				}
+
+				setUserLookupFailed(true);
+				setError(requestError.response?.data?.message || 'Unable to check whether this employee already has a user account. Please try again.');
+			})
+			.finally(() => {
+				if (active) setLoadingExistingUser(false);
+			});
+
+		return () => { active = false; };
+	}, [employeeId, loadingRoles]);
 
 	const employee = employees.find((item) => item.employeeId === employeeId);
 	const visibleEmployees = employees.filter((item) => `${item.employeeId} ${item.fullName} ${item.department} ${item.phone}`.toLowerCase().includes(employeeSearch.toLowerCase()));
@@ -75,22 +140,54 @@ export default function AddUser() {
 		event.preventDefault();
 		setSaving(true);
 		setError('');
+
+		if (userLookupFailed || loadingExistingUser) {
+			setError('Please wait for the selected employee account check to finish before saving.');
+			setSaving(false);
+			return;
+		}
+		if (!username.trim()) {
+			setError('Please enter a username.');
+			setSaving(false);
+			return;
+		}
+		if (!selectedRoles.length) {
+			setError('Please select at least one role for this user.');
+			setSaving(false);
+			return;
+		}
+
 		const formData = new FormData(event.currentTarget);
+		const password = String(formData.get('password') || '');
+		const confirmPassword = String(formData.get('confirmPassword') || '');
+		if (!existingUser && !password) {
+			setError('Please enter a password to create a new user account.');
+			setSaving(false);
+			return;
+		}
+		if (password && password !== confirmPassword) {
+			setError('Password and confirm password do not match.');
+			setSaving(false);
+			return;
+		}
+
 		try {
 			const response = await createUser({
-				username: formData.get('username'),
+				username: username.trim(),
 				employeeId,
-				password: formData.get('password'),
-				confirmPassword: formData.get('confirmPassword'),
-				role: selectedRole,
+				password,
+				confirmPassword,
+				role: selectedRoles[0],
+				roles: selectedRoles,
+				activeRole: selectedRoles[0],
 				status: formData.get('status'),
 			});
 			if (!response?.success) {
-				throw new Error(response?.message || 'Unable to create user.');
+				throw new Error(response?.message || 'Unable to save this user.');
 			}
 			navigate('/admin/users', { replace: true });
 		} catch (requestError) {
-			setError(requestError.response?.data?.message || requestError.message || 'Unable to create user.');
+			setError(requestError.response?.data?.message || requestError.message || 'Unable to save this user.');
 		} finally {
 			setSaving(false);
 		}
@@ -111,10 +208,10 @@ export default function AddUser() {
 						<div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4"><InfoTile label="Employee ID" value={employee?.employeeId || '-'} /><InfoTile label="Full Name" value={employee?.fullName || '-'} /><InfoTile label="Department" value={employee?.department || '-'} /><InfoTile label="Position" value={employee?.position || employee?.jobTitle || '-'} /></div>
 					</section>
 					<div className="grid grid-cols-1 gap-2 border-t border-slate-200 p-3 md:grid-cols-2 md:p-4">
-						<section className="rounded-md border border-slate-200"><h2 className="bg-blue-50 px-3 py-2 text-[11px] font-bold text-slate-700">2. Account Information</h2><div className="space-y-3 p-3"><label className="text-[11px] font-semibold text-slate-700">Username *<input name="username" required placeholder="Enter username" className={`${inputClass} mt-1 text-xs`} /></label><PasswordField label="Temporary Password *" name="password" show={showPassword} onToggle={() => setShowPassword((visible) => !visible)} /><PasswordField label="Confirm Password *" name="confirmPassword" show={showConfirmPassword} onToggle={() => setShowConfirmPassword((visible) => !visible)} /><label className="text-[11px] font-semibold text-slate-700">First Login Password Change<select defaultValue="Required" className={`${inputClass} mt-1 text-xs`}><option>Required</option><option>Not required</option></select></label></div></section>
-						<section className="rounded-md border border-slate-200"><h2 className="bg-blue-50 px-3 py-2 text-[11px] font-bold text-slate-700">3. Role &amp; Access</h2><div className="space-y-3 p-3"><label className="text-[11px] font-semibold text-slate-700">Role *<select name="role" value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)} disabled={loadingRoles || roles.length === 0} required className={`${inputClass} mt-1 text-xs disabled:bg-slate-100`}><option value="">{loadingRoles ? 'Loading roles...' : 'Select role'}</option>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label><label className="text-[11px] font-semibold text-slate-700">Account Status *<select name="status" defaultValue="Active" className={`${inputClass} mt-1 text-xs`}><option>Active</option><option>Inactive</option></select></label><label className="flex items-center gap-2 pt-1 text-[11px] font-normal text-slate-600"><input type="checkbox" defaultChecked className="h-4 w-4 accent-blue-600" /> Enable login access for this user</label></div></section>
+						<section className="rounded-md border border-slate-200"><h2 className="bg-blue-50 px-3 py-2 text-[11px] font-bold text-slate-700">2. Account Information</h2><div className="space-y-3 p-3"><label className="text-[11px] font-semibold text-slate-700">Username *<input name="username" value={username} onChange={(event) => setUsername(event.target.value)} disabled={loadingExistingUser || userLookupFailed} required placeholder="Enter username" className={`${inputClass} mt-1 text-xs disabled:bg-slate-100`} /></label>{loadingExistingUser ? <p className="text-xs text-slate-500">Checking for an existing account...</p> : !existingUser && <><PasswordField label="Temporary Password *" name="password" show={showPassword} onToggle={() => setShowPassword((visible) => !visible)} /><PasswordField label="Confirm Password *" name="confirmPassword" show={showConfirmPassword} onToggle={() => setShowConfirmPassword((visible) => !visible)} /></>}<p className="text-[10px] text-slate-500">{existingUser ? 'Existing account found. Adding roles will not reset its password.' : 'A password is required for a new account.'}</p><label className="text-[11px] font-semibold text-slate-700">First Login Password Change<select defaultValue="Required" className={`${inputClass} mt-1 text-xs`}><option>Required</option><option>Not required</option></select></label></div></section>
+						<section className="rounded-md border border-slate-200"><h2 className="bg-blue-50 px-3 py-2 text-[11px] font-bold text-slate-700">3. Role &amp; Access</h2><div className="space-y-3 p-3"><div><label className="mb-1 block text-[11px] font-semibold text-slate-700">Roles *</label><p className="mb-2 text-[10px] text-slate-500">Previously assigned roles stay selected. Select additional roles to add them.</p><div className="grid grid-cols-2 gap-2 rounded-md border border-slate-300 bg-white p-2 text-xs text-slate-700" aria-disabled={loadingRoles || roles.length === 0}>{roles.map((role) => { const checked = selectedRoles.includes(role); const alreadyAssigned = existingRoles.includes(role); return (<label key={role} className="flex items-center gap-2 rounded border border-slate-200 px-2 py-1.5"><input type="checkbox" checked={checked} disabled={alreadyAssigned} onChange={(event) => { const nextRoles = event.target.checked ? [...selectedRoles, role] : selectedRoles.filter((item) => item !== role); setSelectedRoles(nextRoles); }} className="h-4 w-4 accent-blue-600 disabled:opacity-70" /><span>{role}{alreadyAssigned ? ' (Already assigned)' : ''}</span></label>); })}</div></div><label className="text-[11px] font-semibold text-slate-700">Account Status *<select name="status" defaultValue="Active" className={`${inputClass} mt-1 text-xs`}><option>Active</option><option>Inactive</option></select></label><label className="flex items-center gap-2 pt-1 text-[11px] font-normal text-slate-600"><input type="checkbox" defaultChecked className="h-4 w-4 accent-blue-600" /> Enable login access for this user</label></div></section>
 					</div>
-					<section className="flex items-center justify-between border-t border-slate-200 p-3"><button type="button" onClick={() => navigate('/admin/users')} className="rounded-md border border-slate-300 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">Cancel</button>{error && <p className="mx-3 flex-1 text-xs text-red-700">{error}</p>}<button type="submit" disabled={saving || !employee} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><UserPlus className="h-3.5 w-3.5" />{saving ? 'Creating...' : 'Create User'}</button></section>
+					<section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-3"><button type="button" onClick={() => navigate('/admin/users')} className="rounded-md border border-slate-300 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">Cancel</button>{error && <p role="alert" className="min-w-[200px] flex-1 text-xs text-red-700">{error}</p>}<button type="submit" disabled={saving || loadingExistingUser || userLookupFailed || loadingRoles || !employee} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><UserPlus className="h-3.5 w-3.5" />{saving ? 'Saving...' : loadingExistingUser ? 'Checking employee...' : existingUser ? 'Save Roles' : 'Create User'}</button></section>
 				</form>
 			</div>
 		</main>

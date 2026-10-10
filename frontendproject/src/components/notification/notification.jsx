@@ -11,6 +11,7 @@ import {
 import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
 import { useOptionalAdminLanguage } from '../admindashboared/AdminLanguage';
+import { useEmployeeLanguage } from '../employeedashboared/EmployeeLanguage';
 
 const HR_CLEARANCE_NOTIFICATION_TYPES = new Set([
   'NEW_CLEARANCE_REQUEST',
@@ -40,12 +41,14 @@ const HR_CLEARANCE_NOTIFICATION_TYPES = new Set([
 ]);
 
 export default function NotificationsPage() {
-  const { t } = useOptionalAdminLanguage();
+  const { t: adminT } = useOptionalAdminLanguage();
+  const { t: employeeT } = useEmployeeLanguage();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user } = useAuth();
   const isEmployeeRoute = pathname.startsWith('/employee/');
   const isAdminRoute = pathname.startsWith('/admin/');
+  const t = isEmployeeRoute ? employeeT : adminT;
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +93,7 @@ export default function NotificationsPage() {
     try {
       await markAllNotificationsAsRead();
       setNotifications((current) => current.map((item) => ({ ...item, unread: false })));
+      window.dispatchEvent(new Event('notifications-updated'));
     } catch {
       setLoadError('Unable to update notification status.');
     }
@@ -110,6 +114,7 @@ export default function NotificationsPage() {
       try {
         await markNotificationAsRead(item.id);
         setNotifications((current) => current.map((notification) => notification.id === item.id ? { ...notification, unread: false } : notification));
+        window.dispatchEvent(new Event('notifications-updated'));
       } catch {
         setLoadError('Unable to update notification status.');
       }
@@ -126,6 +131,7 @@ export default function NotificationsPage() {
       setLoadError('');
       await deleteNotificationRequest(item.id);
       setNotifications((current) => current.filter((notification) => notification.id !== item.id));
+      window.dispatchEvent(new Event('notifications-updated'));
     } catch (error) {
       setLoadError(error.response?.data?.message || 'Unable to delete notification.');
     }
@@ -196,7 +202,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800">
-      {isEmployeeRoute && <><div className="hidden lg:block"><EmployeeSidebar /></div>{menuOpen && <><button type="button" aria-label="Close menu" className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" onClick={() => setMenuOpen(false)} /><div className="relative z-50 lg:hidden"><EmployeeSidebar onNavigate={() => setMenuOpen(false)} /></div></>}<EmployeeNavbar onMenuClick={() => setMenuOpen(true)} /></>}
+      {isEmployeeRoute && <><div className="hidden lg:block"><EmployeeSidebar /></div>      {menuOpen && <><button type="button" aria-label={t('Close menu')} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" onClick={() => setMenuOpen(false)} /><div className="relative z-50 lg:hidden"><EmployeeSidebar onNavigate={() => setMenuOpen(false)} /></div></>}<EmployeeNavbar onMenuClick={() => setMenuOpen(true)} /></>}
       
       {/* TOP NAVBAR */}
       {!isEmployeeRoute && <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
@@ -322,23 +328,23 @@ export default function NotificationsPage() {
                 <SummaryRow icon={<ShieldAlert size={14} className="text-red-500" />} label="Security Events" count={unreadNotifications.filter((item) => item.type.includes('PASSWORD') || item.type.includes('SECURITY') || item.type.includes('ERROR')).length} color="bg-red-50 text-red-600" />
                 <SummaryRow icon={<ClipboardCheck size={14} className="text-purple-600" />} label="Audit Events" count={countByType('SYSTEM_AUDIT_EVENT')} color="bg-purple-50 text-purple-600" />
               </> : <>
-                <SummaryRow icon={<FilePlus size={14} className="text-blue-600" />} label="New Requests" count={countByType('new_request')} color="bg-blue-50 text-blue-600" />
-                <SummaryRow icon={<CheckCircle2 size={14} className="text-emerald-600" />} label="Department Completed" count={countByType('dept_completed')} color="bg-emerald-50 text-emerald-600" />
-                <SummaryRow icon={<Clock size={14} className="text-amber-600" />} label="Pending" count={countByType('pending')} color="bg-amber-50 text-amber-600" />
-                <SummaryRow icon={<RotateCcw size={14} className="text-red-500" />} label="Returned" count={countByType('returned')} color="bg-red-50 text-red-600" />
-                <SummaryRow icon={<Users size={14} className="text-purple-600" />} label="Ready for Final Review" count={countByType('ready_review')} color="bg-purple-50 text-purple-600" />
+                <SummaryRow icon={<FilePlus size={14} className="text-blue-600" />} label={t('New Requests')} count={countByType('new_request')} color="bg-blue-50 text-blue-600" />
+                <SummaryRow icon={<CheckCircle2 size={14} className="text-emerald-600" />} label={t('Department Completed')} count={countByType('dept_completed')} color="bg-emerald-50 text-emerald-600" />
+                <SummaryRow icon={<Clock size={14} className="text-amber-600" />} label={t('Pending')} count={countByType('pending')} color="bg-amber-50 text-amber-600" />
+                <SummaryRow icon={<RotateCcw size={14} className="text-red-500" />} label={t('Returned')} count={countByType('returned')} color="bg-red-50 text-red-600" />
+                <SummaryRow icon={<Users size={14} className="text-purple-600" />} label={t('Ready for Final Review')} count={countByType('ready_review')} color="bg-purple-50 text-purple-600" />
               </>}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-800">
-              <span>Total Unread</span>
+              <span>{t('Total Unread')}</span>
               <span className="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md">{unreadNotifications.length}</span>
             </div>
           </div>
 
           {/* Quick Actions Card */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-800 text-sm mb-2">Quick Actions</h3>
+            <h3 className="font-bold text-slate-800 text-sm mb-2">{t('Quick Actions')}</h3>
             
             <div className="space-y-1">
               {isAdminRoute ? <>
@@ -347,10 +353,10 @@ export default function NotificationsPage() {
                 <QuickActionItem to="/admin/system-settings" icon={<Settings2 size={16} className="text-blue-600" />} title="System Settings" sub="Review configuration" />
                 <QuickActionItem to="/admin/audit-logs" icon={<ClipboardCheck size={16} className="text-blue-600" />} title="Audit Logs" sub="Review system activity" />
               </> : <>
-                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance' : '/hr-office/clearance-requests'} icon={<FilePlus size={16} className="text-blue-600" />} title="Clearance Requests" sub="View all clearance requests" />
-                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#status' : '/hr-office/clearance-requests?status=In%20Progress'} icon={<Clock size={16} className="text-blue-600" />} title="Pending Follow Ups" sub="Follow up pending clearances" />
-                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#history' : '/hr-office/reports'} icon={<Users size={16} className="text-blue-600" />} title="Reports" sub="View clearance reports" />
-                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#request' : '/hr-office/add-clearance'} icon={<CheckCircle2 size={16} className="text-blue-600" />} title="Create Clearance Request" sub={isEmployeeRoute ? 'Submit your clearance request' : 'Create request for an employee'} />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance' : '/hr-office/clearance-requests'} icon={<FilePlus size={16} className="text-blue-600" />} title={t('Clearance Requests')} sub={t('View all clearance requests')} />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#status' : '/hr-office/clearance-requests?status=In%20Progress'} icon={<Clock size={16} className="text-blue-600" />} title={t('Pending Follow Ups')} sub={t('Follow up pending clearances')} />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#history' : '/hr-office/reports'} icon={<Users size={16} className="text-blue-600" />} title={t('Reports')} sub={t('View clearance reports')} />
+                <QuickActionItem to={isEmployeeRoute ? '/employee/my-clearance#request' : '/hr-office/add-clearance'} icon={<CheckCircle2 size={16} className="text-blue-600" />} title={t('Create Clearance Request')} sub={t(isEmployeeRoute ? 'Submit your clearance request' : 'Create request for an employee')} />
               </>}
             </div>
           </div>

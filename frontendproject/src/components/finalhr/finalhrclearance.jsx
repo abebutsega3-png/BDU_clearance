@@ -152,7 +152,6 @@ const formatDate = (value) => {
 };
 
 const authConfig = () => ({
-  suppressAutomaticLogout: true,
   headers: { Authorization: `******'token') || ''}` },
 });
 

@@ -10,10 +10,12 @@ import {
   LogOut,
 } from "lucide-react";
 import UniversitySeal from '../UniversitySeal';
+import { useEmployeeLanguage } from './EmployeeLanguage';
 
 const EmployeeSidebar = ({ onNavigate }) => {
   const { pathname } = useLocation();
   const { logout } = useAuth();
+  const { t } = useEmployeeLanguage();
   const currentPath = decodeURIComponent(pathname || '').replace(/\/+$/, '').toLowerCase();
   const normalizedCurrentPath = currentPath.replace(/_/g, '-');
   const isMyClearanceRoute = [
@@ -34,8 +36,8 @@ const EmployeeSidebar = ({ onNavigate }) => {
         <UniversitySeal />
 
         <div className="ml-3">
-          <h1 className="text-lg font-bold">Employee System</h1>
-          <p className="text-xs text-slate-400">Employee</p>
+          <h1 className="text-lg font-bold">{t('Employee System')}</h1>
+          <p className="text-xs text-slate-400">{t('Employee')}</p>
         </div>
       </div>
 
@@ -46,7 +48,7 @@ const EmployeeSidebar = ({ onNavigate }) => {
         <SidebarItem
           to="/employee-dashboard"
           icon={<LayoutDashboard size={20} />}
-          label="Dashboard"
+          label={t('Dashboard')}
           active={pathname === '/employee-dashboard'}
           onNavigate={onNavigate}
         />
@@ -56,7 +58,7 @@ const EmployeeSidebar = ({ onNavigate }) => {
         <SidebarItem
           to="/employee/my-clearance"
           icon={<Bell size={20} />}
-          label="My Clearance"
+          label={t('My Clearance')}
           active={pathname === '/employee/my-clearance' }
           onNavigate={onNavigate}
         />
@@ -65,7 +67,7 @@ const EmployeeSidebar = ({ onNavigate }) => {
         <SidebarItem
           to="/employee/notifications"
           icon={<Bell size={20} />}
-          label="Notifications"
+          label={t('Notifications')}
           active={pathname === '/employee/notifications'}
           onNavigate={onNavigate}
         />
@@ -74,14 +76,14 @@ const EmployeeSidebar = ({ onNavigate }) => {
         <SidebarItem
           to="/employee/documents"
           icon={<UserCircle size={20} />}
-          label="Documents"
+          label={t('Documents')}
           active={pathname === '/employee/documents'}
           onNavigate={onNavigate}
         />
          <SidebarItem
           to="/employee/my-certificates"
           icon={<UserCircle size={20} />}
-          label="My Certificates"
+          label={t('My Certificates')}
           active={pathname === '/employee/my-certificates'}
           onNavigate={onNavigate}
         />
@@ -89,14 +91,14 @@ const EmployeeSidebar = ({ onNavigate }) => {
         <SidebarItem
           to="/employee/profile"
           icon={<UserCircle size={20} />}
-          label="My Profile"
+          label={t('My Profile')}
           active={pathname === '/employee/profile'}
           onNavigate={onNavigate}
         />
         <SidebarItem
           to="/employee/settings"
           icon={<Settings size={20} />}
-          label="Settings"
+          label={t('Settings')}
           active={pathname === '/employee/settings'}
           onNavigate={onNavigate}
         />
@@ -112,7 +114,7 @@ const EmployeeSidebar = ({ onNavigate }) => {
                      text-slate-300 transition hover:bg-red-600 hover:text-white"
         >
           <LogOut size={20} />
-          <span>Logout</span>
+          <span>{t('Logout')}</span>
         </button>
       </div>
     </aside>

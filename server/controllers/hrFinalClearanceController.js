@@ -6,7 +6,13 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
 import { notifyFinanceOfficers } from './financeclearancerequestController.js';
+import {
+  createIctClearanceRequestFromClearance,
+  notifyIctOfficers,
+} from './ictClearanceController.js';
 import { sendNotificationEmail } from '../utils/emailService.js';
+import { notifyTransportOfficers } from '../utils/transportNotifications.js';
+import { isDepartmentHead } from '../utils/roleHelpers.js';
 import {
   FINAL_HR_STAGE,
   MANUAL_ROUTABLE_OFFICES,
@@ -42,8 +48,12 @@ const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
     : clearance.department;
   const escapedDepartment = String(department || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const heads = await User.find({
-    role: { $regex: '^department[ _]?head$', $options: 'i' },
+    $or: [
+      { role: { $regex: '^department[ _]?head$', $options: 'i' } },
+      { roles: { $regex: '^department[ _]?head$', $options: 'i' } },
+    ],
     ...(escapedDepartment ? { department: { $regex: `^${escapedDepartment}$`, $options: 'i' } } : {}),
+    ...(clearance.employeeId ? { employeeId: { $ne: clearance.employeeId } } : {}),
   }).select('_id name email notificationPreferences');
   if (!heads.length) return;
   const notifications = heads.map((head) => ({
@@ -65,6 +75,88 @@ const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
     message: notifications[index].message,
     actionLink: notifications[index].actionLink,
   })));
+};
+
+const isDepartmentHeadUser = (user) => [
+  user?.role,
+  ...(Array.isArray(user?.roles) ? user.roles : []),
+].some(isDepartmentHead);
+
+const notifyOfficesAfterDepartmentHeadSkip = async (clearance, offices) => {
+  for (const office of offices) {
+    const normalizedOffice = normalizeRoutedOffice(office);
+    if (/^finance office$/i.test(normalizedOffice)) {
+      await notifyFinanceOfficers({
+        type: 'CLEARANCE_READY_FOR_FINANCE',
+        employeeName: clearance.employeeName,
+        requestId: clearance.requestId,
+        department: typeof clearance.department === 'string' ? clearance.department : clearance.department?.name,
+        clearanceReason: clearance.clearanceType,
+      });
+      continue;
+    }
+    if (/^ict office$/i.test(normalizedOffice)) {
+      await createIctClearanceRequestFromClearance(clearance);
+      await notifyIctOfficers({
+        type: 'NEW_CLEARANCE_REQUEST',
+        employeeName: clearance.employeeName,
+        employeeId: clearance.employeeId,
+        requestId: clearance.requestId,
+        message: `${clearance.employeeName || 'An employee'}'s request passed Initial HR Review. Department Head approval was skipped because the requester is the Department Head. The request is ready for ICT review.`,
+      });
+      continue;
+    }
+    if (/^transport office$/i.test(normalizedOffice)) {
+      await notifyTransportOfficers({
+        type: 'TRANSPORT_NEW_CLEARANCE_REQUEST',
+        title: 'New Clearance Request',
+        message: `${clearance.employeeName || 'An employee'}'s request passed Initial HR Review. Department Head approval was skipped because the requester is the Department Head. The request is ready for Transport review.`,
+        employeeName: clearance.employeeName,
+        employeeId: clearance.employeeId,
+        requestId: clearance.requestId,
+        actionLink: '/transport-office/requests',
+        actionText: 'Review Request',
+      });
+      continue;
+    }
+
+    const rolePattern = /^library$/i.test(normalizedOffice)
+      ? /^library[ _]?officer$/i
+      : /^property(?:\s*\/\s*asset)? office$/i.test(normalizedOffice)
+        ? /^property(?:\s*\/\s*asset)?[ _]?officer$/i
+        : new RegExp(`^${normalizedOffice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const recipients = await User.find({
+      $or: [
+        { role: { $regex: rolePattern } },
+        { roles: { $regex: rolePattern } },
+      ],
+    }).select('_id name role roles').lean();
+    const notifications = [];
+    for (const recipient of recipients) {
+      if (await Notification.exists({
+        recipientId: recipient._id,
+        type: 'CLEARANCE_READY_FOR_OFFICE',
+        relatedRequestId: clearance.requestId,
+      })) continue;
+      notifications.push({
+        recipientId: recipient._id,
+        targetName: clearance.employeeName || recipient.name || normalizedOffice,
+        title: `Clearance Ready for ${normalizedOffice} Review`,
+        message: `${clearance.employeeName || 'An employee'}'s request passed Initial HR Review. Department Head approval was skipped because the requester is the Department Head. The request is ready for ${normalizedOffice} review.`,
+        type: 'CLEARANCE_READY_FOR_OFFICE',
+        actionText: 'Review Request',
+        actionLink: /^library$/i.test(normalizedOffice)
+          ? `/library-office/clearance-requests?requestId=${encodeURIComponent(clearance.requestId || '')}`
+          : /^property/i.test(normalizedOffice)
+            ? '/property/clearance-requests'
+            : undefined,
+        relatedRequestId: clearance.requestId,
+        clearanceRequestId: clearance.requestId,
+        isRead: false,
+      });
+    }
+    if (notifications.length) await Notification.insertMany(notifications);
+  }
 };
 
 export const updateInitialHRDecision = async (req, res) => {
@@ -215,6 +307,8 @@ export const updateInitialHRDecision = async (req, res) => {
         });
       }
     }
+    const employeeUser = approved ? await findEmployeeUser(current) : null;
+    const skipDepartmentHeadApproval = approved && isDepartmentHeadUser(employeeUser);
     current.initialHRStatus = approved ? 'Approved' : 'Returned';
     if (!approved) current.initialHRAssessmentCompleted = false;
     current.initialHRReviewedBy = req.user?.fullName || req.user?.name || 'HR Officer';
@@ -233,26 +327,60 @@ export const updateInitialHRDecision = async (req, res) => {
     current.returnedReason = approved ? '' : returnReason;
     current.returnedRemark = approved ? '' : returnRemark;
     current.affectedField = approved ? '' : String(affectedField).trim();
+    if (!approved) {
+      current.logs.push({
+        action: 'RETURNED_BY_HR',
+        actor: reviewerName,
+        actorId: req.user?._id || null,
+        reason: returnReason,
+        remark: returnRemark,
+        affectedField: String(affectedField).trim(),
+        createdAt: current.initialHRReviewedAt,
+      });
+    }
     current.status = approved ? 'In Progress' : 'Returned';
     current.overallStatus = approved ? 'In Progress' : 'Returned';
-    current.currentStep = approved ? 'Department Head' : 'Employee';
+    current.currentStep = approved
+      ? (skipDepartmentHeadApproval ? selectedDepartments[0] || FINAL_HR_STAGE : 'Department Head')
+      : 'Employee';
+    if (skipDepartmentHeadApproval) {
+      current.departmentStatus = 'Approved';
+      current.departmentReviewedBy = 'System (self-approval skipped)';
+      current.departmentReviewedById = null;
+      current.departmentReviewedAt = current.initialHRReviewedAt;
+      current.departmentComment = 'Department Head approval skipped because the requester is the Department Head.';
+    }
     current.workflow = (Array.isArray(current.workflow) ? current.workflow : []).map((step) => {
       if (/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))) {
         return { ...step, office: 'Initial HR Review', status: approved ? 'Completed' : 'Rejected', reviewedBy: reviewerName, reviewedById: req.user?._id || null, reviewedAt: current.initialHRReviewedAt, updatedAt: current.initialHRReviewedAt, remarks: returnRemark, returnReason: approved ? '' : returnReason, affectedField: approved ? '' : String(affectedField).trim() };
       }
       if (/department/i.test(String(step.office || step.name || ''))) {
-        return { ...step, status: 'Pending', updatedAt: new Date() };
+        return {
+          ...step,
+          status: skipDepartmentHeadApproval ? 'Completed' : 'Pending',
+          updatedAt: new Date(),
+          ...(skipDepartmentHeadApproval ? {
+            reviewedBy: 'System (self-approval skipped)',
+            reviewedAt: current.initialHRReviewedAt,
+            remarks: current.departmentComment,
+          } : {}),
+        };
       }
       return step;
     });
     if (approved && manualRoutingRequested) {
       current.manualRoutingEnabled = true;
       current.assignedDepartments = selectedDepartments;
-      current.requiredOffices = ['Department Head', ...selectedDepartments, FINAL_HR_STAGE];
+      current.requiredOffices = [
+        ...(skipDepartmentHeadApproval ? [] : ['Department Head']),
+        ...selectedDepartments,
+        FINAL_HR_STAGE,
+      ];
       const requiredOfficeKeys = new Set(current.requiredOffices.map((office) => office.toLowerCase()));
       current.workflow = current.workflow.filter((step) => {
         const office = String(step.office || step.name || '').trim();
         return /initial\s*hr|hr\s*review/i.test(office)
+          || (skipDepartmentHeadApproval && /department/i.test(office))
           || requiredOfficeKeys.has(normalizeRoutedOffice(office).toLowerCase());
       });
       const workflowOfficeKeys = new Set(current.workflow.map((step) =>
@@ -285,10 +413,11 @@ export const updateInitialHRDecision = async (req, res) => {
       },
     );
 
-    const employeeUser = await findEmployeeUser(current);
     const employeeNotificationTitle = approved ? 'Clearance Accepted by HR' : 'Clearance Returned by HR';
     const employeeNotificationMessage = approved
-      ? 'Your clearance request passed Initial HR Review and was sent to your Department Head.'
+      ? skipDepartmentHeadApproval
+        ? 'Your clearance request passed Initial HR Review. Department Head approval was skipped because you are the Department Head, and the request was routed to the selected clearance offices.'
+        : 'Your clearance request passed Initial HR Review and was sent to your Department Head.'
       : `Please correct your clearance information and resubmit it. Reason: ${String(remarks).trim()}`;
     const employeeNotificationLink = '/employee/My%20Clearance';
     await Notification.create({
@@ -311,9 +440,17 @@ export const updateInitialHRDecision = async (req, res) => {
       actionLink: employeeNotificationLink,
     });
     if (approved) {
-      await notifyDepartmentHeadsAfterInitialHR(current);
+      if (skipDepartmentHeadApproval) {
+        await notifyOfficesAfterDepartmentHeadSkip(current, selectedDepartments);
+      } else {
+        await notifyDepartmentHeadsAfterInitialHR(current);
+      }
     }
-    return res.json({ success: true, clearance: current });
+    return res.json({
+      success: true,
+      clearance: current,
+      departmentApprovalSkipped: skipDepartmentHeadApproval,
+    });
   } catch (error) {
     console.error('Error updating initial HR decision:', error);
     return res.status(500).json({ success: false, message: 'Unable to save Initial HR decision.' });
@@ -393,14 +530,14 @@ const isReviewerRoleLabel = (value) => /^(hr(?: officer)?|finance officer|depart
 const findEmployeeUser = async (clearance) => {
   let user = null;
   if (clearance.employeeId) {
-    user = await User.findOne({ employeeId: clearance.employeeId }).select('_id name employeeId email notificationPreferences').lean();
+    user = await User.findOne({ employeeId: clearance.employeeId }).select('_id name employeeId email notificationPreferences role roles').lean();
   }
 
   if (!user) {
     user = await User.findOne({
       name: clearance.employeeName,
       role: { $regex: /^(employee|standard user|user)$/i },
-    }).select('_id name employeeId email notificationPreferences').lean();
+    }).select('_id name employeeId email notificationPreferences role roles').lean();
   }
 
   if (!user?.email && clearance.employeeId) {

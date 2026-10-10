@@ -1,4 +1,5 @@
 import Clearance from '../models/clearance.js';
+import HRSeparationType from '../models/HRSeparationType.js';
 import mongoose from 'mongoose';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
@@ -164,8 +165,13 @@ const notifyDynamicClearanceOffices = async (clearance) => {
 
 const notifyHrOfficers = async ({ title, message, type, actionText, actionLink, clearance }) => {
 	try {
-		const hrOfficers = await User.find({ role: { $regex: '^hr[ _]officer$', $options: 'i' } }).select('_id name');
-		await Notification.insertMany(hrOfficers.map((officer) => ({
+		const hrOfficers = await User.find({
+			$or: [
+				{ role: { $regex: '^hr[ _]officer$', $options: 'i' } },
+				{ roles: { $regex: '^hr[ _]officer$', $options: 'i' } },
+			],
+		}).select('_id name');
+		const notifications = hrOfficers.map((officer) => ({
 			recipientId: officer._id,
 			targetName: officer.name || 'HR Officer',
 			title,
@@ -176,7 +182,8 @@ const notifyHrOfficers = async ({ title, message, type, actionText, actionLink, 
 			relatedRequestId: clearance.requestId || null,
 			clearanceRequestId: clearance.requestId || null,
 			isRead: false,
-		})));
+		}));
+		if (notifications.length) await Notification.insertMany(notifications);
 	} catch (error) {
 		console.error('Unable to notify HR Officers:', error.message);
 	}
@@ -682,6 +689,9 @@ const addClearance = async (req, res) => {
 		if (!requestDate) {
 			return res.status(400).json({ success: false, message: 'A valid request date is required.' });
 		}
+		if (!initiatedByHR && lastWorkingDate < requestDate) {
+			return res.status(400).json({ success: false, message: 'Last working date must be valid and cannot be earlier than the request date.' });
+		}
 		const relievingDate = req.body?.relievingDate
 			? normalizeDateOnly(req.body.relievingDate)
 			: '';
@@ -907,6 +917,154 @@ const updateClearance = async (req, res) => {
 		}
 		const isResubmission = requestUpdates.resubmitted === true || requestUpdates.status === 'Resubmitted';
 		const resolutionRemark = String(requestUpdates.resolutionRemark || '').trim();
+		const assignedRoles = [
+			req.user?.role,
+			req.user?.activeRole,
+			...(Array.isArray(req.user?.roles) ? req.user.roles : []),
+		].map((role) => String(role || '').toLowerCase().replace(/[_-]+/g, ' ').trim());
+		const isEmployeeRole = assignedRoles.some((role) => ['employee', 'standard user', 'user'].includes(role));
+		if (requestUpdates.resubmitted === true && isEmployeeRole) {
+			const requestFilter = mongoose.isValidObjectId(req.params.id)
+				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
+				: { requestId: req.params.id };
+			const existing = await Clearance.findOne(requestFilter);
+			if (!existing) return res.status(404).json({ success: false, message: 'Clearance request not found.' });
+
+			const ownsRequest = req.user?.employeeId
+				? existing.employeeId === req.user.employeeId
+				: String(existing.employeeName || '').trim().toLowerCase() === String(req.user?.name || '').trim().toLowerCase();
+			if (!ownsRequest || existing.requestSource !== 'Employee Portal') {
+				return res.status(404).json({ success: false, message: 'Clearance request not found.' });
+			}
+			if (existing.status !== 'Returned' || existing.initialHRStatus !== 'Returned') {
+				return res.status(409).json({ success: false, message: 'Only requests returned by Initial HR can be corrected and resubmitted here.' });
+			}
+
+			const existingClearanceType = String(
+				existing.clearanceType || existing.clearanceReason || existing.type || 'Resignation',
+			).trim();
+			const clearanceType = String(requestUpdates.clearanceType || requestUpdates.clearanceReason || existingClearanceType).trim();
+			const reason = String(requestUpdates.reason || existing.reason || '').trim();
+			if (clearanceType !== existingClearanceType
+				&& !await HRSeparationType.exists({ name: clearanceType, isActive: true })) {
+				return res.status(400).json({ success: false, message: 'Select an active clearance type.' });
+			}
+			const lastWorkingDate = normalizeDateOnly(requestUpdates.lastWorkingDate || existing.lastWorkingDate);
+			const createdRequestDate = existing.createdAt instanceof Date
+				? existing.createdAt.toISOString().slice(0, 10)
+				: existing.createdAt;
+			const requestDate = normalizeDateOnly(existing.requestDate || createdRequestDate);
+			const relievingDate = requestUpdates.relievingDate === undefined
+				? existing.relievingDate || ''
+				: requestUpdates.relievingDate
+					? normalizeDateOnly(requestUpdates.relievingDate)
+					: '';
+			if (!clearanceType) return res.status(400).json({ success: false, message: 'Clearance type is required.' });
+			if (!reason) return res.status(400).json({ success: false, message: 'Clearance reason is required.' });
+			if (!lastWorkingDate || !requestDate || lastWorkingDate < requestDate) {
+				return res.status(400).json({ success: false, message: 'Last working date must be valid and cannot be earlier than the request date.' });
+			}
+			if (requestUpdates.relievingDate && !relievingDate) {
+				return res.status(400).json({ success: false, message: 'Enter a valid relieving date.' });
+			}
+			if (relievingDate && lastWorkingDate > relievingDate) {
+				return res.status(400).json({ success: false, message: 'Last working date cannot be after relieving date.' });
+			}
+			if (!resolutionRemark) {
+				return res.status(400).json({ success: false, message: 'Add a comment describing the corrections before resubmitting.' });
+			}
+
+			const previousReturn = {
+				returnedBy: existing.returnedBy || existing.initialHRReviewedBy || 'HR Officer',
+				returnedAt: existing.returnedAt || existing.initialHRReviewedAt || null,
+				reason: existing.returnedReason || existing.initialHRRemarks || existing.returnReason || '',
+				remark: existing.returnedRemark || existing.initialHRRemarks || existing.officerComment || '',
+				affectedField: existing.affectedField || '',
+				lastWorkingDate: existing.lastWorkingDate || '',
+				clearanceType: existing.clearanceType || '',
+				requestReason: existing.reason || '',
+				relievingDate: existing.relievingDate || '',
+			};
+			const correctedFields = [
+				...(clearanceType !== existingClearanceType ? ['clearanceType'] : []),
+				...(reason !== existing.reason ? ['reason'] : []),
+				...(lastWorkingDate !== existing.lastWorkingDate ? ['lastWorkingDate'] : []),
+				...(relievingDate !== existing.relievingDate ? ['relievingDate'] : []),
+			];
+			const now = new Date();
+			existing.clearanceType = clearanceType;
+			existing.reason = reason;
+			existing.lastWorkingDate = lastWorkingDate;
+			existing.relievingDate = relievingDate;
+			existing.remarks = String(requestUpdates.remarks ?? existing.remarks ?? '');
+			existing.officerComment = resolutionRemark;
+			existing.status = 'Pending';
+			existing.overallStatus = 'In Progress';
+			existing.initialHRStatus = 'Pending';
+			existing.initialHRAssessmentCompleted = false;
+			existing.assessmentChecklist = {
+				empInfoVerified: false,
+				clearanceRequestVerified: false,
+				documentVerified: false,
+				employmentVerified: false,
+				noDuplicateRequest: false,
+			};
+			existing.initialHRReviewedBy = '';
+			existing.initialHRReviewedById = null;
+			existing.initialHRReviewedAt = null;
+			existing.initialHRRemarks = '';
+			existing.hrComment = '';
+			existing.returnReason = '';
+			existing.returnedBy = '';
+			existing.returnedOffice = '';
+			existing.returnedAt = null;
+			existing.returnedReason = '';
+			existing.returnedRemark = '';
+			existing.affectedField = '';
+			existing.currentStep = 'Initial HR Review';
+			existing.workflow = (Array.isArray(existing.workflow) ? existing.workflow : []).map((step) => (
+				/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))
+					? { ...step, office: 'Initial HR Review', status: 'Pending', updatedAt: now, remarks: '', returnReason: '' }
+					: step
+			));
+			existing.logs = [
+				...(Array.isArray(existing.logs) ? existing.logs : []),
+				{
+					action: 'RESUBMITTED_BY_EMPLOYEE',
+					actor: req.user?.name || req.user?.fullName || 'Employee',
+					actorId: req.user?._id || null,
+					comment: resolutionRemark,
+					correctedFields,
+					previousReturn,
+					createdAt: now,
+				},
+			];
+			const clearance = await existing.save();
+
+			try {
+				await recordAuditLog({
+					req,
+					user: req.user,
+					action: 'RESUBMIT_CLEARANCE_AFTER_HR_RETURN',
+					module: 'Clearance Request',
+					description: `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to Initial HR Review.`,
+					oldValues: { requestId: clearance.requestId, status: 'Returned', lastWorkingDate: previousReturn.lastWorkingDate },
+					newValues: { requestId: clearance.requestId, status: clearance.status, lastWorkingDate },
+				});
+			} catch (auditError) {
+				console.error('Failed to record clearance resubmission audit log:', auditError.message);
+			}
+
+			await notifyHrOfficers({
+				clearance,
+				type: 'CLEARANCE_RESUBMITTED',
+				title: 'Clearance Request Resubmitted for Initial HR Review',
+				message: `${clearance.employeeName || 'An employee'} corrected and resubmitted request ${clearance.requestId || 'N/A'} after HR returned it.`,
+				actionText: 'Review Request',
+				actionLink: `/hr-office/assessment/${encodeURIComponent(clearance._id)}`,
+			});
+			return res.status(200).json({ success: true, message: 'Clearance request resubmitted to Initial HR Review.', clearance });
+		}
 		let resubmittedToFinance = false;
 		const hasExplicitDepartmentDecision = requestUpdates.departmentDecision && typeof requestUpdates.departmentDecision === 'object';
 		const legacyDepartmentDecision = Array.isArray(requestUpdates.departmentClearances) && requestUpdates.departmentClearances.length
@@ -1071,8 +1229,8 @@ const updateClearance = async (req, res) => {
 						&& (statusValue === 'overdue' || (dueDate && dueDate < new Date().toISOString().slice(0, 10)));
 				});
 				const fineBalance = Math.max(
-					Number(existingClearance.outstandingFineAmount || 0),
-					Number(existingClearance.libraryFine || existingClearance.outstandingLibraryFine || 0),
+					Number(libraryRequestForDecision.outstandingFineAmount || 0),
+					Number(libraryRequestForDecision.libraryFine || libraryRequestForDecision.outstandingLibraryFine || 0),
 					...libraryRecords.map((record) => Number(record.outstandingFineAmount || 0)),
 					...materials.map((material) => Math.max(0, Number(material.fineAmount || 0) - Number(material.finePaidAmount || 0))),
 					0,
@@ -1081,7 +1239,8 @@ const updateClearance = async (req, res) => {
 					['lost', 'damaged'].includes(String(material.status || '').toLowerCase())
 					|| /^(lost|damaged)$/i.test(String(material.condition || '').trim())
 				));
-				const hasOtherOutstandingItems = Array.isArray(existingClearance.outstandingItems) && existingClearance.outstandingItems.length > 0;
+				const hasOtherOutstandingItems = Array.isArray(libraryRequestForDecision.outstandingItems)
+					&& libraryRequestForDecision.outstandingItems.length > 0;
 
 				if (rules.checkUnreturnedBooks && (
 					unresolvedMaterials.length > 0

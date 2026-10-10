@@ -187,7 +187,7 @@ export default function UsersList() {
                     <td className="px-4 py-3 font-medium text-slate-900">{user.username}</td>
                     <td className="px-4 py-3 text-slate-700">{user.name || '-'}</td>
                     <td className="px-4 py-3 text-slate-700">{user.email || '-'}</td>
-                    <td className="px-4 py-3 text-slate-700">{user.role || '-'}</td>
+                    <td className="px-4 py-3 text-slate-700">{Array.isArray(user.roles) && user.roles.length ? user.roles.join(', ') : user.role || '-'}</td>
                     <td className="px-4 py-3 text-slate-700">{user.department || '-'}</td>
                     <td className="px-4 py-3 text-slate-700">{user.employeeId || '-'}</td>
                     <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${user.status === 'Inactive' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{t(user.status === 'Inactive' ? 'Deactivated' : user.status || 'Active')}</span></td>

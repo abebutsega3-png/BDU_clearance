@@ -44,6 +44,7 @@ const clearanceSchema = new mongoose.Schema({
 	requiredOffices: { type: [String], default: ['Department Head', 'Library', 'Finance Office', 'Property / Asset Office', 'ICT Office', 'Transport Office', 'Final HR Clearance'] },
 	currentStep: { type: String, default: 'Department Head' },
 	workflow: { type: [mongoose.Schema.Types.Mixed], default: [] },
+	logs: { type: [mongoose.Schema.Types.Mixed], default: [] },
 	status: { type: String, enum: ['Pending', 'In Progress', 'Approved', 'Completed', 'Returned', 'Rejected', 'Cancelled'], default: 'Pending' },
 	financeStatus: { type: String, enum: ['Pending', 'Under Review', 'In Progress', 'Approved', 'Returned'], default: 'Pending', index: true },
 	financeRemarks: { type: String, default: '' },

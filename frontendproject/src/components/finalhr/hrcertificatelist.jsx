@@ -210,7 +210,6 @@ export default function HRCertificateList() {
           `http://localhost:3000/api/hr-final-clearance/certificate/${row.clearanceId}/issue`,
           {},
           {
-            suppressAutomaticLogout: true,
             headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
           },
         );

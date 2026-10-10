@@ -49,7 +49,7 @@ export default function ViewUser() {
 				</div>
 				<section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
 					<div className="mb-6 flex items-center gap-4 border-b border-slate-200 pb-5"><UserCircle className="h-14 w-14 text-blue-600" /><div><h2 className="text-lg font-bold text-slate-900">{user.name || user.username}</h2><p className="text-sm text-slate-500">{user.username}</p></div></div>
-					<dl className="grid gap-x-8 md:grid-cols-2">{detailFields.map(([label, key]) => <div key={key} className="border-b border-slate-100 py-3"><dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 text-sm font-medium text-slate-800">{user[key] || 'Not provided'}</dd></div>)}</dl>
+					<dl className="grid gap-x-8 md:grid-cols-2">{detailFields.map(([label, key]) => <div key={key} className="border-b border-slate-100 py-3"><dt className="text-xs uppercase tracking-wide text-slate-500">{key === 'role' ? 'Roles' : label}</dt><dd className="mt-1 text-sm font-medium text-slate-800">{key === 'role' ? (Array.isArray(user.roles) && user.roles.length ? user.roles.join(', ') : user.role || 'Not provided') : user[key] || 'Not provided'}</dd></div>)}</dl>
 				</section>
 			</div>
 		</main>

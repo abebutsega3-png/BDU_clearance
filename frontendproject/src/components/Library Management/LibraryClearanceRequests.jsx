@@ -151,6 +151,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
       setVerificationResult(request.libraryVerificationResult || request.verificationResult || 'Clear');
       setComment(request.libraryComment || request.comment || '');
       setReturnReason(request.libraryReturnReason || request.returnReason || request.remarks || '');
+      setLoading(false);
 
       const [recordsResult, employeesResult, settingsResult] = request.employeeId
         ? await Promise.allSettled([

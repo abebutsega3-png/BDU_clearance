@@ -25,7 +25,10 @@ const getUsers = async (req, res) => {
       ];
     }
     if (typeof req.query.role === 'string' && req.query.role !== 'All') {
-      filter.role = req.query.role;
+      filter.$and = [
+        ...(filter.$and || []),
+        { $or: [{ roles: req.query.role }, { role: req.query.role }] },
+      ];
     }
     if (typeof req.query.department === 'string' && req.query.department !== 'All Departments') {
       filter.department = req.query.department;
@@ -39,7 +42,7 @@ const getUsers = async (req, res) => {
     const currentPage = Math.min(page, totalPages);
     const [users, departments] = await Promise.all([
       User.find(filter)
-        .select('username name email role department employeeId status createdAt')
+        .select('username name email role roles activeRole department employeeId status createdAt')
         .sort({ createdAt: -1, _id: -1 })
         .skip((currentPage - 1) * limit)
         .limit(limit)
@@ -81,13 +84,26 @@ const getUser = async (req, res) => {
   }
 };
 
+const parseUserRoles = (value) => {
+  const nextRoles = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+
+  return [...new Set(nextRoles
+    .map((role) => String(role).trim())
+    .filter(Boolean))];
+};
+
 const addUser = async (req, res) => {
   try {
-    const { username, employeeId, password, confirmPassword, role, status } = req.body;
-    if (!username?.trim() || !employeeId?.trim() || !password || !role) {
-      return res.status(400).json({ success: false, message: 'Username, employee ID, password, and role are required.' });
+    const { username, employeeId, password, confirmPassword, role, roles, status, activeRole } = req.body;
+    const selectedRoles = parseUserRoles(roles?.length ? roles : role);
+    if (!username?.trim() || !employeeId?.trim() || !selectedRoles.length) {
+      return res.status(400).json({ success: false, message: 'Username, employee ID, and at least one role are required.' });
     }
-    if (password !== confirmPassword) {
+    if (password && password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Password and confirm password must match.' });
     }
 
@@ -97,27 +113,91 @@ const addUser = async (req, res) => {
       ? null
       : await Department.findOne({ departmentName: { $regex: `^${escapeRegExp(employee.department)}$`, $options: 'i' } }).select('_id').lean();
 
-    const duplicateQuery = [{ username: username.trim() }, { employeeId: employee.employeeId }];
-    if (employee.email?.trim()) duplicateQuery.push({ email: employee.email.trim().toLowerCase() });
-    const duplicate = await User.findOne({ $or: duplicateQuery }).select('username employeeId email').lean();
-    if (duplicate) {
-      const duplicateField = duplicate.username === username.trim()
-        ? 'Username'
-        : duplicate.employeeId === employee.employeeId
-          ? 'Employee ID'
-          : 'Email';
-      return res.status(409).json({ success: false, message: `${duplicateField} already exists.` });
+    const normalizedUsername = username.trim();
+    const normalizedEmployeeId = employee.employeeId.trim();
+    const normalizedEmail = employee.email?.trim().toLowerCase() || '';
+    const existingEmployeeUser = await User.findOne({ employeeId: normalizedEmployeeId }).select('_id username employeeId email roles role activeRole status').lean();
+
+    if (!existingEmployeeUser && !password) {
+      return res.status(400).json({ success: false, message: 'A password is required to create a new user account.' });
+    }
+
+    const duplicateUsername = await User.findOne({ username: normalizedUsername }).select('_id username employeeId').lean();
+    if (duplicateUsername && (!existingEmployeeUser || String(duplicateUsername._id) !== String(existingEmployeeUser._id))) {
+      return res.status(409).json({ success: false, message: 'Username already exists.' });
+    }
+
+    if (normalizedEmail) {
+      const duplicateEmail = await User.findOne({ email: normalizedEmail }).select('_id email employeeId').lean();
+      if (duplicateEmail && (!existingEmployeeUser || String(duplicateEmail._id) !== String(existingEmployeeUser._id))) {
+        return res.status(409).json({ success: false, message: 'Email already exists.' });
+      }
+    }
+
+    const resolvedRoles = [...new Set(selectedRoles)];
+    const resolvedActiveRole = activeRole || resolvedRoles[0] || 'Employee';
+
+    if (existingEmployeeUser) {
+      const currentUser = await User.findById(existingEmployeeUser._id);
+      if (!currentUser) {
+        return res.status(404).json({ success: false, message: 'Existing user account could not be found.' });
+      }
+
+      currentUser.username = normalizedUsername;
+      currentUser.employeeId = normalizedEmployeeId;
+      currentUser.name = employee.fullName;
+      currentUser.email = normalizedEmail;
+      currentUser.department = employee.department;
+      currentUser.departmentId = employee.departmentId || departmentRecord?._id || currentUser.departmentId || null;
+      currentUser.roles = [...new Set([
+        ...(currentUser.roles || []),
+        currentUser.role,
+        currentUser.activeRole,
+        ...resolvedRoles,
+      ].filter(Boolean))];
+      const existingActiveRole = currentUser.activeRole || currentUser.role;
+      currentUser.activeRole = currentUser.roles.includes(existingActiveRole)
+        ? existingActiveRole
+        : currentUser.roles[0];
+      currentUser.role = currentUser.activeRole;
+      currentUser.status = status || currentUser.status || 'Active';
+      if (password) currentUser.password = await bcrypt.hash(password, 10);
+      await currentUser.save();
+
+      await recordAuditLog({
+        req,
+        user: req.user,
+        action: 'UPDATE_USER_ROLES',
+        module: 'Users',
+        description: `Updated roles for ${currentUser.name} to ${currentUser.roles.join(', ')}.`,
+        newValues: {
+          userId: currentUser._id,
+          username: currentUser.username,
+          employeeId: currentUser.employeeId,
+          roles: currentUser.roles,
+          activeRole: currentUser.activeRole,
+          status: currentUser.status,
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'User roles updated successfully.',
+        user: { id: currentUser._id, username: currentUser.username, roles: currentUser.roles, activeRole: currentUser.activeRole },
+      });
     }
 
     const user = await User.create({
-      username: username.trim(),
-      employeeId: employee.employeeId,
+      username: normalizedUsername,
+      employeeId: normalizedEmployeeId,
       name: employee.fullName,
-      email: employee.email?.trim().toLowerCase() || '',
+      email: normalizedEmail,
       department: employee.department,
       departmentId: employee.departmentId || departmentRecord?._id || null,
       password: await bcrypt.hash(password, 10),
-      role,
+      role: resolvedActiveRole,
+      roles: resolvedRoles,
+      activeRole: resolvedActiveRole,
       status: status || 'Active',
     });
 

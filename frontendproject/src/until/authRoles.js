@@ -26,7 +26,27 @@ export const canonicalizeRole = (role) => {
   return normalized;
 };
 
-export const getDashboardPath = (role) => {
+export const getUserRoles = (user) => {
+  if (!user) return [];
+
+  const roles = Array.isArray(user.roles)
+    ? user.roles
+    : Array.isArray(user.role)
+      ? user.role
+      : [user.activeRole, user.role].filter(Boolean);
+
+  return [...new Set(roles.map((role) => canonicalizeRole(role)).filter(Boolean))];
+};
+
+export const getActiveRole = (user) => {
+  const userRoles = getUserRoles(user);
+  const active = canonicalizeRole(user?.activeRole || user?.currentRole || user?.role);
+  if (active) return active;
+  return userRoles[0] || '';
+};
+
+export const getDashboardPath = (roleOrUser) => {
+  const role = typeof roleOrUser === 'object' ? getActiveRole(roleOrUser) : roleOrUser;
   switch (canonicalizeRole(role)) {
     case 'admin':
       return '/admin';
@@ -51,8 +71,18 @@ export const getDashboardPath = (role) => {
   }
 };
 
-export const canAccessPathForRole = (path, role) => {
-  const dashboardPath = getDashboardPath(role);
-  return dashboardPath !== null
-    && (path === dashboardPath || path.startsWith(`${dashboardPath}/`));
+export const canAccessPathForRole = (path, roleOrUser) => {
+  const userRoles = Array.isArray(roleOrUser)
+    ? roleOrUser.map((role) => canonicalizeRole(role))
+    : getUserRoles(roleOrUser);
+
+  if (!userRoles.length) {
+    const dashboardPath = getDashboardPath(roleOrUser);
+    return dashboardPath !== null && (path === dashboardPath || path.startsWith(`${dashboardPath}/`));
+  }
+
+  return userRoles.some((role) => {
+    const dashboardPath = getDashboardPath(role);
+    return dashboardPath !== null && (path === dashboardPath || path.startsWith(`${dashboardPath}/`));
+  });
 };

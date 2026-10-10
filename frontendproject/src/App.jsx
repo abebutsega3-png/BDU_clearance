@@ -528,6 +528,7 @@ function MainLayout() {
               </PrivateRoutes>
             }
           />
+          <Route path="/department-head/my-clearance" element={<Navigate to="/department-head/clearance-requests" replace />} />
           <Route path="/department-head/my-department" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Department Head", "departmenthead"]}><DepartmentHeadDashboard><MyDepartment /></DepartmentHeadDashboard></RoleBasedRoutes></PrivateRoutes>} />
 		  <Route path="/department-head/department-assets" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Department Head", "departmenthead"]}><DepartmentHeadDashboard><DepartmentAssets /></DepartmentHeadDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/department-head/clearance-history" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["Department Head", "departmenthead"]}><DepartmentHeadDashboard><ClearanceHistory /></DepartmentHeadDashboard></RoleBasedRoutes></PrivateRoutes>} />

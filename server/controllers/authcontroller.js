@@ -24,7 +24,14 @@ const getRefreshToken = (req) => {
   return cookie ? cookie.slice(refreshCookieName.length + 1) : '';
 };
 const createAccessToken = (user) => jwt.sign(
-  { _id: user._id, role: user.role, tokenVersion: user.tokenVersion || 0, tokenUse: 'access' },
+  {
+    _id: user._id,
+    role: user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee'),
+    roles: Array.isArray(user.roles) ? user.roles : [user.role || 'Employee'],
+    activeRole: user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee'),
+    tokenVersion: user.tokenVersion || 0,
+    tokenUse: 'access'
+  },
   process.env.JWT_KEY,
   { expiresIn: '12h' }
 );
@@ -50,7 +57,7 @@ const login = async (req, res) => {
         { username: normalizedIdentifier },
       ],
     })
-      .select('_id name username email employeeId role department password tokenVersion notificationPreferences.emailNotifications')
+      .select('_id name username email employeeId role roles activeRole department password tokenVersion notificationPreferences.emailNotifications')
       .collation({ locale: 'en', strength: 2 })
       .maxTimeMS(5000)
       .lean();
@@ -99,6 +106,7 @@ const login = async (req, res) => {
       notificationKey: 'securityAlert',
     }).catch((error) => console.error('Login notification failed:', error.message));
 
+    const activeRole = user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee');
     return res.status(200).json({
       success: true,
       token,
@@ -108,7 +116,9 @@ const login = async (req, res) => {
         username: user.username,
         email: user.email,
         employeeId: user.employeeId,
-        role: user.role,
+        role: activeRole,
+        roles: Array.isArray(user.roles) ? user.roles : [user.role || activeRole],
+        activeRole,
         department: user.department,
       },
     });
@@ -170,6 +180,7 @@ const verify = async (req, res) => {
     return res.status(401).json({ success: false, message: 'Authenticated user was not found.' });
   }
 
+  const activeRole = user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee');
   return res.status(200).json({
     success: true,
     user: {
@@ -178,7 +189,9 @@ const verify = async (req, res) => {
       username: user.username,
       email: user.email,
       employeeId: user.employeeId,
-      role: user.role,
+      role: activeRole,
+      roles: Array.isArray(user.roles) ? user.roles : [user.role || activeRole],
+      activeRole,
       department: user.department,
       profileImage: user.profileImage,
     },
@@ -201,6 +214,7 @@ const getProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    const activeRole = user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee');
     return res.status(200).json({
       success: true,
       user: {
@@ -210,7 +224,9 @@ const getProfile = async (req, res) => {
         email: user.email,
         phoneNumber: user.phoneNumber,
         employeeId: user.employeeId,
-        role: user.role,
+        role: activeRole,
+        roles: Array.isArray(user.roles) ? user.roles : [user.role || activeRole],
+        activeRole,
         department: user.department,
         profileImage: user.profileImage,
         status: user.status,
