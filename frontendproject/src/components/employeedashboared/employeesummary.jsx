@@ -107,11 +107,13 @@ export default function EmployeeDashboard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [requests, setRequests] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const employeeName = user?.name || user?.fullName || 'Abebe';
   const employeeId = user?.employeeId || user?.employee?.employeeId || '';
+  const certificateLookupId = employeeId || user?._id || user?.id || '';
   const avatar = user?.profileImage || user?.photo || user?.avatar;
   const department = user?.department?.name || user?.department || 'Not provided';
   const campus = user?.campus || 'Main Campus';
@@ -157,6 +159,39 @@ export default function EmployeeDashboard() {
     return () => { mounted = false; };
   }, [authLoading, user?._id, user?.id]);
 
+  useEffect(() => {
+    if (authLoading || !certificateLookupId) {
+      if (!authLoading) setCertificates([]);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const loadCertificates = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await axios.get(
+          `${apiBaseUrl}/api/hr-final-clearance/certificates/employee/${encodeURIComponent(certificateLookupId)}`,
+          {
+            headers: token ? { Authorization: 'Bearer ' + token } : {},
+            signal: controller.signal,
+          },
+        );
+        if (!response.data?.success || !Array.isArray(response.data.data)) {
+          throw new Error(response.data?.message || 'The server returned an invalid certificate list.');
+        }
+        setCertificates(response.data.data);
+      } catch (certificateError) {
+        if (!controller.signal.aborted) {
+          console.error('Unable to load issued certificates for the employee dashboard:', certificateError);
+          setCertificates([]);
+        }
+      }
+    };
+
+    loadCertificates();
+    return () => controller.abort();
+  }, [apiBaseUrl, authLoading, certificateLookupId]);
+
   const currentRequest = requests[0] || null;
 
   const officeStatusEntries = useMemo(() => {
@@ -181,7 +216,7 @@ export default function EmployeeDashboard() {
     { label: 'My Requests', value: requests.length, note: 'Total Requests', icon: FileText, tone: 'blue' },
     { label: 'In Progress', value: requests.filter((request) => ['In Progress', 'Pending', 'Under Review'].includes(request.status || 'Pending')).length, note: 'Clearance Active', icon: Clock3, tone: 'amber' },
     { label: 'Returned', value: requests.filter((request) => ['Returned', 'Rejected'].includes(request.status)).length + (returnedOffice ? 1 : 0), note: 'Needs Attention', icon: XCircle, tone: 'red' },
-    { label: 'Certificates', value: notifications.filter((notification) => /certificate|issued/i.test(notification.title || '') || ['CERTIFICATE_ISSUED', 'certificate_available', 'final_completed'].includes(notification.type)).length || (currentRequest?.status === 'Completed' ? 1 : 0), note: currentRequest?.status === 'Completed' ? 'Completed' : 'Issued', icon: ShieldCheck, tone: 'green' },
+    { label: 'Certificates', value: certificates.length, note: 'Issued', icon: ShieldCheck, tone: 'green' },
   ];
 
   const recentRequests = requests.slice(0, 2).map((request) => ({
@@ -191,17 +226,7 @@ export default function EmployeeDashboard() {
     date: request.requestDate || request.createdAt || '',
   }));
 
-  const certificateNotification = notifications.find((notification) => {
-    const title = String(notification.title || '');
-    const type = String(notification.type || '');
-    return /certificate|issued/i.test(title) || ['CERTIFICATE_ISSUED', 'certificate_available', 'final_completed'].includes(type);
-  });
-
-  const latestCertificate = certificateNotification ? {
-    number: certificateNotification.message?.match(/Certificate No[:\s]+([^\n.]+)/i)?.[1] || 'BDU/CLR/2026/000125',
-    title: certificateNotification.title || 'Employee Clearance Certificate',
-    issuedAt: certificateNotification.createdAt || new Date().toISOString(),
-  } : null;
+  const latestCertificate = certificates[0] || null;
 
   const recentNotifications = notifications.slice(0, 4).map((item) => ({
     title: item.title || 'Clearance Update',
@@ -373,18 +398,18 @@ export default function EmployeeDashboard() {
                   <div className="min-w-0">
                     <p className="text-[11px] font-bold text-emerald-700">Employee Clearance Certificate</p>
                     <p className="mt-2 text-[10px] text-slate-600">Certificate No:</p>
-                    <p className="font-mono text-[10px] font-semibold text-slate-800">{latestCertificate.number}</p>
+                    <p className="font-mono text-[10px] font-semibold text-slate-800">{latestCertificate.certificateNo}</p>
                   </div>
                 </div>
 
                 <div className="space-y-2 text-[10px] text-slate-600">
                   <div className="flex items-center justify-between"><span>Status:</span><span className="font-bold text-emerald-600">✅ ISSUED</span></div>
-                  <div className="flex items-center justify-between"><span>Issue Date:</span><span className="font-semibold text-slate-800">{formatDate(latestCertificate.issuedAt)}</span></div>
+                  <div className="flex items-center justify-between"><span>Issue Date:</span><span className="font-semibold text-slate-800">{formatDate(latestCertificate.issuedAt || latestCertificate.completedDate)}</span></div>
                 </div>
 
                 <div className="flex gap-2">
                   <Link to="/employee/documents" className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-center text-[10px] font-semibold text-white">👁 View</Link>
-                  <button type="button" className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700">⬇ Download</button>
+                  <Link to="/employee/documents" className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-center text-[10px] font-semibold text-slate-700">⬇ Download</Link>
                 </div>
               </div>
             ) : (

@@ -3,6 +3,7 @@ import Clearance from '../models/clearance.js';
 import Employee from '../models/employee.js';
 import User from '../models/User.js';
 import Asset from '../models/propertyAsset.js';
+import { isTransportOfficer } from '../utils/roleAccess.js';
 
 const decisionActions = ['APPROVE_CLEARANCE', 'RETURN_CLEARANCE'];
 const vehicleAssetQuery = {
@@ -11,11 +12,6 @@ const vehicleAssetQuery = {
     { assetType: { $regex: '\\b(vehicle|transport|buses?|pickup|sedan|cars?|vans?|trucks?)\\b', $options: 'i' } },
     { category: { $regex: '\\b(vehicle|transport|buses?|pickup|sedan|cars?|vans?|trucks?)\\b', $options: 'i' } },
   ],
-};
-
-const isTransportOfficer = (user) => {
-  const role = String(user?.role || '').trim().toLowerCase();
-  return role.includes('transport') && role.includes('officer');
 };
 
 const rejectNonTransportOfficer = (req, res) => {

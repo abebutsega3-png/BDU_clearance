@@ -26,7 +26,7 @@ const formatRoleName = (role) => role
   .join(' ');
 
 const EmployeeNavbar = ({ onMenuClick }) => {
-  const { user, updateUser, logout } = useAuth();
+  const { user, switchActiveRole, logout } = useAuth();
   const { language, setLanguage, t } = useEmployeeLanguage();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -80,7 +80,7 @@ const EmployeeNavbar = ({ onMenuClick }) => {
   }, [accountMenuOpen]);
 
   const switchRole = (role, path) => {
-    updateUser({ role, activeRole: role });
+    switchActiveRole(role);
     setAccountMenuOpen(false);
     navigate(path);
   };

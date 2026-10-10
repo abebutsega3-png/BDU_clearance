@@ -1,6 +1,7 @@
 import Clearance from '../models/clearance.js';
 import Notification from '../models/Notification.js';
 import Asset from '../models/propertyAsset.js';
+import { isTransportOfficer } from '../utils/roleAccess.js';
 import {
   getTransportStatusFilter,
   transportReviewableFilter,
@@ -16,11 +17,6 @@ const vehicleAssetQuery = {
     { assetType: { $regex: '\\b(vehicle|transport|buses?|pickup|sedan|cars?|vans?|trucks?)\\b', $options: 'i' } },
     { category: { $regex: '\\b(vehicle|transport|buses?|pickup|sedan|cars?|vans?|trucks?)\\b', $options: 'i' } },
   ],
-};
-
-const isTransportOfficer = (user) => {
-  const role = String(user?.role || '').trim().toLowerCase();
-  return role.includes('transport') && role.includes('officer');
 };
 
 const requireTransportOfficer = (req, res) => {

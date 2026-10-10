@@ -7,7 +7,7 @@ import UniversitySeal from '../UniversitySeal';
 import { useDepartmentLanguage } from './DepartmentLanguage';
 
 const DepartmentNavbar = () => {
-  const { user, updateUser, logout } = useAuth();
+  const { user, switchActiveRole, logout } = useAuth();
   const { language, setLanguage, t } = useDepartmentLanguage();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
@@ -40,7 +40,7 @@ const DepartmentNavbar = () => {
     .filter((item) => item.path);
 
   const switchRole = (role, path) => {
-    updateUser({ role, activeRole: role });
+    switchActiveRole(role);
     closeAccountMenu();
     navigate(path);
   };

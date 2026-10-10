@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Employee from '../models/employee.js';
 import Asset from '../models/propertyAsset.js';
 import Department from '../models/department.js';
+import { isTransportOfficer } from '../utils/roleAccess.js';
 
 const vehiclePattern = /\b(vehicle|transport|buses?|pick[- ]?up|sedan|suvs?|cars?|vans?|trucks?)\b/i;
 const vehicleMatchPattern = '\\b(vehicle|transport|buses?|pick[- ]?up|sedan|suvs?|cars?|vans?|trucks?)\\b';
@@ -13,11 +14,6 @@ const vehicleQuery = {
     { vehicleNumber: { $regex: vehicleMatchPattern, $options: 'i' } },
     { plateNumber: { $regex: vehicleMatchPattern, $options: 'i' } },
   ],
-};
-
-const isTransportOfficer = (user) => {
-  const role = String(user?.role || '').trim().toLowerCase();
-  return role.includes('transport') && role.includes('officer');
 };
 
 const rejectNonTransportOfficer = (req, res) => {

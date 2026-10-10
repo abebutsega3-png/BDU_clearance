@@ -2,6 +2,8 @@ import AuditLog from '../models/AuditLog.js';
 import Clearance from '../models/clearance.js';
 import Employee from '../models/employee.js';
 import Asset from '../models/propertyAsset.js';
+import User from '../models/User.js';
+import { isTransportOfficer } from '../utils/roleAccess.js';
 import { getTransportStatus, transportReviewableFilter } from '../utils/transportClearance.js';
 
 const decisionActions = ['APPROVE_CLEARANCE', 'RETURN_CLEARANCE'];
@@ -11,11 +13,6 @@ const vehicleAssetQuery = {
     { assetType: { $regex: '\\b(vehicle|transport|buses?|pick[- ]?up|sedan|suvs?|cars?|vans?|trucks?)\\b', $options: 'i' } },
     { category: { $regex: '\\b(vehicle|transport|buses?|pick[- ]?up|sedan|suvs?|cars?|vans?|trucks?)\\b', $options: 'i' } },
   ],
-};
-
-const isTransportOfficer = (user) => {
-  const role = String(user?.role || '').trim().toLowerCase();
-  return role.includes('transport') && role.includes('officer');
 };
 
 const dateStart = (value) => {
@@ -191,7 +188,10 @@ const getTransportReport = async (req, res) => {
       vehicleType = 'All',
       employee = '',
     } = req.query;
-    const validReportTypes = ['summary', 'inventory', 'clearance', 'maintenance', 'assignment', 'insurance'];
+    const validReportTypes = [
+      'summary', 'inventory', 'clearance', 'maintenance', 'assignment', 'insurance',
+      'return', 'pending', 'returned', 'status', 'condition', 'history',
+    ];
     if (!validReportTypes.includes(reportType)) {
       return res.status(400).json({ success: false, message: 'Choose a valid Transport report.' });
     }
@@ -208,7 +208,7 @@ const getTransportReport = async (req, res) => {
     if (range.start > range.end) {
       return res.status(400).json({ success: false, message: 'The custom dates do not overlap the selected report period.' });
     }
-    const validStatuses = ['All', 'Approved', 'Cleared', 'Returned', 'Pending', 'Available', 'Assigned', 'Under Maintenance', 'Lost', 'Expired', 'Expiring Soon', 'Valid', 'Not Recorded'];
+    const validStatuses = ['All', 'Approved', 'Cleared', 'Returned', 'Pending', 'Under Review', 'Available', 'Assigned', 'Under Maintenance', 'Lost', 'Expired', 'Expiring Soon', 'Valid', 'Not Recorded', 'Excellent', 'Good', 'Fair', 'Damaged', 'Critical'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Choose a valid status filter.' });
     }
@@ -228,6 +228,11 @@ const getTransportReport = async (req, res) => {
         .lean(),
       Clearance.find(transportReviewableFilter).select('status transportStatus transportReview workflow').lean(),
     ]);
+    const auditUserIds = [...new Set(auditEvents.map((event) => event.userId).filter(Boolean).map(String))];
+    const auditUsers = auditUserIds.length
+      ? await User.find({ _id: { $in: auditUserIds } }).select('name fullName').lean()
+      : [];
+    const auditUserById = new Map(auditUsers.map((user) => [String(user._id), user.fullName || user.name || 'Transport Officer']));
 
     const allRequestIds = [...new Set([
       ...createdRequests.map((request) => request.requestId),
@@ -263,7 +268,14 @@ const getTransportReport = async (req, res) => {
       return matchesDepartment && matchesEmployee && matchesVehicle && matchesVehicleType;
     };
 
-    const clearanceStatusFilter = reportType !== 'clearance' ? 'All' : status === 'Approved' ? 'Cleared' : status;
+    const clearanceReportTypes = ['clearance', 'pending', 'returned', 'history'];
+    const clearanceStatusFilter = reportType === 'pending'
+      ? 'Pending'
+      : reportType === 'returned'
+        ? 'Returned'
+        : clearanceReportTypes.includes(reportType)
+          ? (status === 'Approved' ? 'Cleared' : status)
+          : 'All';
     const pendingRecords = createdRequests.filter((request) => {
       const currentStatus = getTransportStatus(request);
       return ['Pending', 'Under Review'].includes(currentStatus)
@@ -281,6 +293,8 @@ const getTransportReport = async (req, res) => {
         requestDate: request.requestDate || request.submittedDate || request.createdAt,
         decisionDate: null,
         status: 'Pending',
+        officer: '—',
+        remarks: request.transportOfficerComment || '',
       };
     });
 
@@ -302,8 +316,9 @@ const getTransportReport = async (req, res) => {
         requestDate: request.requestDate || request.submittedDate || request.createdAt,
         decisionDate: event.createdAt,
         status: event.action === 'APPROVE_CLEARANCE' ? 'Cleared' : 'Returned',
+        officer: auditUserById.get(String(event.userId)) || 'Transport Officer',
         returnReason: event.newValues?.returnReason || '',
-        remarks: event.newValues?.officerComment || '',
+        remarks: event.newValues?.officerComment || event.newValues?.comment || event.newValues?.returnReason || '',
       };
     });
 
@@ -335,7 +350,9 @@ const getTransportReport = async (req, res) => {
       const matchesStatus = status === 'All'
         || (reportType === 'insurance'
           ? getVehicleDocumentStatus(asset, currentDate) === status
-          : normalizeAssetStatus(asset.status) === status);
+          : reportType === 'condition'
+            ? String(asset.condition || 'N/A').toLowerCase() === String(status).toLowerCase()
+            : normalizeAssetStatus(asset.status) === status);
       return matchesDepartment && matchesVehicle && matchesVehicleType && matchesEmployee && matchesStatus;
     };
     const inventoryRows = assets.filter(matchesVehicleFilters);
@@ -406,8 +423,26 @@ const getTransportReport = async (req, res) => {
       title = 'Vehicle Inventory Report';
       reportRecords = inventoryRows.map(asVehicleRow);
       columns = baseVehicleColumns;
-    } else if (reportType === 'clearance') {
-      title = 'Transport Clearance Report';
+    } else if (clearanceReportTypes.includes(reportType)) {
+      title = ({
+        clearance: 'Transport Clearance Report',
+        pending: 'Pending Clearance Report',
+        returned: 'Returned Clearance Report',
+        history: 'Transport Clearance History',
+      })[reportType];
+      if (reportType === 'pending') reportRecords = records.filter((record) => record.status === 'Pending');
+      if (reportType === 'returned') reportRecords = records.filter((record) => record.status === 'Returned');
+      columns = [
+        { key: 'employeeName', label: 'Employee Name' },
+        { key: 'employeeId', label: 'Employee ID' },
+        { key: 'department', label: 'Department' },
+        { key: 'requestDate', label: 'Request Date', type: 'date' },
+        { key: 'vehicleNumber', label: 'Vehicle / Plate No' },
+        { key: 'status', label: 'Status' },
+        { key: 'officer', label: 'Officer' },
+        { key: 'decisionDate', label: 'Review Date', type: 'date' },
+        { key: 'remarks', label: 'Remarks' },
+      ];
     } else if (reportType === 'maintenance') {
       title = 'Vehicle Maintenance Report';
       reportRecords = inventoryRows
@@ -450,6 +485,51 @@ const getTransportReport = async (req, res) => {
         { key: 'assignedDate', label: 'Assigned Date', type: 'date' },
         { key: 'returnDate', label: 'Return Date', type: 'date' },
         { key: 'status', label: 'Assignment Status' },
+      ];
+    } else if (reportType === 'return') {
+      title = 'Vehicle Return Report';
+      reportRecords = inventoryRows.flatMap((asset) => {
+        const assignments = Array.isArray(asset.assignmentHistory) ? asset.assignmentHistory : [];
+        const relevantReturns = assignments.filter((entry) => withinRange(entry.returnedDate));
+        const returnEntries = relevantReturns.length
+          ? relevantReturns
+          : withinRange(asset.returnDate)
+            ? [asset]
+            : [];
+        return returnEntries.map((entry) => ({
+          ...asVehicleRow(asset),
+          employeeName: entry.employeeName || asset.employeeName || 'N/A',
+          employeeId: entry.employeeId || asset.employeeId || 'N/A',
+          department: entry.department || asset.department || 'N/A',
+          returnDate: entry.returnedDate || asset.returnDate || null,
+          condition: entry.condition || asset.condition || 'N/A',
+          remarks: entry.remarks || entry.returnRemarks || asset.remarks || '',
+        }));
+      });
+      columns = [
+        { key: 'plateNumber', label: 'Vehicle / Plate No' },
+        { key: 'vehicleType', label: 'Vehicle Type' },
+        { key: 'employeeName', label: 'Employee Name' },
+        { key: 'employeeId', label: 'Employee ID' },
+        { key: 'department', label: 'Department' },
+        { key: 'returnDate', label: 'Return Date', type: 'date' },
+        { key: 'condition', label: 'Condition' },
+        { key: 'remarks', label: 'Remarks' },
+      ];
+    } else if (reportType === 'status') {
+      title = 'Vehicle Status Report';
+      reportRecords = inventoryRows.map(asVehicleRow);
+      columns = [...baseVehicleColumns, { key: 'employeeName', label: 'Assigned Employee' }];
+    } else if (reportType === 'condition') {
+      title = 'Vehicle Condition Report';
+      reportRecords = inventoryRows.map(asVehicleRow);
+      columns = [
+        { key: 'plateNumber', label: 'Vehicle / Plate No' },
+        { key: 'vehicleType', label: 'Vehicle Type' },
+        { key: 'makeModel', label: 'Vehicle Details' },
+        { key: 'department', label: 'Department' },
+        { key: 'condition', label: 'Condition' },
+        { key: 'status', label: 'Status' },
       ];
     } else if (reportType === 'insurance') {
       title = 'Insurance & Registration Report';

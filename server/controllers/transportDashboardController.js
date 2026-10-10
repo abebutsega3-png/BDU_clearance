@@ -1,6 +1,7 @@
 import Clearance from '../models/clearance.js';
 import AuditLog from '../models/AuditLog.js';
 import { officeAssignmentFilter } from '../utils/clearanceWorkflow.js';
+import { isTransportOfficer } from '../utils/roleAccess.js';
 
 const transportOfficeRegex = { $regex: 'transport', $options: 'i' };
 
@@ -93,8 +94,7 @@ const mapRequest = (request) => {
 };
 
 const getDashboardData = async (req, res) => {
-  const role = String(req.user?.role || '').trim().toLowerCase();
-  if (!role.includes('transport') || !role.includes('officer')) {
+  if (!isTransportOfficer(req.user)) {
     return res.status(403).json({ message: 'Transport Officer access is required.' });
   }
 

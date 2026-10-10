@@ -5,6 +5,7 @@ import Asset from '../models/propertyAsset.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import { getResponsibleOffices, normalizeRequiredOffices } from '../utils/clearanceWorkflow.js';
+import { isTransportOfficer } from '../utils/roleAccess.js';
 import { notifyTransportOfficers } from '../utils/transportNotifications.js';
 import {
   getTransportStatus,
@@ -12,11 +13,6 @@ import {
   mapTransportRequest,
   transportReviewableFilter,
 } from '../utils/transportClearance.js';
-
-const isTransportOfficer = (user) => {
-  const role = String(user?.role || '').trim().toLowerCase();
-  return role.includes('transport') && role.includes('officer');
-};
 
 const rejectNonTransportOfficer = (req, res) => {
   if (isTransportOfficer(req.user)) return false;

@@ -100,8 +100,8 @@ export default function Contact() {
                 <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-base shrink-0 mt-0.5">✉️</div>
                 <div>
                   <h4 className="font-bold text-slate-900 text-sm">Email</h4>
-                  <a href="mailto:clearance@bdu.edu.et" className="text-slate-500 hover:text-blue-700" aria-label="Email clearance support">
-                    clearance@bdu.edu.et
+                  <a href="mailto:abebutsega61@gmail.com" className="text-slate-500 hover:text-blue-700" aria-label="Email clearance support">
+                    abebutsega61@gmail.com
                   </a>
                 </div>
               </div>

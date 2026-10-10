@@ -1,8 +1,30 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { canonicalizeRole } from '../until/authRoles';
 
 const userContext = createContext();
 let refreshPromise;
+
+const normalizeUserRoleState = (user) => {
+  if (!user) return user;
+
+  const canonicalRoles = Array.isArray(user.roles)
+    ? [...new Set(user.roles.map((role) => canonicalizeRole(role)).filter(Boolean))]
+    : [];
+
+  const fallbackRole = canonicalizeRole(user.activeRole || user.currentRole || user.role) || canonicalRoles[0] || 'employee';
+  const nextRole = canonicalizeRole(user.role) || fallbackRole;
+  const resolvedActiveRole = canonicalizeRole(user.activeRole || user.currentRole || user.role) || nextRole;
+  const finalRoles = canonicalRoles.length ? canonicalRoles : [nextRole].filter(Boolean);
+
+  return {
+    ...user,
+    role: nextRole,
+    activeRole: resolvedActiveRole,
+    currentRole: resolvedActiveRole,
+    roles: finalRoles,
+  };
+};
 
 const isAuthenticationFailure = (error) => {
   if (error.response?.status !== 401 || error.config?.url?.includes('/api/auth/login')) return false;
@@ -87,7 +109,16 @@ const AuthProvider = ({ children }) => {
           if (!response.data?.success || !response.data.user) {
             throw new Error(response.data?.message || 'Session verification failed.');
           }
-          setUser(response.data.user);
+
+          const storedPreferredRole = localStorage.getItem('activeRole');
+          const verifiedUser = normalizeUserRoleState(response.data.user);
+          const preferredRole = storedPreferredRole ? canonicalizeRole(storedPreferredRole) : '';
+          const effectiveUser = preferredRole && verifiedUser.roles.includes(preferredRole)
+            ? { ...verifiedUser, role: preferredRole, activeRole: preferredRole, currentRole: preferredRole }
+            : verifiedUser;
+
+          localStorage.setItem('activeRole', effectiveUser.activeRole || effectiveUser.role || 'employee');
+          setUser(effectiveUser);
           setAuthError('');
           automaticRetryCount.current = 0;
         } catch (error) {
@@ -135,7 +166,16 @@ const AuthProvider = ({ children }) => {
   const login = useCallback((userData) => {
     verificationId.current += 1;
     setAuthError('');
-    setUser(userData);
+
+    const sanitizedUser = normalizeUserRoleState(userData);
+    const preferredRole = localStorage.getItem('activeRole');
+    const activeRole = preferredRole ? canonicalizeRole(preferredRole) : sanitizedUser.activeRole || sanitizedUser.role;
+    const effectiveUser = activeRole && sanitizedUser.roles.includes(activeRole)
+      ? { ...sanitizedUser, role: activeRole, activeRole, currentRole: activeRole }
+      : sanitizedUser;
+
+    localStorage.setItem('activeRole', effectiveUser.activeRole || effectiveUser.role || 'employee');
+    setUser(effectiveUser);
     setLoading(false);
   }, []);
 
@@ -147,7 +187,47 @@ const AuthProvider = ({ children }) => {
   }, []);
 
   const updateUser = useCallback((userData) => {
-    setUser((currentUser) => ({ ...currentUser, ...userData }));
+    setUser((currentUser) => {
+      if (!currentUser) return currentUser;
+
+      const mergedUser = normalizeUserRoleState({ ...currentUser, ...userData });
+      const nextActiveRole = canonicalizeRole(userData.activeRole || userData.currentRole || userData.role || mergedUser.activeRole);
+      if (nextActiveRole) {
+        localStorage.setItem('activeRole', nextActiveRole);
+      }
+      return mergedUser;
+    });
+  }, []);
+
+  const switchActiveRole = useCallback((nextRole) => {
+    const normalizedRole = canonicalizeRole(nextRole);
+    if (!normalizedRole) return;
+
+    setUser((currentUser) => {
+      if (!currentUser) return currentUser;
+
+      const existingRoles = Array.isArray(currentUser.roles)
+        ? currentUser.roles.map((role) => canonicalizeRole(role)).filter(Boolean)
+        : [];
+
+      const mergedRoles = [...new Set([
+        ...existingRoles,
+        canonicalizeRole(currentUser.role),
+        canonicalizeRole(currentUser.activeRole),
+        normalizedRole,
+      ].filter(Boolean))];
+
+      const nextUser = {
+        ...currentUser,
+        role: normalizedRole,
+        activeRole: normalizedRole,
+        currentRole: normalizedRole,
+        roles: mergedRoles,
+      };
+
+      localStorage.setItem('activeRole', normalizedRole);
+      return normalizeUserRoleState(nextUser);
+    });
   }, []);
 
   const logout = useCallback(({ redirect = true, clearUser = true } = {}) => {
@@ -163,7 +243,7 @@ const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <userContext.Provider value={{ user, login, updateUser, logout, loading, authError, retryVerification }}>
+    <userContext.Provider value={{ user, login, updateUser, switchActiveRole, logout, loading, authError, retryVerification }}>
       {children}
     </userContext.Provider>
   );

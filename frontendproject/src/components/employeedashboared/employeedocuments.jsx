@@ -10,31 +10,50 @@ export default function EmployeeDocuments() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const apiBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000')
+    .replace(/\/api\/clearance\/?$/, '')
+    .replace(/\/api\/?$/, '');
 
   useEffect(() => {
-    const employeeId = user?.employeeId || user?.employee?.employeeId || user?._id;
+    const employeeId = user?.employeeId || user?.employee?.employeeId || user?._id || user?.id;
     if (!employeeId) {
       setCertificates([]);
       setLoading(false);
-      return;
+      setError('Unable to identify your employee account.');
+      return undefined;
     }
 
+    const controller = new AbortController();
     const loadCertificates = async () => {
+      setLoading(true);
+      setError('');
       try {
+        const token = localStorage.getItem('token');
         const { data } = await axios.get(
-          `http://localhost:3000/api/hr-final-clearance/certificates/employee/${encodeURIComponent(employeeId)}`,
+          `${apiBaseUrl}/api/hr-final-clearance/certificates/employee/${encodeURIComponent(employeeId)}`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: controller.signal,
+          },
         );
-        setCertificates(data?.data || []);
+        if (!data?.success || !Array.isArray(data.data)) {
+          throw new Error(data?.message || 'The server returned an invalid certificate list.');
+        }
+        setCertificates(data.data);
       } catch (error) {
-        console.error('Failed to load employee certificates:', error);
-        setCertificates([]);
+        if (!controller.signal.aborted) {
+          console.error('Failed to load employee certificates:', error);
+          setError(error.response?.data?.message || 'Unable to load your certificates. Please try again later.');
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     loadCertificates();
-  }, [user]);
+    return () => controller.abort();
+  }, [apiBaseUrl, user?._id, user?.employee?.employeeId, user?.employeeId]);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -52,7 +71,7 @@ export default function EmployeeDocuments() {
           <p className="mt-1 text-sm text-gray-600">View and download certificates issued by the Human Resource Office.</p>
         </div>
         <div className="rounded-lg bg-white p-6 shadow-sm">
-          {loading ? <p className="py-8 text-center text-sm text-gray-500">Loading certificates...</p> : <EmployeeMyCertificates certificates={certificates} />}
+          {loading ? <p className="py-8 text-center text-sm text-gray-500">Loading certificates...</p> : error ? <p role="alert" className="py-8 text-center text-sm text-red-600">{error}</p> : <EmployeeMyCertificates certificates={certificates} apiBaseUrl={apiBaseUrl} />}
         </div>
       </main>
     </div>

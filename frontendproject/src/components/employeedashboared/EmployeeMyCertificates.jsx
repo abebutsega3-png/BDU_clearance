@@ -55,7 +55,7 @@ const downloadCertificate = (certificate) => {
   pdf.save(fileName);
 };
 
-export default function EmployeeMyCertificates({ certificates = [] }) {
+export default function EmployeeMyCertificates({ certificates = [], apiBaseUrl = 'http://localhost:3000' }) {
   const [selectedCertificate, setSelectedCertificate] = useState(null);
   const [verification, setVerification] = useState(null);
   const [verifying, setVerifying] = useState(false);
@@ -65,7 +65,7 @@ export default function EmployeeMyCertificates({ certificates = [] }) {
   const handleVerify = async (certificate) => {
     setVerifying(true);
     try {
-      const { data } = await axios.get(`http://localhost:3000/api/hr-final-clearance/certificates/verify/${encodeURIComponent(certificate.certificateNo)}`);
+      const { data } = await axios.get(`${apiBaseUrl}/api/hr-final-clearance/certificates/verify/${encodeURIComponent(certificate.certificateNo)}`);
       setVerification(data);
     } catch (error) {
       setVerification({ valid: false, message: error.response?.data?.message || 'Unable to verify certificate.' });
