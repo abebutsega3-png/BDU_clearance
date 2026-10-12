@@ -194,7 +194,7 @@ export default function UsersList() {
                     <td className="px-4 py-3">
                       <div className="flex gap-3">
                         <button type="button" title={t('View user')} onClick={() => navigate(`/admin/view-user/${user._id}`)} className="text-blue-600 hover:text-blue-800"><FiEye /></button>
-                        <button type="button" title={t('Edit user')} className="text-amber-600 hover:text-amber-800"><FiEdit2 /></button>
+                        <button type="button" title={t('Edit user')} onClick={() => navigate(`/admin/edit-user/${user._id}`)} className="text-amber-600 hover:text-amber-800"><FiEdit2 /></button>
                         <button type="button" title={t('Reset Password')} onClick={() => handleOpenResetModal(user)} className="text-purple-600 hover:text-purple-800"><FiKey /></button>
                       </div>
                     </td>

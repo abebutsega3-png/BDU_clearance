@@ -268,7 +268,17 @@ export const approveClearance = async (req, res) => {
     const propertyStepIndex = workflow.findIndex((step) => String(step.office || '').toLowerCase().includes('property'));
     const approvedBy = req.user?.fullName || req.user?.name || 'Property Officer';
     const approvedAt = new Date();
-    const propertyStep = { office: 'Property / Asset Office', status: 'Completed', approvedBy, performedBy: approvedBy, approvedAt, updatedAt: approvedAt };
+    const propertyStep = {
+      office: 'Property / Asset Office',
+      status: 'Completed',
+      approvedBy,
+      approvedById: req.user?._id || null,
+      performedBy: approvedBy,
+      performedById: req.user?._id || null,
+      reviewerId: req.user?._id || null,
+      approvedAt,
+      updatedAt: approvedAt,
+    };
     if (propertyStepIndex >= 0) {
       workflow[propertyStepIndex] = { ...workflow[propertyStepIndex], ...propertyStep };
     } else {
@@ -280,6 +290,7 @@ export const approveClearance = async (req, res) => {
         propertyStatus: 'Approved',
         propertyReviewedAt: approvedAt,
         propertyReviewedBy: approvedBy,
+        propertyReviewedById: req.user?._id || null,
         reviewedAt: new Date(),
         officerComment: officerComment || 'All assets verified and returned.',
         completedPropertyChecks: completedCheckKeys,

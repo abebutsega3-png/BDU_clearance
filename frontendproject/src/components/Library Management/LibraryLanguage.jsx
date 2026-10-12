@@ -5,6 +5,10 @@ const LANGUAGE_KEY = 'library-officer-language';
 
 const translations = {
   Welcome: 'እንኳን ደህና መጡ',
+  'Choose language': 'ቋንቋ ይምረጡ',
+  'Select your preferred language.': 'የሚመርጡትን ቋንቋ ይምረጡ።',
+  Close: 'ዝጋ',
+  Save: 'አስቀምጥ',
   Librarian: 'የቤተ መጻሕፍት ባለሙያ',
   'Library Officer account': 'የቤተ መጻሕፍት ኦፊሰር መለያ',
   'Library notifications': 'የቤተ መጻሕፍት ማሳወቂያዎች',

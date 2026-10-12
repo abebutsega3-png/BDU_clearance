@@ -14,3 +14,19 @@ test('does not grant department head access to other roles', () => {
     assert.equal(isDepartmentHead(role), false, `${role} should not be recognized`);
   }
 });
+
+test('recognizes Department Head when it is one of the user assigned roles', () => {
+  assert.equal(isDepartmentHead({
+    role: 'Employee',
+    activeRole: 'Employee',
+    roles: ['Employee', 'Department Head'],
+  }), true);
+});
+
+test('does not grant Department Head access based on unrelated assigned roles', () => {
+  assert.equal(isDepartmentHead({
+    role: 'HR Officer',
+    activeRole: 'HR Officer',
+    roles: ['HR Officer', 'Finance Officer'],
+  }), false);
+});

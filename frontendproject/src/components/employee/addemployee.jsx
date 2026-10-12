@@ -24,13 +24,23 @@ const addressNameFields = ['region', 'city', 'subCity', 'woreda', 'kebele', 'eme
 const gmailPattern = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?@gmail\.com$/i;
 const today = new Date();
 const formatDate = (year, month, day) => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-const maxEmploymentDate = '2025-12-31';
+const maxEmploymentDate = formatDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
 const minimumDateOfBirthDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
 const minimumDateOfBirth = formatDate(
   minimumDateOfBirthDate.getFullYear(),
   minimumDateOfBirthDate.getMonth() + 1,
   minimumDateOfBirthDate.getDate(),
 );
+const getMinimumHireDate = (dateOfBirth) => {
+  if (!isValidDate(dateOfBirth)) return null;
+  const [year, month, day] = dateOfBirth.split('-').map(Number);
+  const minimumHireDate = new Date(Date.UTC(year + 18, month - 1, day));
+  return formatDate(
+    minimumHireDate.getUTCFullYear(),
+    minimumHireDate.getUTCMonth() + 1,
+    minimumHireDate.getUTCDate(),
+  );
+};
 const isValidDate = (value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
@@ -114,14 +124,17 @@ export default function AddEmployee() {
     if (form.alternativePhone.trim() && normalizePhoneNumber(form.phone.trim()) === normalizePhoneNumber(form.alternativePhone.trim())) { setError('Phone Number and Alternative Phone must be different numbers.'); return; }
     if (!namePattern.test(form.fullName.trim())) { setError('Full Name must contain letters only, with spaces, hyphens, or apostrophes allowed.'); return; }
     if (!isValidDate(form.employmentDate)) { setError('Select a valid Employment Date.'); return; }
-    if (form.employmentDate > maxEmploymentDate) { setError('Employment Date cannot be later than December 31, 2025.'); return; }
+    if (form.employmentDate > maxEmploymentDate) { setError('Employment Date cannot be in the future.'); return; }
+    if (form.dateOfBirth && !isValidDate(form.dateOfBirth)) { setError('Select a valid Date of Birth.'); return; }
+    if (form.dateOfBirth && form.dateOfBirth > minimumDateOfBirth) { setError('Employee must be at least 18 years old.'); return; }
+    if (form.dateOfBirth && form.employmentDate && form.employmentDate < form.dateOfBirth) { setError('Employment Date cannot be earlier than the employee\'s date of birth.'); return; }
+    const minimumHireDate = getMinimumHireDate(form.dateOfBirth);
+    if (minimumHireDate && form.employmentDate < minimumHireDate) { setError('Employment Date must be at least 18 years after the employee\'s date of birth.'); return; }
     for (const field of addressNameFields) {
       if (form[field].trim() && !namePattern.test(form[field].trim())) { setError(`${field} must contain letters only, with spaces, hyphens, or apostrophes allowed.`); return; }
     }
     if (form.houseNumber.trim() && !houseNumberPattern.test(form.houseNumber.trim())) { setError('House Number may contain letters, numbers, spaces, hyphens, slashes, and # only.'); return; }
     if (!gmailPattern.test(form.email.trim())) { setError('Email address must use the format name@gmail.com or name123@gmail.com.'); return; }
-    if (form.dateOfBirth && !isValidDate(form.dateOfBirth)) { setError('Select a valid Date of Birth.'); return; }
-    if (form.dateOfBirth && form.dateOfBirth > minimumDateOfBirth) { setError('Employee must be at least 18 years old.'); return; }
 
     setSaving(true);
     const employee = {

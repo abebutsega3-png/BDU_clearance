@@ -59,6 +59,7 @@ export const systemAdminNotificationTypes = [
   'SYSTEM_SECURITY_EVENT',
   'SYSTEM_ERROR',
   'SYSTEM_AUDIT_EVENT',
+  'ADMIN_CONTACT_INQUIRY',
 ];
 
 const departmentPreferenceForType = (type) => ({
@@ -272,7 +273,28 @@ export const getAllNotifications = async (req, res) => {
       }
       notificationsQuery.limit(Math.min(requestedLimit, 100));
     }
-    const notifications = await notificationsQuery.lean();
+    let notifications = await notificationsQuery.lean();
+    if (/^(?:hr(?:[\s_-]?officer)?|human resources)$/i.test(role)) {
+      const requestIds = [...new Set(notifications
+        .flatMap((notification) => [notification.relatedRequestId, notification.clearanceRequestId])
+        .filter(Boolean)
+        .map(String))];
+      if (requestIds.length) {
+        const clearanceRequests = await ClearanceRequest.find({ requestId: { $in: requestIds } })
+          .select('requestId employeeId employeeName')
+          .lean();
+        const requestsById = new Map(clearanceRequests.map((request) => [String(request.requestId), request]));
+        notifications = notifications.map((notification) => {
+          const relatedId = notification.relatedRequestId || notification.clearanceRequestId;
+          const clearance = relatedId ? requestsById.get(String(relatedId)) : null;
+          return {
+            ...notification,
+            employeeId: notification.employeeId || clearance?.employeeId || '',
+            employeeName: notification.employeeName || clearance?.employeeName || '',
+          };
+        });
+      }
+    }
     const unreadCount = await Notification.countDocuments({ ...filter, isRead: false });
     res.status(200).json({
       success: true,
@@ -359,6 +381,94 @@ export const markAsRead = async (req, res) => {
     res.status(200).json({ success: true, data: notification });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+export const replyToNotification = async (req, res) => {
+  try {
+    const role = typeof req.user?.role === 'object' ? req.user.role.name : req.user?.role;
+    if (!/^(?:hr(?:[\s_-]?officer)?|human resources)$/i.test(String(role || '').trim())) {
+      return res.status(403).json({ success: false, message: 'Only HR Officers can reply to notifications.' });
+    }
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid notification id.' });
+    }
+
+    const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+    if (!message || message.length > 2000) {
+      return res.status(400).json({ success: false, message: 'Reply must contain between 1 and 2000 characters.' });
+    }
+
+    const notification = await Notification.findOne({
+      _id: req.params.id,
+      recipientId: req.user._id,
+    }).lean();
+    if (!notification) {
+      return res.status(404).json({ success: false, message: 'Notification not found.' });
+    }
+
+    const requestId = notification.relatedRequestId || notification.clearanceRequestId || null;
+    const clearance = requestId
+      ? await ClearanceRequest.findOne({ requestId }).select('requestId employeeId').lean()
+      : null;
+    const employeeId = clearance?.employeeId || notification.employeeId;
+    if (!employeeId) {
+      return res.status(404).json({ success: false, message: 'This notification is not linked to an employee account.' });
+    }
+
+    const employee = await User.findOne({ employeeId })
+      .select('_id employeeId name')
+      .lean();
+    if (!employee) {
+      return res.status(404).json({ success: false, message: 'No employee account was found for this clearance request.' });
+    }
+
+    const repliedAt = new Date();
+    const updatedSource = await Notification.findOneAndUpdate({
+      _id: notification._id,
+      recipientId: req.user._id,
+      status: { $ne: 'Replied' },
+    }, {
+      $set: { status: 'Replied', replyMessage: message, repliedAt },
+    }, { new: true });
+    if (!updatedSource) {
+      return res.status(409).json({ success: false, message: 'A reply has already been sent for this notification.' });
+    }
+
+    let replyNotification;
+    try {
+      replyNotification = await Notification.create({
+        recipientId: employee._id,
+        employeeId: employee.employeeId || employeeId,
+        targetName: req.user.name || 'HR Officer',
+        title: 'HR Replied to Your Inquiry',
+        message,
+        type: 'HR_QUICK_REPLY',
+        status: 'Unread',
+        actionText: 'View Clearance',
+        actionLink: requestId ? '/employee/my-clearance' : '/employee/notifications',
+        relatedRequestId: requestId,
+        clearanceRequestId: requestId,
+        isRead: false,
+      });
+    } catch (error) {
+      await Notification.updateOne({
+        _id: notification._id,
+        recipientId: req.user._id,
+        status: 'Replied',
+        repliedAt,
+      }, {
+        $unset: { status: '', replyMessage: '', repliedAt: '' },
+      });
+      throw error;
+    }
+
+    req.app.get('io').to(`user:${String(employee._id)}`).emit('notification:new', replyNotification);
+    return res.status(201).json({ success: true, data: replyNotification, source: updatedSource });
+  } catch (error) {
+    console.error('Unable to send HR notification reply:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to send reply.' });
   }
 };
 

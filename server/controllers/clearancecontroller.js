@@ -677,6 +677,26 @@ const normalizeDateOnly = (value) => {
 		: '';
 };
 
+const normalizeDuplicateMatchValue = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const findCompletedDuplicateRequest = async ({ employeeFilter, reason, clearanceType }) => {
+	if (!employeeFilter) return null;
+	const normalizedReason = normalizeDuplicateMatchValue(reason || clearanceType || '');
+	const normalizedType = normalizeDuplicateMatchValue(clearanceType || reason || 'Resignation');
+	if (!normalizedReason && !normalizedType) return null;
+
+	const completedRequests = await Clearance.find({
+		...employeeFilter,
+		status: { $in: ['Completed', 'Final HR Clearance Completed'] },
+	}).sort({ createdAt: -1 }).limit(50).select('requestId status reason clearanceType').lean();
+
+	return completedRequests.find((existing) => {
+		const existingReason = normalizeDuplicateMatchValue(existing.reason || existing.clearanceReason || existing.clearanceType || '');
+		const existingType = normalizeDuplicateMatchValue(existing.clearanceType || existing.reason || 'Resignation');
+		return existingReason === normalizedReason && existingType === normalizedType;
+	}) || null;
+};
+
 const addClearance = async (req, res) => {
 	try {
 		const normalizedRole = String(req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
@@ -689,14 +709,24 @@ const addClearance = async (req, res) => {
 		if (!requestDate) {
 			return res.status(400).json({ success: false, message: 'A valid request date is required.' });
 		}
-		if (!initiatedByHR && lastWorkingDate < requestDate) {
-			return res.status(400).json({ success: false, message: 'Last working date must be valid and cannot be earlier than the request date.' });
-		}
 		const relievingDate = req.body?.relievingDate
 			? normalizeDateOnly(req.body.relievingDate)
 			: '';
 		if (req.body?.relievingDate && !relievingDate) {
 			return res.status(400).json({ success: false, message: 'Enter a valid relieving date.' });
+		}
+		const todayValue = normalizeDateOnly(new Date().toISOString().slice(0, 10));
+		if (requestDate > todayValue) {
+			return res.status(400).json({ success: false, message: 'Request date cannot be in the future.' });
+		}
+		if (lastWorkingDate < requestDate) {
+			return res.status(400).json({ success: false, message: 'Last working date cannot be earlier than the request date.' });
+		}
+		const maximumFutureDate = new Date();
+		maximumFutureDate.setDate(maximumFutureDate.getDate() + 365);
+		const maxFutureDateValue = normalizeDateOnly(maximumFutureDate.toISOString().slice(0, 10));
+		if (lastWorkingDate > maxFutureDateValue) {
+			return res.status(400).json({ success: false, message: 'Last working date must be within a reasonable future window and cannot be more than one year ahead.' });
 		}
 		if (relievingDate && lastWorkingDate > relievingDate) {
 			return res.status(400).json({ success: false, message: 'Last working date cannot be after relieving date.' });
@@ -731,6 +761,20 @@ const addClearance = async (req, res) => {
 					success: false,
 					message: `An active clearance request already exists (${activeClearance.requestId || 'N/A'}). Update or resubmit that request instead of creating a new one.`,
 					requestId: activeClearance.requestId,
+				});
+			}
+
+			const completedDuplicateRequest = await findCompletedDuplicateRequest({
+				employeeFilter,
+				reason,
+				clearanceType: req.body?.clearanceType || req.body?.clearanceReason || reason || 'Resignation',
+			});
+			if (completedDuplicateRequest) {
+				return res.status(409).json({
+					success: false,
+					message: `A completed clearance request with the same reason (${reason || 'Resignation'}) and separation type (${req.body?.clearanceType || req.body?.clearanceReason || reason || 'Resignation'}) already exists for this employee. A duplicate request is not allowed.`,
+					requestId: completedDuplicateRequest.requestId,
+					duplicateRequest: completedDuplicateRequest,
 				});
 			}
 		}
@@ -936,8 +980,16 @@ const updateClearance = async (req, res) => {
 			if (!ownsRequest || existing.requestSource !== 'Employee Portal') {
 				return res.status(404).json({ success: false, message: 'Clearance request not found.' });
 			}
-			if (existing.status !== 'Returned' || existing.initialHRStatus !== 'Returned') {
-				return res.status(409).json({ success: false, message: 'Only requests returned by Initial HR can be corrected and resubmitted here.' });
+			const returnedOffice = String(existing.returnedOffice || '').trim();
+			const customOfficeReturn = existing.initialHRStatus === 'Approved'
+				&& existing.manualRoutingEnabled === true
+				&& returnedOffice
+				&& (existing.assignedDepartments || []).some((office) => normalizeRoutedOffice(office).toLowerCase() === normalizeRoutedOffice(returnedOffice).toLowerCase())
+				&& (existing.workflow || []).some((step) => normalizeRoutedOffice(step.office || step.name).toLowerCase() === normalizeRoutedOffice(returnedOffice).toLowerCase()
+					&& ['returned', 'rejected'].includes(String(step.status || '').toLowerCase()));
+			const initialHRReturn = existing.initialHRStatus === 'Returned';
+			if (existing.status !== 'Returned' || (!initialHRReturn && !customOfficeReturn)) {
+				return res.status(409).json({ success: false, message: 'Only requests returned by Initial HR or an assigned clearance office can be corrected and resubmitted here.' });
 			}
 
 			const existingClearanceType = String(
@@ -998,22 +1050,24 @@ const updateClearance = async (req, res) => {
 			existing.relievingDate = relievingDate;
 			existing.remarks = String(requestUpdates.remarks ?? existing.remarks ?? '');
 			existing.officerComment = resolutionRemark;
-			existing.status = 'Pending';
+			existing.status = customOfficeReturn ? 'In Progress' : 'Pending';
 			existing.overallStatus = 'In Progress';
-			existing.initialHRStatus = 'Pending';
-			existing.initialHRAssessmentCompleted = false;
-			existing.assessmentChecklist = {
-				empInfoVerified: false,
-				clearanceRequestVerified: false,
-				documentVerified: false,
-				employmentVerified: false,
-				noDuplicateRequest: false,
-			};
-			existing.initialHRReviewedBy = '';
-			existing.initialHRReviewedById = null;
-			existing.initialHRReviewedAt = null;
-			existing.initialHRRemarks = '';
-			existing.hrComment = '';
+			if (!customOfficeReturn) {
+				existing.initialHRStatus = 'Pending';
+				existing.initialHRAssessmentCompleted = false;
+				existing.assessmentChecklist = {
+					empInfoVerified: false,
+					clearanceRequestVerified: false,
+					documentVerified: false,
+					employmentVerified: false,
+					noDuplicateRequest: false,
+				};
+				existing.initialHRReviewedBy = '';
+				existing.initialHRReviewedById = null;
+				existing.initialHRReviewedAt = null;
+				existing.initialHRRemarks = '';
+				existing.hrComment = '';
+			}
 			existing.returnReason = '';
 			existing.returnedBy = '';
 			existing.returnedOffice = '';
@@ -1021,16 +1075,19 @@ const updateClearance = async (req, res) => {
 			existing.returnedReason = '';
 			existing.returnedRemark = '';
 			existing.affectedField = '';
-			existing.currentStep = 'Initial HR Review';
-			existing.workflow = (Array.isArray(existing.workflow) ? existing.workflow : []).map((step) => (
-				/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))
+			existing.currentStep = customOfficeReturn ? returnedOffice : 'Initial HR Review';
+			existing.workflow = (Array.isArray(existing.workflow) ? existing.workflow : []).map((step) => {
+				if (customOfficeReturn && normalizeRoutedOffice(step.office || step.name).toLowerCase() === normalizeRoutedOffice(returnedOffice).toLowerCase()) {
+					return { ...step, status: 'Pending', updatedAt: now, remarks: '', returnReason: '' };
+				}
+				return /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')) && !customOfficeReturn
 					? { ...step, office: 'Initial HR Review', status: 'Pending', updatedAt: now, remarks: '', returnReason: '' }
-					: step
-			));
+					: step;
+			});
 			existing.logs = [
 				...(Array.isArray(existing.logs) ? existing.logs : []),
 				{
-					action: 'RESUBMITTED_BY_EMPLOYEE',
+					action: customOfficeReturn ? 'RESUBMITTED_TO_CLEARANCE_OFFICE' : 'RESUBMITTED_BY_EMPLOYEE',
 					actor: req.user?.name || req.user?.fullName || 'Employee',
 					actorId: req.user?._id || null,
 					comment: resolutionRemark,
@@ -1045,9 +1102,11 @@ const updateClearance = async (req, res) => {
 				await recordAuditLog({
 					req,
 					user: req.user,
-					action: 'RESUBMIT_CLEARANCE_AFTER_HR_RETURN',
+					action: customOfficeReturn ? 'RESUBMIT_CLEARANCE_AFTER_OFFICE_RETURN' : 'RESUBMIT_CLEARANCE_AFTER_HR_RETURN',
 					module: 'Clearance Request',
-					description: `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to Initial HR Review.`,
+					description: customOfficeReturn
+						? `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to ${returnedOffice}.`
+						: `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to Initial HR Review.`,
 					oldValues: { requestId: clearance.requestId, status: 'Returned', lastWorkingDate: previousReturn.lastWorkingDate },
 					newValues: { requestId: clearance.requestId, status: clearance.status, lastWorkingDate },
 				});
@@ -1055,14 +1114,35 @@ const updateClearance = async (req, res) => {
 				console.error('Failed to record clearance resubmission audit log:', auditError.message);
 			}
 
-			await notifyHrOfficers({
-				clearance,
-				type: 'CLEARANCE_RESUBMITTED',
-				title: 'Clearance Request Resubmitted for Initial HR Review',
-				message: `${clearance.employeeName || 'An employee'} corrected and resubmitted request ${clearance.requestId || 'N/A'} after HR returned it.`,
-				actionText: 'Review Request',
-				actionLink: `/hr-office/assessment/${encodeURIComponent(clearance._id)}`,
-			});
+			if (customOfficeReturn) {
+				const officeRole = await Role.findOne({ name: returnedOffice, isActive: true, isClearanceOffice: true }).select('name').lean();
+				const officeUsers = officeRole
+					? await User.find({ $or: [{ role: officeRole.name }, { activeRole: officeRole.name }, { roles: officeRole.name }] }).select('_id name')
+					: [];
+				if (officeUsers.length) {
+					await Notification.insertMany(officeUsers.map((user) => ({
+						recipientId: user._id,
+						targetName: user.name || returnedOffice,
+						title: 'Clearance Request Resubmitted',
+						message: `${clearance.employeeName || 'An employee'} corrected and resubmitted request ${clearance.requestId || 'N/A'} to ${returnedOffice}.`,
+						type: 'CLEARANCE_RESUBMITTED',
+						relatedRequestId: clearance.requestId,
+						clearanceRequestId: clearance.requestId,
+						actionText: 'Review Request',
+						actionLink: '/clearance-office',
+						isRead: false,
+					})));
+				}
+			} else {
+				await notifyHrOfficers({
+					clearance,
+					type: 'CLEARANCE_RESUBMITTED',
+					title: 'Clearance Request Resubmitted for Initial HR Review',
+					message: `${clearance.employeeName || 'An employee'} corrected and resubmitted request ${clearance.requestId || 'N/A'} after HR returned it.`,
+					actionText: 'Review Request',
+					actionLink: `/hr-office/assessment/${encodeURIComponent(clearance._id)}`,
+				});
+			}
 			return res.status(200).json({ success: true, message: 'Clearance request resubmitted to Initial HR Review.', clearance });
 		}
 		let resubmittedToFinance = false;
@@ -1075,7 +1155,7 @@ const updateClearance = async (req, res) => {
 		let reviewRequest = null;
 		if (hasExplicitDepartmentDecision) delete requestUpdates.departmentDecision;
 		if (hasDepartmentDecision) {
-			if (!isDepartmentHead(req.user?.role)) return res.status(403).json({ success: false, message: 'Department Head access is required.' });
+			if (!isDepartmentHead(req.user)) return res.status(403).json({ success: false, message: 'Department Head access is required.' });
 			const departmentRequestFilter = mongoose.isValidObjectId(req.params.id)
 				? { $or: [{ _id: req.params.id }, { requestId: req.params.id }] }
 				: { requestId: req.params.id };

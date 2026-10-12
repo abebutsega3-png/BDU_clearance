@@ -8,11 +8,10 @@ import { useAuth } from '../../context/authContext';
 
 const defaultRequiredOffices = ['HR Office', 'Library', 'Finance', 'Department', 'Transport Office'];
 
-const getLocalDateInputValue = () => {
-	const today = new Date();
-	const year = today.getFullYear();
-	const month = String(today.getMonth() + 1).padStart(2, '0');
-	const day = String(today.getDate()).padStart(2, '0');
+const getLocalDateInputValue = (date = new Date()) => {
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
 	return `${year}-${month}-${day}`;
 };
 
@@ -23,6 +22,27 @@ const isValidDateInput = (value) => {
 	return date.getUTCFullYear() === year
 		&& date.getUTCMonth() === month - 1
 		&& date.getUTCDate() === day;
+};
+
+const getDateValidationError = ({ requestDate, lastWorkingDate, relievingDate }) => {
+	const todayValue = getLocalDateInputValue();
+	const maxFutureDate = new Date();
+	maxFutureDate.setDate(maxFutureDate.getDate() + 365);
+	const maxFutureValue = getLocalDateInputValue(maxFutureDate);
+
+	if (requestDate && requestDate > todayValue) {
+		return 'Request date cannot be in the future.';
+	}
+	if (lastWorkingDate && lastWorkingDate < requestDate) {
+		return 'Last working date cannot be earlier than the request date.';
+	}
+	if (lastWorkingDate && lastWorkingDate > maxFutureValue) {
+		return 'Last working date must be within a reasonable future window and cannot be more than one year ahead.';
+	}
+	if (relievingDate && lastWorkingDate && lastWorkingDate > relievingDate) {
+		return 'Last working date cannot be after relieving date.';
+	}
+	return '';
 };
 
 const initialForm = {
@@ -75,6 +95,11 @@ export default function AddClearance() {
 	const [loadingSeparationTypes, setLoadingSeparationTypes] = useState(true);
 	const [requiredOffices, setRequiredOffices] = useState(defaultRequiredOffices);
 	const [submitting, setSubmitting] = useState(false);
+	const dateValidationError = getDateValidationError({
+		requestDate: form.requestDate,
+		lastWorkingDate: form.lastWorkingDate,
+		relievingDate: form.relievingDate,
+	});
 	const lastWorkingDateOrderError = Boolean(
 		form.lastWorkingDate
 		&& form.relievingDate
@@ -141,6 +166,10 @@ export default function AddClearance() {
 		}
 		if (form.relievingDate && !isValidDateInput(form.relievingDate)) {
 			setMessage('Enter a valid relieving date.');
+			return;
+		}
+		if (dateValidationError) {
+			setMessage(dateValidationError);
 			return;
 		}
 		if (lastWorkingDateOrderError) {

@@ -24,6 +24,12 @@ const isValidGregorianDate = (value) => {
     && date.getUTCDate() === day;
 };
 const formatLocalDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const getMinimumHireDate = (dateOfBirth) => {
+  if (!dateOfBirth || !isValidGregorianDate(dateOfBirth)) return null;
+  const [year, month, day] = dateOfBirth.split('-').map(Number);
+  const hireDate = new Date(Date.UTC(year + 18, month - 1, day));
+  return formatLocalDate(hireDate);
+};
 const isValidDateOfBirth = (value) => {
   if (!value) return true;
   if (!isValidGregorianDate(value)) return false;
@@ -32,9 +38,13 @@ const isValidDateOfBirth = (value) => {
   const minimumDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
   return value <= formatLocalDate(today) && value <= formatLocalDate(minimumDate);
 };
-const isValidEmploymentDate = (value) => {
+const isValidEmploymentDate = (value, dateOfBirth = null) => {
   if (!isValidGregorianDate(value)) return false;
-  return value <= '2025-12-31';
+  const today = formatLocalDate(new Date());
+  if (value > today) return false;
+  if (!dateOfBirth) return true;
+  const minimumHireDate = getMinimumHireDate(dateOfBirth);
+  return !minimumHireDate || value >= minimumHireDate;
 };
 
 const findDepartmentByName = (name) => Department.findOne({
@@ -83,17 +93,19 @@ const addEmployee = async (req, res) => {
       });
     }
 
-    if (!isValidEmploymentDate(String(body.employmentDate).trim())) {
+    if (!isValidEmploymentDate(String(body.employmentDate).trim(), body.dateOfBirth)) {
       return res.status(400).json({
         success: false,
-        message: 'Employment Date must be a valid Gregorian date no later than December 31, 2025.',
+        message: body.dateOfBirth
+          ? 'Employment Date must be a valid Gregorian date on or before today and at least 18 years after the employee\'s date of birth.'
+          : 'Employment Date must be a valid Gregorian date and cannot be in the future.',
       });
     }
 
     if (!isValidDateOfBirth(body.dateOfBirth)) {
       return res.status(400).json({
         success: false,
-        message: 'Date of Birth must be a valid Gregorian date and the employee must be at least 18 years old.',
+        message: 'Date of Birth must be a valid Gregorian date in the past and the employee must be at least 18 years old.',
       });
     }
 
@@ -255,7 +267,7 @@ const getEmployeeSummary = async (req, res) => {
 
 const getDepartmentEmployees = async (req, res) => {
   try {
-    if (!isDepartmentHead(req.user?.role)) {
+    if (!isDepartmentHead(req.user)) {
       return res.status(403).json({ success: false, message: 'Department Head access is required.' });
     }
 
@@ -340,6 +352,7 @@ const getEmployee = async (req, res) => {
 
 const updateEmployee = async (req, res) => {
   try {
+    const existingEmployee = await Employee.findById(req.params.id).select('dateOfBirth employmentDate').lean();
     const updates = { ...req.body };
     delete updates.confirmPassword;
     if (updates.department !== undefined) {
@@ -372,16 +385,21 @@ const updateEmployee = async (req, res) => {
         message: 'House Number may contain letters, numbers, spaces, hyphens, slashes, and # only.',
       });
     }
-    if (updates.employmentDate !== undefined && !isValidEmploymentDate(String(updates.employmentDate).trim())) {
+    const finalDateOfBirth = updates.dateOfBirth ?? existingEmployee?.dateOfBirth ?? '';
+    const finalEmploymentDate = updates.employmentDate ?? existingEmployee?.employmentDate ?? '';
+    if ((updates.employmentDate !== undefined || updates.dateOfBirth !== undefined)
+      && !isValidEmploymentDate(String(finalEmploymentDate).trim(), finalDateOfBirth ? String(finalDateOfBirth).trim() : null)) {
       return res.status(400).json({
         success: false,
-        message: 'Employment Date must be a valid Gregorian date no later than December 31, 2025.',
+        message: finalDateOfBirth
+          ? 'Employment Date must be a valid Gregorian date on or before today and at least 18 years after the employee\'s date of birth.'
+          : 'Employment Date must be a valid Gregorian date and cannot be in the future.',
       });
     }
-    if (updates.dateOfBirth !== undefined && !isValidDateOfBirth(updates.dateOfBirth)) {
+    if (updates.dateOfBirth !== undefined && !isValidDateOfBirth(String(updates.dateOfBirth).trim())) {
       return res.status(400).json({
         success: false,
-        message: 'Date of Birth must be a valid Gregorian date and the employee must be at least 18 years old.',
+        message: 'Date of Birth must be a valid Gregorian date in the past and the employee must be at least 18 years old.',
       });
     }
     for (const field of ['phone', 'alternativePhone', 'emergencyPhone']) {

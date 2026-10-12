@@ -7,6 +7,7 @@ import {
   LogOut,
   Settings,
   BarChart3,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth } from "../../context/authContext";
 import UniversitySeal from '../UniversitySeal';
@@ -76,12 +77,11 @@ const HRSidebar = () => {
           icon={<BarChart3 size={20} />}
           label={t('HR Report')}
         />
-        {/* Notifications
         <SidebarItem
-          to="/hr-office/notifications"
-          icon={<ClipboardCheck size={20} />}
-          label={t('Notifications')}
-        /> */}
+          to="/hr-office/contact-messages"
+          icon={<MessageSquare size={20} />}
+          label={t('Contact Messages')}
+        />
 
         <SidebarItem
           to="/hr-office/settings"

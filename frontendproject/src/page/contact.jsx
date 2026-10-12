@@ -1,27 +1,77 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import { Link } from 'react-router-dom';
+
+const INITIAL_FORM_DATA = {
+  fullName: '',
+  employeeId: '',
+  email: '',
+  subject: '',
+  category: '',
+  message: '',
+};
+
+const HR_CATEGORIES = [
+  { name: 'Clearance Status Inquiry', icon: '🔍' },
+  { name: 'Department Review Issue', icon: '🏛️' },
+  { name: 'Separation & Resignation', icon: '📄' },
+  { name: 'General HR Support', icon: '👥' },
+];
+
+const ADMIN_CATEGORIES = [
+  { name: 'Account & Login Issue', icon: '👤' },
+  { name: 'System Bug / Technical Error', icon: '⚙️' },
+  { name: 'Role & Permission Request', icon: '🔐' },
+  { name: 'Other Technical Support', icon: '🛠️' },
+];
+
+const HR_SUBJECTS = [
+  'Clearance Delay',
+  'Document Verification Problem',
+  'HR Review Status Query',
+];
+
+const ADMIN_SUBJECTS = [
+  'Cannot Login to Account',
+  'Password Reset Issue',
+  'System Error / Page Not Loading',
+];
 
 export default function Contact() {
   const [openFaq, setOpenFaq] = useState(null);
   const [formStatus, setFormStatus] = useState('');
-  const [formData, setFormData] = useState({
-    fullName: '',
-    employeeId: '',
-    email: '',
-    subject: '',
-    category: '',
-    message: ''
-  });
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [formData, setFormData] = useState(INITIAL_FORM_DATA);
+  const isAdminInquiry = ADMIN_CATEGORIES.some((category) => category.name === formData.category);
+  const subjectOptions = formData.category
+    ? (isAdminInquiry ? ADMIN_SUBJECTS : HR_SUBJECTS)
+    : [];
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setFormStatus('Your message has been received. The Employee Clearance Support Office will contact you during working hours.');
-    setFormData({ fullName: '', employeeId: '', email: '', subject: '', category: '', message: '' });
+    setSubmitting(true);
+    setFormError('');
+    setFormStatus('');
+    try {
+      await axios.post('/api/public/home/contact', formData);
+      setFormStatus('Your message has been received. The Employee Clearance Support Office will contact you during working hours.');
+      setFormData(INITIAL_FORM_DATA);
+    } catch (error) {
+      setFormError(error.response?.data?.message || 'Unable to send your message. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const updateField = (field, value) => {
-    setFormData((current) => ({ ...current, [field]: value }));
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === 'category' ? { subject: '' } : {}),
+    }));
     setFormStatus('');
+    setFormError('');
   };
 
   const faqAnswers = [
@@ -30,16 +80,6 @@ export default function Contact() {
     'Requirements depend on your clearance case. Review the Instructions page and upload clear copies of the documents requested by each office.',
     'Read the office comment, correct the issue, and resubmit the required document. Contact support if you need clarification about the rejection.',
     'Processing time depends on the responsible offices and document completeness. You can track progress online after submitting your application.'
-  ];
-
-  const supportCategories = [
-    { name: 'Clearance Application', icon: '📄' },
-    { name: 'Clearance Status', icon: '🔍' },
-    { name: 'Document Problem', icon: '📁' },
-    { name: 'Office Approval', icon: '🏛️' },
-    { name: 'Login / Account', icon: '👤' },
-    { name: 'Technical Problem', icon: '⚙️' },
-    { name: 'Other', icon: '❓' }
   ];
 
   return (
@@ -161,6 +201,29 @@ export default function Contact() {
                 </div>
               </div>
 
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">Category *</label>
+                <select
+                  required
+                  value={formData.category}
+                  onChange={(e) => updateField('category', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-600 bg-white"
+                >
+                  <option value="">Select a category</option>
+                  <optgroup label="HR Officer">
+                    {HR_CATEGORIES.map((category) => <option key={category.name} value={category.name}>{category.name}</option>)}
+                  </optgroup>
+                  <optgroup label="System Admin">
+                    {ADMIN_CATEGORIES.map((category) => <option key={category.name} value={category.name}>{category.name}</option>)}
+                  </optgroup>
+                </select>
+                {formData.category && (
+                  <p role="status" className={`text-xs font-medium ${isAdminInquiry ? 'text-indigo-700' : 'text-teal-700'}`}>
+                    This inquiry will be sent to {isAdminInquiry ? 'System Admin' : 'HR Officer'}.
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">Email *</label>
@@ -177,38 +240,22 @@ export default function Contact() {
                   <label className="text-xs font-semibold text-slate-700">Subject *</label>
                   <select 
                     required
+                    disabled={!formData.category}
                     value={formData.subject}
                     onChange={(e) => updateField('subject', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-600 bg-white"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-600 bg-white disabled:cursor-not-allowed disabled:bg-slate-100"
                   >
-                    <option value="">Select subject</option>
-                    <option value="General Inquiry">General Inquiry</option>
-                    <option value="Technical Issue">Technical Issue</option>
-                    <option value="Clearance Delay">Clearance Delay</option>
+                    <option value="">{formData.category ? 'Select subject' : 'Select a category first'}</option>
+                    {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
                   </select>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Category *</label>
-                <select 
-                  required
-                  value={formData.category}
-                  onChange={(e) => updateField('category', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-600 bg-white"
-                >
-                  <option value="">Select a category</option>
-                  <option value="Clearance Application">Clearance Application</option>
-                  <option value="Clearance Status">Clearance Status</option>
-                  <option value="Document Problem">Document Problem</option>
-                  <option value="Office Approval">Office Approval</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">Message *</label>
                 <textarea 
-                  rows="4" 
+                  rows="4"
+                  maxLength={5000}
                   required
                   placeholder="Type your message here..." 
                   value={formData.message}
@@ -219,13 +266,17 @@ export default function Contact() {
 
               <button 
                 type="submit" 
-                className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 rounded-lg text-xs transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+                disabled={submitting}
+                className="w-full bg-blue-700 hover:bg-blue-800 disabled:cursor-wait disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg text-xs transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
               >
                 <span>🚀</span>
-                <span>Send Message</span>
+                <span>{submitting ? 'Sending...' : 'Send Message'}</span>
               </button>
+              {formError && (
+                <p role="alert" className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{formError}</p>
+              )}
               {formStatus && (
-                <p role="status" className="border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                <p role="status" className="fixed right-5 top-5 z-[120] max-w-sm rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800 shadow-lg">
                   {formStatus}
                 </p>
               )}
@@ -241,7 +292,7 @@ export default function Contact() {
           <div className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
             <h3 className="font-bold text-slate-900 text-base">Support Categories</h3>
             <div className="space-y-2">
-              {supportCategories.map((cat) => (
+              {[...HR_CATEGORIES, ...ADMIN_CATEGORIES].map((cat) => (
                 <button type="button" key={cat.name} onClick={() => updateField('category', cat.name)} className={`w-full flex items-center justify-between p-2.5 rounded-xl transition border text-xs font-medium text-left ${formData.category === cat.name ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-slate-100 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>
                   <div className="flex items-center space-x-2.5">
                     <span>{cat.icon}</span>

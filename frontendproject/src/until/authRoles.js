@@ -17,6 +17,7 @@ export const canonicalizeRole = (role) => {
   if (normalized.includes('property') && normalized.includes('asset')) return 'property officer';
   if (['asset officer'].includes(normalized)) return 'property officer';
   if (['department head', 'departmen head', 'departmenthead', 'head of department', 'department approver'].includes(normalized)) return 'department head';
+  if (['registrar officer', 'registrar office', 'registrar', 'registrarofficer'].includes(normalized)) return 'registrar officer';
   if (['hr', 'hr officer', 'human resource officer', 'human resources officer'].includes(normalized)) return 'hr officer';
   if (['finance officer', 'finanace officer', 'finance office', 'finance'].includes(normalized)) return 'finance officer';
   if (['ict officer', 'ict office', 'ict'].includes(normalized)) return 'ict officer';
@@ -45,11 +46,22 @@ export const getActiveRole = (user) => {
   return userRoles[0] || '';
 };
 
+export const getStoredActiveRole = () => {
+  if (typeof window === 'undefined') return '';
+
+  return canonicalizeRole(window.localStorage.getItem('activeRole')) || '';
+};
+
 export const getDashboardPath = (roleOrUser) => {
-  const role = typeof roleOrUser === 'object' ? getActiveRole(roleOrUser) : roleOrUser;
+  const role = typeof roleOrUser === 'object'
+    ? getActiveRole(roleOrUser)
+    : canonicalizeRole(roleOrUser) || getStoredActiveRole();
+
   switch (canonicalizeRole(role)) {
     case 'admin':
       return '/admin';
+    case 'registrar officer':
+      return '/registrar-office';
     case 'hr officer':
       return '/hr-office';
     case 'department head':
@@ -67,7 +79,7 @@ export const getDashboardPath = (roleOrUser) => {
     case 'employee':
       return '/employee-dashboard';
     default:
-      return null;
+      return canonicalizeRole(role) ? '/clearance-office' : null;
   }
 };
 

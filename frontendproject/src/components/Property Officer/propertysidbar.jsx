@@ -21,6 +21,8 @@ import {
   RotateCcw,
   ListCheck,
   LockKeyhole,
+  Globe2,
+  X,
 } from "lucide-react";
 import UniversitySeal from '../UniversitySeal';
 
@@ -36,11 +38,23 @@ function PropertyLayoutContent() {
   const [clearanceOpen, setClearanceOpen] = useState(true);
   const [assetRecordsOpen, setAssetRecordsOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const accountMenuRef = useRef(null);
   const { user, logout } = useAuth();
   const { language, setLanguage, t } = usePropertyLanguage();
+  const [selectedLanguage, setSelectedLanguage] = useState(language);
   const location = useLocation();
+
+  const openLanguageDialog = () => {
+    setSelectedLanguage(language);
+    setLanguageDialogOpen(true);
+  };
+
+  const saveLanguage = () => {
+    setLanguage(selectedLanguage);
+    setLanguageDialogOpen(false);
+  };
 
   const isClearanceActive = location.pathname.startsWith("/property/clearance-requests");
   const isAssetRecordsActive = location.pathname.startsWith("/property/asset-records");
@@ -81,6 +95,17 @@ function PropertyLayoutContent() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [accountMenuOpen]);
+
+  useEffect(() => {
+    if (!languageDialogOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setLanguageDialogOpen(false);
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [languageDialogOpen]);
 
   const closeAccountMenu = () => setAccountMenuOpen(false);
 
@@ -202,13 +227,14 @@ function PropertyLayoutContent() {
           <div className="flex items-center gap-3 sm:gap-5">
             <button
               type="button"
-              onClick={() => setLanguage(language === 'en' ? 'am' : 'en')}
-              aria-label={t('Switch language to Amharic', 'ቋንቋን ወደ እንግሊዝኛ ቀይር')}
-              title={t('Switch between English and Amharic', 'በእንግሊዝኛ እና በአማርኛ መካከል ይቀይሩ')}
+              onClick={openLanguageDialog}
+              aria-label={t('Choose language', 'ቋንቋ ይምረጡ')}
+              aria-haspopup="dialog"
               className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-xs font-semibold transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
             >
-              <Settings size={15} />
-              <span>{language === 'en' ? 'EN/አማ' : 'አማ/EN'}</span>
+              <Globe2 size={16} aria-hidden="true" />
+              <span>{language === 'en' ? 'English' : 'አማርኛ'}</span>
+              <ChevronDown size={13} aria-hidden="true" />
             </button>
 
             <Link
@@ -287,6 +313,66 @@ function PropertyLayoutContent() {
           <Outlet />
         </main>
       </div>
+      {languageDialogOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLanguageDialogOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="property-language-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-800 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="property-language-title" className="text-lg font-semibold">{t('Choose language', 'ቋንቋ ይምረጡ')}</h2>
+                <p className="mt-1 text-sm text-slate-500">{t('Select your preferred language.', 'የሚመርጡትን ቋንቋ ይምረጡ።')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLanguageDialogOpen(false)}
+                aria-label={t('Close', 'ዝጋ')}
+                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mt-5 space-y-2">
+              {[
+                { value: 'en', label: 'English' },
+                { value: 'am', label: 'አማርኛ' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selectedLanguage === option.value}
+                  onClick={() => setSelectedLanguage(option.value)}
+                  className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
+                    selectedLanguage === option.value
+                      ? 'border-teal-600 bg-teal-50 font-semibold text-teal-800'
+                      : 'border-slate-200 hover:border-teal-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {option.label}
+                  {selectedLanguage === option.value && <CheckCircle2 size={18} aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={saveLanguage}
+                className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+              >
+                {t('Save', 'አስቀምጥ')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

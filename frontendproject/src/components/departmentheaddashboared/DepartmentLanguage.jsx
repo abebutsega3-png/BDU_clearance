@@ -4,6 +4,10 @@ const DepartmentLanguageContext = createContext(null);
 const LANGUAGE_KEY = 'department-head-language';
 
 const translations = {
+  'Choose language': 'ቋንቋ ይምረጡ',
+  'Select your preferred language.': 'የሚመርጡትን ቋንቋ ይምረጡ።',
+  Close: 'ዝጋ',
+  Save: 'አስቀምጥ',
   'Department Head': 'የዲፓርትመንት ኃላፊ',
   'Clearance System': 'የክሊራንስ ስርዓት',
   Dashboard: 'ዳሽቦርድ',

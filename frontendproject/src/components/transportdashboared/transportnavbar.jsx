@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import {
 	Bell,
+	CheckCircle2,
 	ChevronDown,
 	Globe2,
 	LayoutDashboard,
@@ -11,6 +12,7 @@ import {
 	UserRound,
 	KeyRound,
 	Users,
+	X,
 } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
 import { canonicalizeRole, getActiveRole, getDashboardPath, getUserRoles } from '../../until/authRoles';
@@ -45,6 +47,8 @@ const TransportNavbar = () => {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [unreadCount, setUnreadCount] = useState(0);
 	const [language, setLanguage] = useState(() => localStorage.getItem('transportLanguage') || 'en');
+	const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+	const [selectedLanguage, setSelectedLanguage] = useState(language);
 	const t = (english, amharic) => (language === 'am' ? (amharic || english) : english);
 	const menuRef = useRef(null);
 	const navigate = useNavigate();
@@ -61,11 +65,32 @@ const TransportNavbar = () => {
 		navigate(path);
 	};
 
+	const openLanguageDialog = () => {
+		setSelectedLanguage(language);
+		setLanguageDialogOpen(true);
+	};
+
+	const saveLanguage = () => {
+		setLanguage(selectedLanguage);
+		setLanguageDialogOpen(false);
+	};
+
 	useEffect(() => {
 		localStorage.setItem('transportLanguage', language);
 		document.documentElement.lang = language === 'am' ? 'am' : 'en';
 		window.dispatchEvent(new Event('transport-language-change'));
 	}, [language]);
+
+	useEffect(() => {
+		if (!languageDialogOpen) return undefined;
+
+		const handleKeyDown = (event) => {
+			if (event.key === 'Escape') setLanguageDialogOpen(false);
+		};
+
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [languageDialogOpen]);
 
 	useEffect(() => {
 		const handleOutsideClick = (event) => {
@@ -108,19 +133,17 @@ const TransportNavbar = () => {
 			</div>
 
 			<div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-4">
-				<label className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/35 px-3 text-sm font-semibold text-white transition hover:bg-white/10 focus-within:outline focus-within:outline-2 focus-within:outline-white sm:h-12 sm:gap-3 sm:px-5">
+				<button
+					type="button"
+					onClick={openLanguageDialog}
+					aria-label={t('Choose language', 'ቋንቋ ይምረጡ')}
+					aria-haspopup="dialog"
+					className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-white/35 px-3 text-sm font-semibold text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white sm:h-12 sm:gap-3 sm:px-5"
+				>
 					<Globe2 size={20} aria-hidden="true" />
-					<select
-						aria-label="Language"
-						value={language}
-						onChange={(event) => setLanguage(event.target.value)}
-						className="cursor-pointer appearance-none bg-transparent pr-1 text-sm font-semibold text-white outline-none"
-					>
-						<option value="en" className="text-slate-900">English</option>
-						<option value="am" className="text-slate-900">አማርኛ</option>
-					</select>
+					{language === 'am' ? 'አማርኛ' : 'English'}
 					<ChevronDown size={15} aria-hidden="true" className="text-white/80" />
-				</label>
+				</button>
 
 				<Link
 					to="/transport-office/notifications"
@@ -241,6 +264,66 @@ const TransportNavbar = () => {
 					)}
 				</div>
 			</div>
+			{languageDialogOpen && (
+				<div
+					className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 px-4 py-6"
+					onMouseDown={(event) => {
+						if (event.target === event.currentTarget) setLanguageDialogOpen(false);
+					}}
+				>
+					<section
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="transport-language-title"
+						className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-800 shadow-2xl"
+					>
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<h2 id="transport-language-title" className="text-lg font-semibold">{t('Choose language', 'ቋንቋ ይምረጡ')}</h2>
+								<p className="mt-1 text-sm text-slate-500">{t('Select your preferred language.', 'የሚመርጡትን ቋንቋ ይምረጡ።')}</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setLanguageDialogOpen(false)}
+								aria-label={t('Close', 'ዝጋ')}
+								className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+							>
+								<X size={18} />
+							</button>
+						</div>
+						<div className="mt-5 space-y-2">
+							{[
+								{ value: 'en', label: 'English' },
+								{ value: 'am', label: 'አማርኛ' },
+							].map((option) => (
+								<button
+									key={option.value}
+									type="button"
+									aria-pressed={selectedLanguage === option.value}
+									onClick={() => setSelectedLanguage(option.value)}
+									className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
+										selectedLanguage === option.value
+											? 'border-teal-600 bg-teal-50 font-semibold text-teal-800'
+											: 'border-slate-200 hover:border-teal-300 hover:bg-slate-50'
+									}`}
+								>
+									{option.label}
+									{selectedLanguage === option.value && <CheckCircle2 size={18} aria-hidden="true" />}
+								</button>
+							))}
+						</div>
+						<div className="mt-6 flex justify-end">
+							<button
+								type="button"
+								onClick={saveLanguage}
+								className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+							>
+								{t('Save', 'አስቀምጥ')}
+							</button>
+						</div>
+					</section>
+				</div>
+			)}
 		</header>
 	);
 };

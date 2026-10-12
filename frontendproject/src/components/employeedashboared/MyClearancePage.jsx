@@ -46,6 +46,26 @@ const getLocalDateOnly = (date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+const getFutureDateLimit = (daysAhead = 365) => {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+  return getLocalDateOnly(date);
+};
+
+const getClearanceDateError = ({ requestDate, lastWorkingDate }) => {
+  const today = getLocalDateOnly();
+  if (requestDate && requestDate > today) {
+    return 'Request date cannot be in the future.';
+  }
+  if (lastWorkingDate && lastWorkingDate < requestDate) {
+    return 'Last working date cannot be earlier than the request date.';
+  }
+  if (lastWorkingDate && lastWorkingDate > getFutureDateLimit()) {
+    return 'Last working date must be within a reasonable future window and cannot be more than one year ahead.';
+  }
+  return '';
+};
+
 export default function MyClearancePage() {
   const { user } = useAuth();
   const { pathname } = useLocation();
@@ -179,6 +199,14 @@ export default function MyClearancePage() {
     }
     if (!formData.lastWorkingDate) {
       setError('Last working date is required.');
+      return;
+    }
+    const dateError = getClearanceDateError({
+      requestDate: getLocalDateOnly(),
+      lastWorkingDate: formData.lastWorkingDate,
+    });
+    if (dateError) {
+      setError(dateError);
       return;
     }
     if (!formData.confirmed) {

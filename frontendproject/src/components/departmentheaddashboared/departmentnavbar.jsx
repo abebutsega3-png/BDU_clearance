@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, ClipboardCheck, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound } from 'lucide-react';
+import { Bell, CheckCircle2, ChevronDown, ClipboardCheck, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound, X } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
 import { canonicalizeRole, getActiveRole, getDashboardPath, getUserRoles } from '../../until/authRoles';
 import UniversitySeal from '../UniversitySeal';
@@ -10,8 +10,31 @@ const DepartmentNavbar = () => {
   const { user, switchActiveRole, logout } = useAuth();
   const { language, setLanguage, t } = useDepartmentLanguage();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState(language);
   const accountMenuRef = useRef(null);
   const navigate = useNavigate();
+
+  const openLanguageDialog = () => {
+    setSelectedLanguage(language);
+    setLanguageDialogOpen(true);
+  };
+
+  const saveLanguage = () => {
+    setLanguage(selectedLanguage);
+    setLanguageDialogOpen(false);
+  };
+
+  useEffect(() => {
+    if (!languageDialogOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setLanguageDialogOpen(false);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [languageDialogOpen]);
 
   useEffect(() => {
     if (!accountMenuOpen) return undefined;
@@ -48,20 +71,17 @@ const DepartmentNavbar = () => {
   return (
     <header className="flex min-h-[72px] items-center justify-end bg-[#0d7c74] px-4 py-3 text-white shadow-sm sm:px-6">
       <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-        <label className="inline-flex h-12 items-center gap-3 rounded-full border-2 border-white/90 bg-[#0d7c74] px-4 text-base font-semibold text-white shadow-sm transition hover:bg-[#0b6e68] focus-within:outline focus-within:outline-2 focus-within:outline-white sm:px-5">
+        <button
+          type="button"
+          onClick={openLanguageDialog}
+          aria-label={t('Choose language')}
+          aria-haspopup="dialog"
+          className="inline-flex h-12 items-center gap-3 rounded-full border-2 border-white/90 bg-[#0d7c74] px-4 text-base font-semibold text-white shadow-sm transition hover:bg-[#0b6e68] focus-visible:outline focus-visible:outline-2 focus-visible:outline-white sm:px-5"
+        >
           <Globe2 size={22} aria-hidden="true" />
-          <span className="sr-only">Language</span>
-          <select
-            aria-label="Language"
-            value={language}
-            onChange={(event) => setLanguage(event.target.value)}
-            className="max-w-24 cursor-pointer appearance-none bg-transparent text-base font-semibold text-white outline-none"
-          >
-            <option value="en" className="text-slate-900">English</option>
-            <option value="am" className="text-slate-900">Amharic</option>
-          </select>
+          {language === 'am' ? 'አማርኛ' : 'English'}
           <ChevronDown size={18} aria-hidden="true" />
-        </label>
+        </button>
 
         <button
           type="button"
@@ -160,6 +180,66 @@ const DepartmentNavbar = () => {
           )}
         </div>
       </div>
+      {languageDialogOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLanguageDialogOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="department-language-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-800 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="department-language-title" className="text-lg font-semibold">{t('Choose language')}</h2>
+                <p className="mt-1 text-sm text-slate-500">{t('Select your preferred language.')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLanguageDialogOpen(false)}
+                aria-label={t('Close')}
+                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mt-5 space-y-2">
+              {[
+                { value: 'en', label: 'English' },
+                { value: 'am', label: 'አማርኛ' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selectedLanguage === option.value}
+                  onClick={() => setSelectedLanguage(option.value)}
+                  className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
+                    selectedLanguage === option.value
+                      ? 'border-teal-600 bg-teal-50 font-semibold text-teal-800'
+                      : 'border-slate-200 hover:border-teal-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {option.label}
+                  {selectedLanguage === option.value && <CheckCircle2 size={18} aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={saveLanguage}
+                className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+              >
+                {t('Save')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </header>
   );
 };

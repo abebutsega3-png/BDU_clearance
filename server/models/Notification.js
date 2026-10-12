@@ -94,6 +94,11 @@ const notificationTypeEnum = [
   ,'SYSTEM_SECURITY_EVENT'
   ,'SYSTEM_ERROR'
   ,'SYSTEM_AUDIT_EVENT'
+  ,'HR_QUICK_REPLY'
+  ,'HR_CONTACT_REPLY'
+  ,'HR_CONTACT_INQUIRY'
+  ,'ADMIN_CONTACT_INQUIRY'
+  ,'ADMIN_CONTACT_REPLY'
 ];
 
 const NotificationSchema = new mongoose.Schema({
@@ -107,7 +112,11 @@ const NotificationSchema = new mongoose.Schema({
   actionLink: { type: String, default: '#' },
   relatedRequestId: { type: String, default: null },
   clearanceRequestId: { type: String, default: null },
+  relatedContactMessageId: { type: mongoose.Schema.Types.ObjectId, ref: 'ContactMessage', default: null },
   relatedAssetId: { type: String, default: null },
+  status: { type: String, default: 'Pending' },
+  replyMessage: { type: String, default: '' },
+  repliedAt: { type: Date, default: null },
   isRead: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });

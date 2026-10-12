@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import User from '../models/User.js';
 import { recordAuditLog } from './auditLogger.js';
 import { sendNotificationEmail } from '../utils/emailService.js';
+import { resolveUserRoleState } from '../utils/userRoleState.js';
 
 const refreshCookieName = 'bdu_refresh_token';
 const refreshTokenSecret = () => process.env.JWT_REFRESH_KEY || process.env.JWT_KEY;
@@ -23,18 +24,21 @@ const getRefreshToken = (req) => {
   const cookie = cookieHeader.split(';').map((item) => item.trim()).find((item) => item.startsWith(`${refreshCookieName}=`));
   return cookie ? cookie.slice(refreshCookieName.length + 1) : '';
 };
-const createAccessToken = (user) => jwt.sign(
-  {
-    _id: user._id,
-    role: user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee'),
-    roles: Array.isArray(user.roles) ? user.roles : [user.role || 'Employee'],
-    activeRole: user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee'),
-    tokenVersion: user.tokenVersion || 0,
-    tokenUse: 'access'
-  },
-  process.env.JWT_KEY,
-  { expiresIn: '12h' }
-);
+const createAccessToken = (user) => {
+  const roleState = resolveUserRoleState(user);
+  return jwt.sign(
+    {
+      _id: user._id,
+      role: roleState.activeRole,
+      roles: roleState.roles,
+      activeRole: roleState.activeRole,
+      tokenVersion: user.tokenVersion || 0,
+      tokenUse: 'access'
+    },
+    process.env.JWT_KEY,
+    { expiresIn: '12h' }
+  );
+};
 
 const login = async (req, res) => {
   try {
@@ -72,7 +76,8 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    const token = createAccessToken(user);
+    const roleState = resolveUserRoleState(user);
+    const token = createAccessToken({ ...user, ...roleState, role: roleState.activeRole });
     const refreshToken = jwt.sign(
       { _id: user._id, tokenVersion: user.tokenVersion || 0, tokenUse: 'refresh' },
       refreshTokenSecret(),
@@ -106,7 +111,6 @@ const login = async (req, res) => {
       notificationKey: 'securityAlert',
     }).catch((error) => console.error('Login notification failed:', error.message));
 
-    const activeRole = user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee');
     return res.status(200).json({
       success: true,
       token,
@@ -116,9 +120,9 @@ const login = async (req, res) => {
         username: user.username,
         email: user.email,
         employeeId: user.employeeId,
-        role: activeRole,
-        roles: Array.isArray(user.roles) ? user.roles : [user.role || activeRole],
-        activeRole,
+        role: roleState.activeRole,
+        roles: roleState.roles,
+        activeRole: roleState.activeRole,
         department: user.department,
       },
     });
@@ -149,7 +153,7 @@ const refresh = async (req, res) => {
     }
 
     const user = await User.findById(decoded._id)
-      .select('_id role status tokenVersion')
+      .select('_id role roles activeRole status tokenVersion')
       .maxTimeMS(5000)
       .lean();
     if (!user || user.status !== 'Active' || (decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
@@ -180,7 +184,7 @@ const verify = async (req, res) => {
     return res.status(401).json({ success: false, message: 'Authenticated user was not found.' });
   }
 
-  const activeRole = user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee');
+  const roleState = resolveUserRoleState(user);
   return res.status(200).json({
     success: true,
     user: {
@@ -189,9 +193,9 @@ const verify = async (req, res) => {
       username: user.username,
       email: user.email,
       employeeId: user.employeeId,
-      role: activeRole,
-      roles: Array.isArray(user.roles) ? user.roles : [user.role || activeRole],
-      activeRole,
+      role: roleState.activeRole,
+      roles: roleState.roles,
+      activeRole: roleState.activeRole,
       department: user.department,
       profileImage: user.profileImage,
     },
@@ -214,7 +218,7 @@ const getProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const activeRole = user.activeRole || user.role || (Array.isArray(user.roles) ? user.roles[0] : 'Employee');
+    const roleState = resolveUserRoleState(user);
     return res.status(200).json({
       success: true,
       user: {
@@ -224,9 +228,9 @@ const getProfile = async (req, res) => {
         email: user.email,
         phoneNumber: user.phoneNumber,
         employeeId: user.employeeId,
-        role: activeRole,
-        roles: Array.isArray(user.roles) ? user.roles : [user.role || activeRole],
-        activeRole,
+        role: roleState.activeRole,
+        roles: roleState.roles,
+        activeRole: roleState.activeRole,
         department: user.department,
         profileImage: user.profileImage,
         status: user.status,

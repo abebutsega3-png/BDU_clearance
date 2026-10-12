@@ -33,7 +33,7 @@ export default function EditRole() {
   useEffect(() => {
     const loadRole = async () => {
       try {
-        const response = await axios.get(`http://localhost:3000/api/roles/${id}`, { headers: headers() });
+        const response = await axios.get(`/api/roles/${id}`, { headers: headers() });
         const role = response.data.role;
         setRoleName(role.name || '');
         setDescription(role.description || '');
@@ -61,7 +61,7 @@ export default function EditRole() {
     setSaving(true);
     setMessage('');
     try {
-      await axios.put(`http://localhost:3000/api/roles/${id}`, {
+      await axios.put(`/api/roles/${id}`, {
         name: roleName.trim(), description: description.trim(), status, isClearanceOffice,
         permissions: moduleNames.map(([module], moduleIndex) => ({
           module,

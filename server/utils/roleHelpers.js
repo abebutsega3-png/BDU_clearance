@@ -13,4 +13,14 @@ const departmentHeadAliases = new Set([
   'department approver',
 ]);
 
-export const isDepartmentHead = (role) => departmentHeadAliases.has(normalizeRole(role));
+export const isDepartmentHead = (roleOrUser) => {
+  const roles = roleOrUser && typeof roleOrUser === 'object'
+    ? [
+      roleOrUser.role,
+      roleOrUser.activeRole,
+      ...(Array.isArray(roleOrUser.roles) ? roleOrUser.roles : []),
+    ]
+    : [roleOrUser];
+
+  return roles.some((role) => departmentHeadAliases.has(normalizeRole(role)));
+};

@@ -40,6 +40,7 @@ export default function Login() {
       });
 
       if (response.status === 200 && response.data?.success) {
+        localStorage.removeItem('activeRole');
         localStorage.setItem('token', response.data.token);
         login(response.data.user);
         const dashboardPath = getDashboardPath(response.data.user?.role);

@@ -9,13 +9,16 @@ const connectToDB = async () => {
 
     try {
         await mongoose.connect(mongoUrl, {
-            serverSelectionTimeoutMS: 5000,
-            family: 4
+            serverSelectionTimeoutMS: 45000, // ሰዓቱን ወደ 45 ሰከንድ ከፍ በማድረግ ቲማውት እንዳይኖር ማድረግ
+            socketTimeoutMS: 45000,         // የኔትወርክ መቆራረጥ እንዳይፈጠር
+            connectTimeoutMS: 45000,
+            heartbeatFrequencyMS: 10000,    // ከሞንጎዲቢ ጋር ያለውን ግንኙነት በንቃት መከታተያ
+            family: 4                       // IPv4 ብቻ እንዲጠቀም ማድረግ
         });
-        console.log("Connected to MongoDB");
+        console.log("Connected to MongoDB successfully!");
         return true;
     } catch (error) {
-        console.error("MongoDB connection failed. Start the MongoDB service and verify MONGODB_URI or MONGODB_URL in server/.env:", error.message);
+        console.error("MongoDB connection failed:", error.message);
         return false;
     }
 };

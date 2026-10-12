@@ -15,6 +15,10 @@ const formatDate = (value, fallback = '—') => {
 };
 
 const displayValue = (value, fallback = '—') => value || fallback;
+const getReviewerName = (value) => {
+  if (value && typeof value === 'object') return value.fullName || value.name || value.username || '';
+  return value || '';
+};
 const getCertificateErrorMessage = (error, fallback) => {
   if (error.response?.status === 401) {
     const message = error.response?.data?.message;
@@ -28,7 +32,7 @@ const authConfig = () => ({
   headers: { Authorization: `******'token') || ''}` },
 });
 const displayReviewerName = (value) => {
-  const name = String(value || '').trim();
+  const name = String(getReviewerName(value) || '').trim();
   const roleLabels = /^(hr(?: officer)?|finance officer|department head|library officer|property(?:\s*\/\s*asset)? officer|ict officer|transport officer)$/i;
   return !name || name === '-' || name === '—' || roleLabels.test(name) ? '—' : name;
 };
@@ -45,6 +49,10 @@ const normalizeOfficeName = (value) => {
 };
 
 const getOfficeSummary = (clearance) => {
+  const finalApprovalRecorded = clearance?.finalHRApproval === true
+    && String(clearance?.status || '').toLowerCase() === 'completed';
+  const initialHRApproved = String(clearance?.initialHRStatus || '').toLowerCase() === 'approved'
+    || finalApprovalRecorded;
   const requiredOffices = clearance?.manualRoutingEnabled
     ? clearance.assignedDepartments
     : clearance?.requiredOffices;
@@ -59,9 +67,9 @@ const getOfficeSummary = (clearance) => {
   const offices = [
     {
       name: 'HR Office',
-      status: clearance?.initialHRStatus === 'Approved' ? 'APPROVED' : clearance?.initialHRStatus || 'PENDING',
-      approvedBy: clearance?.initialHRReviewedBy || clearance?.finalHROfficer || clearance?.hrManagerName,
-      approvalDate: clearance?.initialHRReviewedAt || clearance?.finalHRApprovalDate,
+      status: initialHRApproved ? 'APPROVED' : clearance?.initialHRStatus || 'PENDING',
+      approvedBy: clearance?.initialHRReviewedBy || (finalApprovalRecorded ? clearance?.finalHRReviewedBy : '') || clearance?.finalHROfficer || clearance?.hrManagerName,
+      approvalDate: clearance?.initialHRReviewedAt || (finalApprovalRecorded ? clearance?.finalHRApprovalDate || clearance?.updatedAt : ''),
     },
     { name: 'Department Head', status: clearance?.departmentStatus || 'PENDING', approvedBy: clearance?.departmentReviewedBy, approvalDate: clearance?.departmentReviewedAt },
     ...assignedOffices.map((name) => ({ name })),
@@ -91,6 +99,7 @@ const getOfficeSummary = (clearance) => {
       : mappedFields.length
         ? clearance?.[mappedFields[0]]
         : '';
+    const isHrOffice = normalizeOfficeName(office.name) === 'finalhrclearance';
     const reviewerCandidates = [
       office.approvedBy,
       mappedFields.length ? clearance?.[mappedFields[1]] : '',
@@ -104,9 +113,11 @@ const getOfficeSummary = (clearance) => {
       .map(displayReviewerName)
       .find((name) => name !== '—') || '—';
     const approvalDate = office.approvalDate || (mappedFields.length ? clearance?.[mappedFields[2]] : '');
-    const resolvedStatus = status && !['pending', ''].includes(String(status).toLowerCase())
-      ? status
-      : match?.status || office.status || 'PENDING';
+    const resolvedStatus = isHrOffice && initialHRApproved
+      ? 'APPROVED'
+      : status && !['pending', ''].includes(String(status).toLowerCase())
+        ? status
+        : match?.status || office.status || 'PENDING';
     return {
       ...office,
       status: String(resolvedStatus).toUpperCase(),

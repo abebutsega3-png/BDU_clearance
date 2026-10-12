@@ -4,6 +4,7 @@ import User from '../models/User.js';
 import Employee from '../models/employee.js';
 import Department from '../models/department.js';
 import { recordAuditLog } from './auditLogger.js';
+import { selectActiveRole } from '../utils/userRoleState.js';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -155,10 +156,11 @@ const addUser = async (req, res) => {
         currentUser.activeRole,
         ...resolvedRoles,
       ].filter(Boolean))];
-      const existingActiveRole = currentUser.activeRole || currentUser.role;
-      currentUser.activeRole = currentUser.roles.includes(existingActiveRole)
-        ? existingActiveRole
-        : currentUser.roles[0];
+      currentUser.activeRole = selectActiveRole(currentUser.roles, [
+        activeRole,
+        currentUser.activeRole,
+        currentUser.role,
+      ]);
       currentUser.role = currentUser.activeRole;
       currentUser.status = status || currentUser.status || 'Active';
       if (password) currentUser.password = await bcrypt.hash(password, 10);
@@ -223,6 +225,120 @@ const addUser = async (req, res) => {
   }
 };
 
+const updateUser = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { username, employeeId, password, confirmPassword, role, roles, status, activeRole } = req.body;
+    const selectedRoles = parseUserRoles(roles?.length ? roles : role);
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'User ID is required.' });
+    }
+    if (!username?.trim() || !employeeId?.trim() || !selectedRoles.length) {
+      return res.status(400).json({ success: false, message: 'Username, employee ID, and at least one role are required.' });
+    }
+    if (password && password !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Password and confirm password must match.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    const currentUserIsTargetUser = req.user && user._id && req.user._id && String(req.user._id) === String(user._id);
+    const existingRoleValues = [...new Set([...(user.roles || []), user.role, user.activeRole].filter(Boolean))];
+    const targetHasAdminRole = existingRoleValues.some((roleValue) => String(roleValue).toLowerCase().includes('admin') || String(roleValue).toLowerCase() === 'administrator');
+    const selectedHasAdminRole = selectedRoles.some((roleValue) => String(roleValue).toLowerCase().includes('admin') || String(roleValue).toLowerCase() === 'administrator');
+    if (currentUserIsTargetUser && targetHasAdminRole && !selectedHasAdminRole) {
+      return res.status(403).json({ success: false, message: 'You cannot remove your Administrator role from your own account.' });
+    }
+
+    const employee = await Employee.findOne({ employeeId: employeeId.trim() }).lean();
+    if (!employee) return res.status(404).json({ success: false, message: 'Linked employee was not found.' });
+
+    const normalizedUsername = username.trim();
+    const normalizedEmployeeId = employee.employeeId.trim();
+    const normalizedEmail = employee.email?.trim().toLowerCase() || '';
+
+    const duplicateUsername = await User.findOne({ username: normalizedUsername, _id: { $ne: user._id } }).select('_id username employeeId').lean();
+    if (duplicateUsername) {
+      return res.status(409).json({ success: false, message: 'Username already exists.' });
+    }
+
+    if (normalizedEmail) {
+      const duplicateEmail = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } }).select('_id email employeeId').lean();
+      if (duplicateEmail) {
+        return res.status(409).json({ success: false, message: 'Email already exists.' });
+      }
+    }
+
+    const duplicateEmployeeUser = await User.findOne({ employeeId: normalizedEmployeeId, _id: { $ne: user._id } }).select('_id employeeId').lean();
+    if (duplicateEmployeeUser) {
+      return res.status(409).json({ success: false, message: 'This employee is already linked to another user account.' });
+    }
+
+    const resolvedRoles = [...new Set(selectedRoles)];
+    const resolvedActiveRole = activeRole || resolvedRoles[0] || user.activeRole || user.role || 'Employee';
+    const previousValues = {
+      userId: user._id,
+      username: user.username,
+      employeeId: user.employeeId,
+      roles: [...(user.roles || [])],
+      activeRole: user.activeRole,
+      status: user.status,
+    };
+
+    user.username = normalizedUsername;
+    user.employeeId = normalizedEmployeeId;
+    user.name = employee.fullName;
+    user.email = normalizedEmail;
+    user.department = employee.department;
+    user.departmentId = employee.departmentId || user.departmentId || null;
+    user.roles = resolvedRoles;
+    user.role = resolvedActiveRole;
+    user.activeRole = resolvedActiveRole;
+    user.status = status || user.status || 'Active';
+
+    if (password) {
+      user.password = await bcrypt.hash(password, 10);
+    }
+
+    await user.save();
+
+    await recordAuditLog({
+      req,
+      user: req.user,
+      action: 'UPDATE_USER',
+      module: 'Users',
+      description: `Updated user details for ${user.name}.`,
+      oldValues: previousValues,
+      newValues: {
+        userId: user._id,
+        username: normalizedUsername,
+        employeeId: normalizedEmployeeId,
+        roles: resolvedRoles,
+        activeRole: resolvedActiveRole,
+        status: user.status,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'User updated successfully.',
+      user: {
+        id: user._id,
+        username: user.username,
+        employeeId: user.employeeId,
+        roles: user.roles,
+        activeRole: user.activeRole,
+        status: user.status,
+      },
+    });
+  } catch (error) {
+    console.error('Error in updateUser:', error);
+    return res.status(500).json({ success: false, message: 'Server error while updating user.' });
+  }
+};
+
 const resetUserPassword = async (req, res) => {
   try {
     const { password, confirmPassword } = req.body;
@@ -261,4 +377,4 @@ const resetUserPassword = async (req, res) => {
   }
 };
 
-export { getUsers, getUser, addUser, resetUserPassword };
+export { getUsers, getUser, addUser, updateUser, resetUserPassword };

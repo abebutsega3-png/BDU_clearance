@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { CheckCircle2, ClipboardList, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000')
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '')
   .replace(/\/api\/clearance\/?$/, '')
   .replace(/\/api\/?$/, '')
   .replace(/\/$/, '');
-const API_ROOT = `${API_BASE_URL}/api`;
+const API_ROOT = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
 const CHECKLIST_LABELS = [
   ['empInfoVerified', 'Employee details verified'],
   ['clearanceRequestVerified', 'Clearance request verified'],
@@ -115,6 +115,24 @@ export default function HRWorkflowPanel() {
         if (active) setLoadingQueue(false);
       });
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refreshOffices = async () => {
+      try {
+        const clearanceOffices = await fetchClearanceOffices();
+        if (active) setOffices(clearanceOffices);
+      } catch (loadError) {
+        if (active) setError(getErrorMessage(loadError));
+      }
+    };
+
+    window.addEventListener('focus', refreshOffices);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshOffices);
+    };
   }, []);
 
   useEffect(() => {

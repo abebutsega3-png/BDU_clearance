@@ -6,6 +6,7 @@ import { canonicalizeRole, getActiveRole, getDashboardPath, getUserRoles } from 
 import { fetchUnreadNotificationCount } from '../../until/NotificationHelper';
 import { useEmployeeLanguage } from './EmployeeLanguage';
 import UniversitySeal from '../UniversitySeal';
+import { subscribeToNotifications } from '../../until/notificationSocket';
 
 const roleDetails = {
   employee: {
@@ -30,7 +31,9 @@ const EmployeeNavbar = ({ onMenuClick }) => {
   const { language, setLanguage, t } = useEmployeeLanguage();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [realtimeNotification, setRealtimeNotification] = useState(null);
   const accountMenuRef = useRef(null);
+  const notificationTimeoutRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const employeeName = user?.name || user?.fullName || 'Employee';
@@ -54,11 +57,19 @@ const EmployeeNavbar = ({ onMenuClick }) => {
 
     loadUnreadCount();
     window.addEventListener('notifications-updated', loadUnreadCount);
+    const unsubscribeFromNotifications = subscribeToNotifications((notification) => {
+      setRealtimeNotification(notification);
+      window.dispatchEvent(new Event('notifications-updated'));
+      window.clearTimeout(notificationTimeoutRef.current);
+      notificationTimeoutRef.current = window.setTimeout(() => setRealtimeNotification(null), 8000);
+    });
     const intervalId = window.setInterval(loadUnreadCount, 30000);
     return () => {
       active = false;
       window.removeEventListener('notifications-updated', loadUnreadCount);
+      unsubscribeFromNotifications();
       window.clearInterval(intervalId);
+      window.clearTimeout(notificationTimeoutRef.current);
     };
   }, [location.pathname, user?._id, user?.id]);
 
@@ -222,6 +233,28 @@ const EmployeeNavbar = ({ onMenuClick }) => {
           </div>
         )}
       </div>
+      {realtimeNotification && (
+        <button
+          type="button"
+          role="status"
+          aria-live="polite"
+          onClick={() => {
+            setRealtimeNotification(null);
+            navigate('/employee/notifications');
+          }}
+          className="fixed right-4 top-4 z-[120] flex max-w-sm items-start gap-3 rounded-xl border border-teal-100 bg-white p-4 text-left text-slate-800 shadow-xl ring-1 ring-black/5"
+        >
+          <span className="relative mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-700">
+            <Bell size={18} />
+            <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold">HR replied to your inquiry</span>
+            <span className="mt-1 block line-clamp-2 text-xs text-slate-600">{realtimeNotification.message}</span>
+            <span className="mt-2 block text-[11px] font-semibold text-teal-700">Open notifications</span>
+          </span>
+        </button>
+      )}
       </div>
     </header>
   );

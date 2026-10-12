@@ -57,6 +57,7 @@ import SystemAdminDashboardSettings from './components/admindashboared/SystemAdm
 import HRmyprofile from './components/myprofile/HRmyprofile';
 import HRSetting from './components/hrofficedashboared/HRSetting';
 import HRDashboardSettings from './components/hrofficedashboared/HRDashboardSettings';
+import HRContactMessages from './components/hrofficedashboared/HRContactMessages';
 import EmployeeDashboard from './page/employeedashboared';
 import EmployeeDocuments from './components/employeedashboared/employeedocuments';
 import MyClearancePage from './components/employeedashboared/MyClearancePage';
@@ -111,6 +112,8 @@ import ICTChangePassword from './components/ICT Officer/ICTChangePassword';
 import ICTDashboardSettings from './components/ICT Officer/ICTDashboardSettings';
 import ICTSettings from './components/ICT Officer/ICTSettings';
 import TransportOfficerDashboard from './page/Transport Officerdashboared';
+import RegistrarOffice from './page/Registrar Office';
+import ClearanceOfficeDashboard from './components/Clearance Office/ClearanceOfficeDashboard';
 import DepartmentNotifications from './components/departmentheaddashboared/departmentnotification';
 import EmployeeClearanceChatbot from './components/EmployeeClearanceChatbot';
 
@@ -132,7 +135,7 @@ function AdminLayout({ children }) {
 function UnauthorizedPage() {
   const { user } = useAuth();
   const location = useLocation();
-  const dashboardPath = getDashboardPath(user?.role);
+  const dashboardPath = getDashboardPath(user);
   const alreadyRejectedDashboard = location.state?.from?.pathname === dashboardPath;
 
   if (user && dashboardPath && !alreadyRejectedDashboard) {
@@ -143,6 +146,7 @@ function UnauthorizedPage() {
 }
 
 function MainLayout() {
+  const { user } = useAuth();
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isHrRoute = location.pathname.startsWith('/hr-office');
@@ -152,18 +156,25 @@ function MainLayout() {
   const isLibraryRoute = location.pathname.startsWith('/library-office');
   const isPropertyRoute = location.pathname.startsWith('/property');
   const isICTRoute = location.pathname.startsWith('/ict-office');
+  const isRegistrarRoute = location.pathname.startsWith('/registrar-office');
+  const isClearanceOfficeRoute = location.pathname.startsWith('/clearance-office');
 	  const isTransportRoute = location.pathname.startsWith('/transport-office');
-	 const assistantRoutePrefixes = ['/admin', '/hr-office', '/employee', '/department-head', '/finance-office', '/library-office', '/property', '/ict-office', '/transport-office', '/other-office'];
+	 const assistantRoutePrefixes = ['/admin', '/hr-office', '/employee', '/department-head', '/finance-office', '/library-office', '/property', '/ict-office', '/registrar-office', '/clearance-office', '/transport-office', '/other-office'];
 	const showAssistant = location.pathname === '/contact' || assistantRoutePrefixes.some((prefix) => location.pathname.startsWith(prefix));
   const allowedPathsForFooter = ['/', '/home', '/services', '/about', '/instruction', '/contact'];
   const showFooter = allowedPathsForFooter.includes(location.pathname);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-	{!isAdminRoute && !isHrRoute && !isDepartmentHeadRoute && !isEmployeeRoute && !isFinanceRoute && !isLibraryRoute && !isPropertyRoute && !isICTRoute && !isTransportRoute && <Navbar />}
+	{!isAdminRoute && !isHrRoute && !isDepartmentHeadRoute && !isEmployeeRoute && !isFinanceRoute && !isLibraryRoute && !isPropertyRoute && !isICTRoute && !isRegistrarRoute && !isClearanceOfficeRoute && !isTransportRoute && <Navbar />}
       <div className="flex-grow">
         <Routes>
-          <Route path="/" element={<Navigate to="/home" replace />} />
+          <Route
+            path="/"
+            element={
+              user ? <Navigate to={getDashboardPath(user) || '/home'} replace /> : <Navigate to="/home" replace />
+            }
+          />
           <Route path="/home" element={<Home />} />
           <Route path="/services" element={<Service />} />
           <Route path="/about" element={<AboutUs />} />
@@ -456,6 +467,94 @@ function MainLayout() {
             }
           />
           <Route
+            path="/registrar-office"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/dashboard"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/clearance-requests"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/academic-records"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/document-verification"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/settings"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/reports"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/registrar-office/profile"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["Registrar Officer", "registrar officer", "registrar office", "registrar"]}>
+                  <RegistrarOffice />
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/clearance-office"
+            element={
+              <PrivateRoutes>
+                <ClearanceOfficeDashboard />
+              </PrivateRoutes>
+            }
+          />
+          <Route
             path="/library-office"
             element={
               <PrivateRoutes>
@@ -563,6 +662,7 @@ function MainLayout() {
           <Route path="/hr-office/certificates" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRCertificateList /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/certificate-preview" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><CertificatePreview /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route path="/hr-office/notifications" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><NotificationsPage /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
+          <Route path="/hr-office/contact-messages" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRContactMessages /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
 		  <Route path="/hr-office/settings" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRSetting /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
 		  <Route path="/hr-office/dashboard-settings" element={<PrivateRoutes><RoleBasedRoutes requiredRole={["HR Officer"]}><HrDashboard><HRDashboardSettings /></HrDashboard></RoleBasedRoutes></PrivateRoutes>} />
           <Route 
@@ -659,6 +759,18 @@ function MainLayout() {
                 <RoleBasedRoutes requiredRole={["admin"]}>
                   <AdminLayout>
                     <ViewUser />
+                  </AdminLayout>
+                </RoleBasedRoutes>
+              </PrivateRoutes>
+            }
+          />
+          <Route
+            path="/admin/edit-user/:id"
+            element={
+              <PrivateRoutes>
+                <RoleBasedRoutes requiredRole={["admin"]}>
+                  <AdminLayout>
+                    <AddUser />
                   </AdminLayout>
                 </RoleBasedRoutes>
               </PrivateRoutes>

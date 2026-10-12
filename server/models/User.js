@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
+import { resolveUserRoleState } from "../utils/userRoleState.js";
 
 const userSchema = new mongoose.Schema({
     name: {
@@ -32,7 +33,7 @@ const userSchema = new mongoose.Schema({
     },
     roles: {
         type: [String],
-        default: ['Employee'],
+        default: undefined,
         validate: {
             validator: function (value) {
                 return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item.trim());
@@ -42,8 +43,7 @@ const userSchema = new mongoose.Schema({
     },
     activeRole: {
         type: String,
-        trim: true,
-        default: 'Employee'
+        trim: true
     },
     department: { type: String, trim: true, default: '' },
         departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
@@ -163,13 +163,10 @@ const userSchema = new mongoose.Schema({
 });
 
 userSchema.pre('save', async function () {
-    const normalizedRoles = Array.isArray(this.roles) && this.roles.length
-        ? [...new Set(this.roles.map((item) => String(item).trim()).filter(Boolean))]
-        : [String(this.role || 'Employee').trim() || 'Employee'];
-
-    this.roles = normalizedRoles;
-    this.role = this.activeRole || this.role || normalizedRoles[0] || 'Employee';
-    this.activeRole = this.activeRole || this.role || normalizedRoles[0] || 'Employee';
+    const roleState = resolveUserRoleState(this);
+    this.roles = roleState.roles;
+    this.role = roleState.activeRole;
+    this.activeRole = roleState.activeRole;
     this.updatedAt = new Date();
 });
 

@@ -66,3 +66,26 @@ export const markNotificationAsRead = async (notificationId) => {
   });
   return response.data;
 };
+
+export const sendNotificationReply = async (notificationId, message) => {
+  const response = await axios.post(`${notificationApiUrl}/${notificationId}/reply`, { message }, {
+    headers: getNotificationHeaders(),
+  });
+  return response.data;
+};
+
+export const fetchAdminContactMessage = async (messageId) => {
+  const response = await axios.get(`http://localhost:3000/api/admin/contact-messages/${messageId}`, {
+    headers: getNotificationHeaders(),
+  });
+  return response.data.data;
+};
+
+export const replyToAdminContactMessage = async (messageId, replyMessage) => {
+  const response = await axios.put(
+    `http://localhost:3000/api/admin/contact-messages/${messageId}/reply`,
+    { replyMessage },
+    { headers: getNotificationHeaders() },
+  );
+  return response.data;
+};

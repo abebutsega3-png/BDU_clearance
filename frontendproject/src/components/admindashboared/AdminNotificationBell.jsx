@@ -1,27 +1,47 @@
 import React, { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchNotifications } from '../../until/NotificationHelper';
+import { fetchUnreadNotificationCount } from '../../until/NotificationHelper';
 import { useAdminLanguage } from './AdminLanguage';
+import { subscribeToNotifications } from '../../until/notificationSocket';
+import { useAuth } from '../../context/authContext';
 
 export default function AdminNotificationBell() {
   const navigate = useNavigate();
   const { t } = useAdminLanguage();
+  const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     let active = true;
-    fetchNotifications()
-      .then((items) => {
-        if (!active) return;
-        setUnreadCount(items.filter((item) => item.isRead === false || (item.isRead === undefined && item.status !== 'Read')).length);
+    fetchUnreadNotificationCount()
+      .then((count) => {
+        if (active) setUnreadCount(count);
       })
-      .catch(() => {
-        if (active) setUnreadCount(0);
+      .catch((error) => {
+        console.error('Failed to load System Admin notification count:', error);
       });
 
-    return () => { active = false; };
-  }, []);
+    const refreshCount = () => {
+      fetchUnreadNotificationCount()
+        .then((count) => {
+          if (active) setUnreadCount(count);
+        })
+        .catch((error) => console.error('Failed to refresh System Admin notification count:', error));
+    };
+    window.addEventListener('notifications-updated', refreshCount);
+    const unsubscribe = subscribeToNotifications((notification) => {
+      if (String(notification.recipientId || '') === String(user?._id || user?.id || '')) {
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    });
+
+    return () => {
+      active = false;
+      window.removeEventListener('notifications-updated', refreshCount);
+      unsubscribe();
+    };
+  }, [user?._id, user?.id]);
 
   return (
     <button

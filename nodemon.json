@@ -1,0 +1,16 @@
+{
+  "watch": [
+    "server/index.js",
+    "server/controllers",
+    "server/db",
+    "server/middleware",
+    "server/models",
+    "server/routes",
+    "server/utils"
+  ],
+  "ext": "js,json",
+  "ignore": [
+    "server/.env",
+    "server/tests/**"
+  ]
+}

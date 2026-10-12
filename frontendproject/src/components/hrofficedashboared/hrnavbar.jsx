@@ -1,22 +1,37 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Bell, ChevronDown, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound } from 'lucide-react';
+import { Bell, CheckCircle2, ChevronDown, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound, X } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
 import { fetchUnreadNotificationCount } from '../../until/NotificationHelper';
 import UniversitySeal from '../UniversitySeal';
 import { useHRLanguage } from './HRLanguage';
+import { subscribeToNotifications } from '../../until/notificationSocket';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
   const { language, setLanguage, t } = useHRLanguage();
   const location = useLocation();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState(language);
   const [unreadCount, setUnreadCount] = useState(0);
   const accountMenuRef = useRef(null);
 
-  const handleLanguageChange = (event) => {
-    setLanguage(event.target.value);
+  const openLanguageDialog = () => {
+    setSelectedLanguage(language);
+    setLanguageDialogOpen(true);
   };
+
+  useEffect(() => {
+    if (!languageDialogOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setLanguageDialogOpen(false);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [languageDialogOpen]);
 
   useEffect(() => {
     if (!accountMenuOpen) return undefined;
@@ -37,6 +52,10 @@ const Navbar = () => {
   }, [accountMenuOpen]);
 
   const closeAccountMenu = () => setAccountMenuOpen(false);
+  const saveLanguage = () => {
+    setLanguage(selectedLanguage);
+    setLanguageDialogOpen(false);
+  };
 
   useEffect(() => {
     let active = true;
@@ -50,28 +69,34 @@ const Navbar = () => {
     };
 
     loadUnreadCount();
+    window.addEventListener('notifications-updated', loadUnreadCount);
+    const unsubscribeFromNotifications = subscribeToNotifications((notification) => {
+      if (String(notification.recipientId || '') === String(user?._id || user?.id || '')) {
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    });
     const intervalId = window.setInterval(loadUnreadCount, 30000);
     return () => {
       active = false;
+      window.removeEventListener('notifications-updated', loadUnreadCount);
+      unsubscribeFromNotifications();
       window.clearInterval(intervalId);
     };
   }, [location.pathname, user?._id, user?.id]);
 
   return (
     <header className="flex min-h-[72px] items-center justify-end gap-2 bg-teal-700 px-3 text-white shadow-sm sm:gap-4 sm:px-6">
-      <label className="inline-flex h-12 items-center gap-3 rounded-full border-2 border-white/90 px-5 text-base font-semibold text-white transition hover:bg-white/10 focus-within:outline focus-within:outline-2 focus-within:outline-white">
+      <button
+        type="button"
+        onClick={openLanguageDialog}
+        aria-label="Choose language"
+        aria-haspopup="dialog"
+        className="inline-flex h-12 items-center gap-3 rounded-full border-2 border-white/90 px-5 text-base font-semibold text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+      >
         <Globe2 size={22} aria-hidden="true" />
-        <select
-          aria-label="Language"
-          value={language}
-          onChange={handleLanguageChange}
-          className="cursor-pointer appearance-none bg-transparent text-base font-semibold text-white outline-none"
-        >
-          <option value="en" className="text-slate-900">{t('English', 'English')}</option>
-          <option value="am" className="text-slate-900">{t('Amharic', 'አማርኛ')}</option>
-        </select>
+        {language === 'am' ? 'አማርኛ' : 'English'}
         <ChevronDown size={18} aria-hidden="true" />
-      </label>
+      </button>
       <Link
         to="/hr-office/notifications"
         aria-label="HR notifications"
@@ -136,6 +161,67 @@ const Navbar = () => {
           </div>
         )}
       </div>
+      {languageDialogOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4"
+          onClick={() => setLanguageDialogOpen(false)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hr-language-dialog-title"
+            className="relative w-full max-w-md rounded-2xl bg-white px-6 pb-6 pt-11 shadow-2xl sm:px-16 sm:pb-7"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLanguageDialogOpen(false)}
+              aria-label="Close language selection"
+              className="absolute right-3 top-3 rounded p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            >
+              <X size={23} />
+            </button>
+            <h2 id="hr-language-dialog-title" className="mb-8 text-center text-sm font-bold text-slate-700">
+              Which language do you prefer?
+            </h2>
+            <div role="radiogroup" aria-labelledby="hr-language-dialog-title" className="space-y-4">
+              {[
+                { value: 'en', name: 'English', nativeName: 'English' },
+                { value: 'am', name: 'Amharic', nativeName: 'አማርኛ' },
+              ].map((option) => {
+                const isSelected = selectedLanguage === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => setSelectedLanguage(option.value)}
+                    className={`flex min-h-[76px] w-full items-center justify-between rounded-md border px-4 py-3 text-left transition ${
+                      isSelected
+                        ? 'border-emerald-500 text-emerald-600'
+                        : 'border-slate-200 text-slate-500 hover:border-emerald-300'
+                    }`}
+                  >
+                    <span>
+                      <span className="block text-sm">{option.name}</span>
+                      <span className="block text-sm">{option.nativeName}</span>
+                    </span>
+                    {isSelected && <CheckCircle2 size={19} className="fill-emerald-500 text-white" aria-hidden="true" />}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={saveLanguage}
+              className="mt-5 h-11 w-full rounded-md bg-emerald-500 text-sm font-bold text-white transition hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+            >
+              Save
+            </button>
+          </section>
+        </div>
+      )}
     </header>
   );
 };

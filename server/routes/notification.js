@@ -5,7 +5,8 @@ import {
   markAllAsRead,
   markAsRead,
   getUnreadSummary,
-  deleteNotification
+  deleteNotification,
+  replyToNotification
 } from '../controllers/notificationcontroller.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 const router = express.Router();
@@ -17,6 +18,7 @@ router.route('/')
 router.get('/my', authMiddleware, getAllNotifications);
 router.get('/summary', getUnreadSummary);
 router.patch('/mark-all-read', authMiddleware, markAllAsRead);
+router.post('/:id/reply', authMiddleware, replyToNotification);
 
 router.route('/:id')
   .patch(authMiddleware, markAsRead)

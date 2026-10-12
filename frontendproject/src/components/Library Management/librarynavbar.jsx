@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { Bell, ChevronDown, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound } from 'lucide-react';
+import { Bell, CheckCircle2, ChevronDown, Globe2, LayoutDashboard, LockKeyhole, LogOut, Settings, UserRound, X } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
 import { useLibraryLanguage } from './LibraryLanguage';
 import UniversitySeal from '../UniversitySeal';
@@ -10,10 +10,20 @@ const Navbar = () => {
   const { user, logout } = useAuth();
   const { language, setLanguage, t } = useLibraryLanguage();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState(language);
   const [unreadCount, setUnreadCount] = useState(0);
   const accountMenuRef = useRef(null);
-  const languageMenuRef = useRef(null);
+
+  const openLanguageDialog = () => {
+    setSelectedLanguage(language);
+    setLanguageDialogOpen(true);
+  };
+
+  const saveLanguage = () => {
+    setLanguage(selectedLanguage);
+    setLanguageDialogOpen(false);
+  };
 
   useEffect(() => {
     let active = true;
@@ -52,17 +62,13 @@ const Navbar = () => {
   }, []);
 
   useEffect(() => {
-    if (!accountMenuOpen && !languageMenuOpen) return undefined;
+    if (!accountMenuOpen) return undefined;
 
     const handlePointerDown = (event) => {
       if (!accountMenuRef.current?.contains(event.target)) setAccountMenuOpen(false);
-      if (!languageMenuRef.current?.contains(event.target)) setLanguageMenuOpen(false);
     };
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        setAccountMenuOpen(false);
-        setLanguageMenuOpen(false);
-      }
+      if (event.key === 'Escape') setAccountMenuOpen(false);
     };
 
     document.addEventListener('pointerdown', handlePointerDown);
@@ -71,7 +77,18 @@ const Navbar = () => {
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [accountMenuOpen, languageMenuOpen]);
+  }, [accountMenuOpen]);
+
+  useEffect(() => {
+    if (!languageDialogOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setLanguageDialogOpen(false);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [languageDialogOpen]);
 
   const closeAccountMenu = () => setAccountMenuOpen(false);
 
@@ -79,43 +96,17 @@ const Navbar = () => {
     <header className="flex min-h-[56px] items-center justify-between gap-4 bg-teal-600 px-5 text-white shadow-sm">
       <p className="truncate text-sm font-medium">{t('Welcome')} {user?.name || t('Librarian')}</p>
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
-        <div className="relative" ref={languageMenuRef}>
-          <button
-            type="button"
-            onClick={() => setLanguageMenuOpen((isOpen) => !isOpen)}
-            aria-label="Select language"
-            aria-haspopup="menu"
-            aria-expanded={languageMenuOpen}
-            className="flex items-center gap-1.5 rounded-full border border-white/30 px-2.5 py-1.5 text-xs font-semibold transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-          >
-            <Globe2 size={16} />
-            {language === 'en' ? 'EN' : 'አማ'}
-            <ChevronDown size={13} className={`transition-transform ${languageMenuOpen ? 'rotate-180' : ''}`} />
-          </button>
-          {languageMenuOpen && (
-            <div role="menu" aria-label="Language" className="absolute left-0 top-full z-[60] mt-2 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-slate-700 shadow-xl">
-              {[
-                { value: 'en', label: 'English' },
-                { value: 'am', label: 'አማርኛ' },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={language === option.value}
-                  onClick={() => {
-                    setLanguage(option.value);
-                    setLanguageMenuOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-teal-50 ${language === option.value ? 'font-semibold text-teal-700' : ''}`}
-                >
-                  {option.label}
-                  {language === option.value && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={openLanguageDialog}
+          aria-label={t('Choose language')}
+          aria-haspopup="dialog"
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-white/30 px-3 text-xs font-semibold text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+        >
+          <Globe2 size={16} aria-hidden="true" />
+          {language === 'am' ? 'አማርኛ' : 'English'}
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
         <Link
           to="/library-office/notifications"
           aria-label={unreadCount ? `${t('Library notifications')}, ${unreadCount} unread` : t('Library notifications')}
@@ -179,6 +170,66 @@ const Navbar = () => {
         )}
         </div>
       </div>
+      {languageDialogOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLanguageDialogOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="library-language-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-800 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="library-language-title" className="text-lg font-semibold">{t('Choose language')}</h2>
+                <p className="mt-1 text-sm text-slate-500">{t('Select your preferred language.')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLanguageDialogOpen(false)}
+                aria-label={t('Close')}
+                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mt-5 space-y-2">
+              {[
+                { value: 'en', label: 'English' },
+                { value: 'am', label: 'አማርኛ' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selectedLanguage === option.value}
+                  onClick={() => setSelectedLanguage(option.value)}
+                  className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${
+                    selectedLanguage === option.value
+                      ? 'border-teal-600 bg-teal-50 font-semibold text-teal-800'
+                      : 'border-slate-200 hover:border-teal-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {option.label}
+                  {selectedLanguage === option.value && <CheckCircle2 size={18} aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={saveLanguage}
+                className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+              >
+                {t('Save')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </header>
   );
 };

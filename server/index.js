@@ -3,6 +3,10 @@ import express from 'express';
 import cors from 'cors';
 import connectToDB from './db/db.js';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
+import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import User from './models/User.js';
 
 dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
 
@@ -20,6 +24,8 @@ import auditLogRouter from './routes/auditlog.js';
 import notificationRouter from './routes/notification.js';
 import reportRouter from './routes/reportRoutes.js';
 import publicHomeRouter from './routes/publicHomeRoutes.js';
+import hrContactMessagesRouter from './routes/hrContactMessages.js';
+import adminContactMessagesRouter from './routes/adminContactMessages.js';
 
 // Clearance Routers
 import clearanceRouter from './routes/clearance.js';
@@ -62,11 +68,73 @@ import financeSettingsRouter from './routes/financeSettingsRoutes.js';
 import departmentSettingsRouter from './routes/departmentSettingsRoutes.js';
 import aiRouter from './routes/aiRoutes.js';
 import transportDashboardRouter from './routes/transportDashboardRoutes.js';
+import registrarRouter from './routes/registrarRoutes.js';
+import academicRecordRouter from './routes/registeracademicRecordRoutes.js';
+import clearanceOfficeRouter from './routes/clearanceOfficeRoutes.js';
 
 const app = express();
+const httpServer = createServer(app);
 
 // Middlewares
-app.use(cors());
+const configuredFrontendOrigins = (process.env.FRONTEND_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowFrontendOrigin = (origin, callback) => {
+  if (!origin || configuredFrontendOrigins.includes(origin)) {
+    callback(null, true);
+    return;
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      const { hostname, protocol } = new URL(origin);
+      const isLocalFrontend = protocol === 'http:'
+        && ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+      callback(null, isLocalFrontend);
+      return;
+    } catch {
+      callback(null, false);
+      return;
+    }
+  }
+
+  callback(null, false);
+};
+
+app.use(cors({
+  origin: allowFrontendOrigin,
+  credentials: true,
+}));
+const io = new Server(httpServer, {
+  cors: {
+    origin: allowFrontendOrigin,
+    credentials: true,
+  },
+});
+
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (typeof token !== 'string' || !token) return next(new Error('Authentication required.'));
+    const decoded = jwt.verify(token, process.env.JWT_KEY);
+    if (decoded.tokenUse === 'refresh') return next(new Error('Invalid access token.'));
+    const user = await User.findById(decoded._id).select('_id tokenVersion').lean();
+    if (!user || (decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
+      return next(new Error('Session is no longer valid.'));
+    }
+    socket.data.userId = String(user._id);
+    return next();
+  } catch {
+    return next(new Error('Invalid or expired access token.'));
+  }
+});
+
+io.on('connection', (socket) => {
+  socket.join(`user:${socket.data.userId}`);
+});
+app.set('io', io);
 app.use(express.json({ limit: '5mb' }));
 
 // 1. Core & Admin Routes
@@ -78,6 +146,7 @@ app.use('/api/employee', employeeRouter);
 app.use('/api/department', departmentRouter);
 app.use('/api/departments', departmentRouter);
 app.use('/api/positions', positionRouter);
+app.use('/api/admin/contact-messages', adminContactMessagesRouter);
 app.use('/api/admin', adminDashboardRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-logs', auditLogRouter);
@@ -85,8 +154,12 @@ app.use('/api/notifications', notificationRouter);
 app.use('/api/department-head/settings', departmentSettingsRouter);
 app.use('/api/reports', reportRouter);
 app.use('/api/public/home', publicHomeRouter);
+app.use('/api/hr/contact-messages', hrContactMessagesRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/transport', transportDashboardRouter);
+app.use('/api/registrar', registrarRouter);
+app.use('/api/academic-records', academicRecordRouter);
+app.use('/api/clearance-office', clearanceOfficeRouter);
 
 // 2. Clearance Routes
 app.use('/api/clearance', clearanceRouter);
@@ -141,19 +214,35 @@ app.use((err, req, res, next) => {
 // Server Setup
 const PORT = process.env.PORT || 3000;
 
+httpServer.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(
+      `Port ${PORT} is already in use. Another server is already listening there. ` +
+      'Stop the previous dev server with Ctrl+C in its terminal, or configure this app to use a free port.',
+    );
+  } else {
+    console.error('Unable to start the HTTP server:', error.message);
+  }
+  process.exit(1);
+});
+
 const startServer = async () => {
+  console.log('Connecting to MongoDB Atlas...');
+
+  // 🟢 1. ከዳታቤዝ ጋር በአስተማማኝ ሁኔታ ለመገናኘት መሞከር (እስኪሳካ ድረስ በየ 3 ሰከንዱ መሞከር)
   while (true) {
     const dbConnected = await connectToDB();
     if (dbConnected) {
       break;
     }
 
-    console.error('MongoDB is unavailable. Retrying in 5 seconds...');
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    console.error('MongoDB is unavailable. Retrying connection in 3 seconds...');
+    await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  // 🟢 2. ዳታቤዙ ከተገናኘ በኋላ ብቻ ሰርቨሩን በይፋ ማስነሳት
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server is running successfully on http://127.0.0.1:${PORT}`);
   });
 };
 
