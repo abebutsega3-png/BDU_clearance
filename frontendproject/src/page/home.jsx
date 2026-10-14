@@ -6,16 +6,14 @@ import {
   BadgeCheck,
   Building2,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   FileCheck2,
   FileText,
-  Globe,
-  GraduationCap,
   Landmark,
   Laptop,
   Library,
-  Mail,
-  Phone,
   SearchCheck,
   ShieldCheck,
   Users,
@@ -66,11 +64,10 @@ export default function Home() {
   const [homeData, setHomeData] = useState({ stats: null, offices: [], error: false });
   const [activeImage, setActiveImage] = useState(0);
 
-  // Fast image rotation (3 seconds with 500ms transition)
   useEffect(() => {
     const rotationTimer = window.setInterval(() => {
       setActiveImage((currentImage) => (currentImage + 1) % campusImages.length);
-    }, 3000);
+    }, 5000);
 
     return () => window.clearInterval(rotationTimer);
   }, []);
@@ -97,104 +94,102 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-full bg-slate-50 font-sans text-slate-800">
+    <main className="min-h-full bg-white font-sans text-slate-800">
       
-      {/* 1. Official BDU Top Info Bar */}
-      <div className="bg-[#001738] text-xs text-slate-300 py-2 px-5 sm:px-8 border-b border-slate-800">
-        <div className="mx-auto max-w-7xl flex flex-wrap justify-between items-center gap-2">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5"><Mail size={13} className="text-amber-400" /> info@bdu.edu.et</span>
-            <span className="hidden sm:flex items-center gap-1.5"><Phone size={13} className="text-amber-400" /> +251 58 220 5925</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <a href="https://www.bdu.edu.et" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-amber-400 transition">
-              <Globe size={13} /> Official BDU Website
-            </a>
-            <span className="bg-amber-400/20 text-amber-300 px-2 py-0.5 rounded font-semibold text-[10px]">Wisdom at the Source of the Blue Nile</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Hero Section with BDU Color Palette */}
-      <section className="relative isolate overflow-hidden bg-[#001c3d] text-white">
+      {/* 1. Campus Image Carousel */}
+      <section className="relative isolate h-[min(68vh,680px)] min-h-[480px] overflow-hidden bg-slate-900 text-white">
         {campusImages.map((campusImg, imageIndex) => (
           <img
             key={campusImg}
             src={campusImg}
             alt={`Bahir Dar University campus view ${imageIndex + 1}`}
-            className={`absolute inset-0 -z-20 h-full w-full object-cover object-center transition-opacity duration-500 ease-in-out ${
-              activeImage === imageIndex ? 'opacity-40' : 'opacity-0'
+            className={`absolute inset-0 -z-20 h-full w-full object-cover object-center transition-opacity duration-700 ease-in-out ${
+              activeImage === imageIndex ? 'opacity-100' : 'opacity-0'
             }`}
           />
         ))}
 
-        <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(0,33,71,0.95)_0%,rgba(0,33,71,0.75)_50%,rgba(0,33,71,0.3)_100%)]" />
-        
-        <div className="mx-auto grid min-h-[420px] max-w-7xl items-center px-5 py-16 sm:px-8 lg:grid-cols-[1.15fr_0.85fr] lg:px-12">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-400/20 px-3 py-1 text-xs font-bold text-amber-300 border border-amber-400/30 mb-4">
-              <GraduationCap size={15} /> BDU Digital Services
-            </div>
-            <h1 className="text-3xl font-black leading-tight sm:text-5xl text-white">
-              Online Employee Clearance Management System
-            </h1>
-            <p className="mt-4 max-w-lg text-sm leading-relaxed text-slate-200 sm:text-base">
-              A secure, transparent, and centralized digital clearance system designed for Bahir Dar University academic and administrative staff.
-            </p>
-            
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link to="/login" className="inline-flex items-center gap-2 rounded-md bg-amber-400 px-6 py-3 text-sm font-extrabold text-slate-950 shadow-lg transition hover:bg-amber-300 hover:shadow-amber-400/20">
-                Start Clearance Process <ArrowRight size={16} />
-              </Link>
-              <Link to="/instruction" className="inline-flex items-center gap-2 rounded-md border border-white/40 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white hover:text-[#002147]">
-                System Instructions
-              </Link>
-            </div>
+        <div className="absolute inset-0 -z-10 bg-black/20" />
 
-            {/* Slide Indicators */}
-            <div className="flex items-center gap-2 pt-8" aria-label="Campus image slides">
-              {campusImages.map((campusImg, imageIndex) => (
-                <button
-                  key={campusImg}
-                  type="button"
-                  aria-label={`Show slide ${imageIndex + 1}`}
-                  onClick={() => setActiveImage(imageIndex)}
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    activeImage === imageIndex ? 'w-8 bg-amber-400' : 'w-2 bg-white/40 hover:bg-white'
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
+        <button
+          type="button"
+          aria-label="Previous campus image"
+          onClick={() => setActiveImage((activeImage - 1 + campusImages.length) % campusImages.length)}
+          className="absolute left-5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/80 text-white transition hover:bg-black sm:left-7 z-10"
+        >
+          <ChevronLeft size={27} />
+        </button>
+        <button
+          type="button"
+          aria-label="Next campus image"
+          onClick={() => setActiveImage((activeImage + 1) % campusImages.length)}
+          className="absolute right-5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/80 text-white transition hover:bg-black sm:right-7 z-10"
+        >
+          <ChevronRight size={27} />
+        </button>
+
+        {/* Hero Overlay Card */}
+        <div className="absolute bottom-16 left-1/2 w-11/12 max-w-4xl -translate-x-1/2 rounded-sm bg-blue-600/40 px-6 py-6 text-center text-white backdrop-blur-sm sm:px-8">
+          <h1 className="mb-2 text-4xl font-light tracking-wide leading-tight text-white drop-shadow-md sm:text-5xl">
+            Bahir Dar University
+          </h1>
+          <p className="text-base font-light italic text-white drop-shadow sm:text-lg">
+            Wisdom at the Source of the Blue Nile
+          </p>
         </div>
-      </section>
 
-      {/* 4. Official Notice / Announcement Ticker */}
-      <div className="bg-amber-400 text-slate-950 px-5 py-2.5 font-medium text-xs border-b border-amber-500">
-        <div className="mx-auto max-w-7xl flex items-center gap-3">
-          <span className="font-extrabold uppercase bg-slate-950 text-amber-400 px-2 py-0.5 rounded text-[10px]">Notice</span>
-          <p className="truncate">All staff members requesting clearance must ensure their department property items are returned prior to initiating digital requests.</p>
-        </div>
-      </div>
-
-      {/* 5. Live Portal Statistics */}
-      <section className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto grid max-w-7xl grid-cols-2 divide-x divide-slate-100 sm:grid-cols-4">
-          {statistics.map(([key, label, Icon]) => (
-            <div key={label} className="flex items-center gap-3 px-4 py-6 sm:justify-center">
-              <div className="p-2.5 rounded-lg bg-sky-50 text-[#002147]">
-                <Icon size={22} />
-              </div>
-              <div>
-                <strong className="block text-xl font-black text-slate-900">{homeData.stats ? homeData.stats[key] : homeData.error ? '0' : '...'}</strong>
-                <span className="text-[11px] font-semibold text-slate-500 uppercase">{label}</span>
-              </div>
-            </div>
+        {/* Slide Indicators */}
+        <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 z-10" aria-label="Campus image slides">
+          {campusImages.map((campusImg, imageIndex) => (
+            <button
+              key={campusImg}
+              type="button"
+              aria-label={`Show campus image ${imageIndex + 1}`}
+              aria-pressed={activeImage === imageIndex}
+              onClick={() => setActiveImage(imageIndex)}
+              className={`h-2.5 rounded-full border border-white/80 transition-all ${
+                activeImage === imageIndex ? 'w-7 bg-white' : 'w-2.5 bg-white/50 hover:bg-white'
+              }`}
+            />
           ))}
         </div>
       </section>
 
-      {/* 6. System Services */}
+      {/* 2. Official BDU Portal Statistics Section */}
+      <section className="bg-white py-14 border-b border-slate-100">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <div className="grid grid-cols-2 text-center md:grid-cols-4 gap-8">
+            {statistics.map(([key, label, Icon]) => (
+              <div key={label} className="group flex flex-col items-center">
+                {/* BDU Style Blue Circle Icon */}
+                <div className="mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-[#29b6f6] text-white shadow-md transition-transform group-hover:scale-105 sm:h-28 sm:w-28">
+                  <Icon className="h-12 w-12 stroke-[1.5] sm:h-14 sm:w-14" />
+                </div>
+
+                {/* Stat Value */}
+                <h3 className="mb-1 font-sans text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                  {homeData.stats ? homeData.stats[key] : homeData.error ? '0' : '...'}
+                </h3>
+
+                {/* Stat Label */}
+                <p className="text-sm font-medium text-gray-700 sm:text-base">
+                  {label}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 3. Official Notice / Announcement Ticker */}
+      <div className="bg-amber-400 px-5 py-2.5 text-xs font-medium text-slate-950 border-b border-amber-500">
+        <div className="mx-auto flex max-w-7xl items-center gap-3">
+          <span className="rounded bg-slate-950 px-2 py-0.5 text-[10px] font-extrabold uppercase text-amber-400 shrink-0">Notice</span>
+          <p className="truncate">All staff members requesting clearance must ensure their department property items are returned prior to initiating digital requests.</p>
+        </div>
+      </div>
+
+      {/* 4. System Services */}
       <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8 lg:px-12">
         <SectionHeading eyebrow="Clearance Services" title="Streamlined Digital Workflows" />
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -210,8 +205,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 7. Step-by-Step Workflow */}
-      <section className="bg-slate-100 border-y border-slate-200 px-5 py-14 sm:px-8 lg:px-12">
+      {/* 5. Step-by-Step Workflow */}
+      <section className="bg-slate-50 border-y border-slate-200 px-5 py-14 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <SectionHeading eyebrow="Clearance Steps" title="How the Process Works" />
           <div className="mt-10 grid gap-6 sm:grid-cols-3 lg:grid-cols-6">
@@ -228,7 +223,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 8. BDU Clearance Offices */}
+      {/* 6. BDU Clearance Offices */}
       <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8 lg:px-12">
         <SectionHeading eyebrow="Verification Units" title="Participating Clearance Offices" />
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -249,7 +244,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 9. Benefits */}
+      {/* 7. Benefits */}
       <section className="bg-[#002147] text-white px-5 py-12 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <div className="text-center">
@@ -267,7 +262,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 10. BDU About Section */}
+      {/* 8. BDU About Section */}
       <section className="mx-auto grid max-w-7xl gap-8 px-5 py-14 sm:px-8 lg:grid-cols-[1fr_1.1fr] lg:px-12">
         <img src={campusImages[activeImage]} alt="Bahir Dar University" className="h-64 w-full rounded-xl object-cover shadow-md border border-slate-200" />
         <div>
@@ -282,7 +277,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 11. BDU Footer */}
+      {/* 9. BDU Footer */}
       <footer className="bg-slate-950 text-slate-400 text-xs py-8 px-5 border-t border-slate-800">
         <div className="mx-auto max-w-7xl text-center space-y-2">
           <p className="text-slate-200 font-semibold">Bahir Dar University — Employee Clearance System</p>

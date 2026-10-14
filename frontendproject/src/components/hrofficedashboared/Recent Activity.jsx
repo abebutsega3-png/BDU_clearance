@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { useHRLanguage } from "./HRLanguage";
+import { useHRLanguage } from "./useHRLanguage";
 
 const RecentActivity = ({ activities = [] }) => {
 	const { t } = useHRLanguage();

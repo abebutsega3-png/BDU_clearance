@@ -10,7 +10,7 @@
   ],
   "ext": "js,json",
   "ignore": [
-    "server/.env",
     "server/tests/**"
-  ]
+  ],
+  "delay": 500
 }

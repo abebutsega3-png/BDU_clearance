@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchEmployees } from '../../until/EmployeeHelper';
 import { useOptionalAdminLanguage } from '../admindashboared/AdminLanguage';
-import { useOptionalHRLanguage } from '../hrofficedashboared/HRLanguage';
+import { useOptionalHRLanguage } from '../hrofficedashboared/useHRLanguage';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 

@@ -5,7 +5,6 @@ import {
   AlertCircle,
   CalendarDays,
   Check,
-  CheckCircle2,
   ClipboardCheck,
   Clock3,
   FileCheck2,
@@ -23,12 +22,20 @@ const apiRoot = 'http://localhost:3000/api';
 const checklistItems = [
   { key: 'empInfoVerified', label: 'Employee record exists and details are verified', group: 'Employee Record', icon: UserRound },
   { key: 'clearanceRequestVerified', label: 'Request is complete and separation type is eligible', group: 'Request Eligibility', icon: ClipboardCheck },
-  { key: 'documentVerified', label: 'Supporting documents have been reviewed', group: 'Document Requirements', icon: FileCheck2 },
+  { key: 'documentVerified', label: 'Supporting documents have been reviewed, or a waiver has been confirmed', group: 'Document Requirements', icon: FileCheck2 },
   { key: 'employmentVerified', label: 'Employment details have been verified', group: 'Employment Review', icon: ShieldCheck },
-  { key: 'noDuplicateRequest', label: 'No duplicate active clearance request exists', group: 'Duplicate Validation', icon: CheckCircle2 },
 ];
 
-const emptyChecklist = () => Object.fromEntries(checklistItems.map(({ key }) => [key, false]));
+const automatedChecklistItems = [
+  { key: 'date', label: 'Date Validation', icon: CalendarDays },
+  { key: 'duplicate', label: 'Duplicate Validation', icon: ShieldCheck },
+  { key: 'request', label: 'Request Validation', icon: FileText },
+];
+
+const emptyChecklist = () => ({
+  ...Object.fromEntries(checklistItems.map(({ key }) => [key, false])),
+  noDuplicateRequest: false,
+});
 const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
 });
@@ -222,8 +229,8 @@ export default function HRAssessmentPage() {
   const validation = useMemo(() => request ? dateValidation(request) : null, [request]);
   const requestComplete = isRequestComplete(request);
   const documents = useMemo(() => getSupportingDocuments(request), [request]);
-  const allChecksPassed = checklistItems.every(({ key }) => checklist[key] === true);
-  const canApprove = allChecksPassed
+  const allManualChecksPassed = checklistItems.every(({ key }) => checklist[key] === true);
+  const canApprove = allManualChecksPassed
     && requestComplete
     && Boolean(request?.employeeRecord)
     && validation?.valid
@@ -477,8 +484,9 @@ export default function HRAssessmentPage() {
                 </div>
 
                 <InfoCard title="HR Assessment Checklist" icon={ClipboardCheck}>
-                  <p className="text-[10px] text-slate-500">Verify each item. Any failed validation must be resolved or returned to the employee.</p>
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  <p className="text-[10px] text-slate-500">Complete the manual review items and resolve every failed system validation before passing.</p>
+                  <h4 className="mt-3 text-[10px] font-bold uppercase tracking-wide text-slate-600">HR Manual Review</h4>
+                  <div className="grid gap-2 md:grid-cols-2">
                     {checklistItems.map(({ key, label, group, icon: Icon }) => (
                       <label key={key} className={`flex cursor-pointer items-start gap-2 rounded-md border p-2.5 transition ${checklist[key] ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-white hover:border-blue-200'}`}>
                         <input
@@ -489,46 +497,51 @@ export default function HRAssessmentPage() {
                         />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500"><Icon size={12} />{group}</span>
-                          <span className="mt-1 block text-[10px] leading-4 text-slate-700">{label}</span>
+                          <span className="mt-1 block text-[10px] leading-4 text-slate-700">
+                            {key === 'documentVerified' && documents.length === 0
+                              ? 'No documents are attached. Check only if documents are not required or a waiver has been approved; otherwise return the request.'
+                              : label}
+                          </span>
                         </span>
                         {checklist[key]
                           ? <Check size={14} className="mt-0.5 shrink-0 text-emerald-600" />
                           : <Clock3 size={13} className="mt-0.5 shrink-0 text-slate-400" />}
                       </label>
                     ))}
-                    <div className={`rounded-md border p-2.5 ${validation?.valid ? 'border-emerald-200 bg-emerald-50/70' : 'border-red-200 bg-red-50'}`}>
-                      <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500"><CalendarDays size={12} />Date Validation</div>
-                      <p className="mt-1 text-[10px] leading-4 text-slate-700">{validation?.message}</p>
-                      {validation?.valid
-                        ? <Check size={14} className="mt-1 text-emerald-600" />
-                        : <XCircle size={14} className="mt-1 text-red-600" />}
-                    </div>
-                    <div className={`rounded-md border p-2.5 ${request.hasActiveDuplicate ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50/70'}`}>
-                      <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500"><ShieldCheck size={12} />Duplicate Validation</div>
-                      <p className="mt-1 text-[10px] leading-4 text-slate-700">
-                        {request.hasActiveDuplicate ? 'Another active clearance request exists for this employee.' : 'No other active clearance request found.'}
-                      </p>
-                      {request.hasActiveDuplicate
-                        ? <XCircle size={14} className="mt-1 text-red-600" />
-                        : <Check size={14} className="mt-1 text-emerald-600" />}
-                    </div>
-                    <div className={`rounded-md border p-2.5 ${requestComplete && request.employeeRecord ? 'border-emerald-200 bg-emerald-50/70' : 'border-red-200 bg-red-50'}`}>
-                      <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500"><FileText size={12} />Request Validation</div>
-                      <p className="mt-1 text-[10px] leading-4 text-slate-700">
-                        {!request.employeeRecord
-                          ? 'Employee ID does not match an employee record.'
-                          : requestComplete
-                            ? 'Required employee and request information is complete.'
-                            : 'Employee, department, separation type, reason, and last working date are required.'}
-                      </p>
-                      {requestComplete && request.employeeRecord
-                        ? <Check size={14} className="mt-1 text-emerald-600" />
-                        : <XCircle size={14} className="mt-1 text-red-600" />}
-                    </div>
+                  </div>
+                  <h4 className="mt-4 border-t border-slate-100 pt-3 text-[10px] font-bold uppercase tracking-wide text-slate-600">Automated System Checks</h4>
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {automatedChecklistItems.map(({ key, label, icon: Icon }) => {
+                      const valid = key === 'date'
+                        ? Boolean(validation?.valid)
+                        : key === 'duplicate'
+                          ? !request.hasActiveDuplicate
+                          : Boolean(requestComplete && request.employeeRecord);
+                      const message = key === 'date'
+                        ? validation?.message
+                        : key === 'duplicate'
+                          ? request.hasActiveDuplicate
+                            ? 'Another active clearance request exists for this employee.'
+                            : 'No other active clearance request found.'
+                          : !request.employeeRecord
+                            ? 'Employee ID does not match an employee record.'
+                            : requestComplete
+                              ? 'Required employee and request information is complete.'
+                              : 'Employee, department, separation type, reason, and last working date are required.';
+                      return (
+                        <div key={key} className={`rounded-md border p-2.5 ${valid ? 'border-emerald-200 bg-emerald-50/70' : 'border-red-200 bg-red-50'}`}>
+                          <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500"><Icon size={12} />{label}</div>
+                          <p className="mt-1 text-[10px] leading-4 text-slate-700">{message}</p>
+                          {valid
+                            ? <Check size={14} className="mt-1 text-emerald-600" />
+                            : <XCircle size={14} className="mt-1 text-red-600" />}
+                        </div>
+                      );
+                    })}
                   </div>
                   {!documents.length && (
                     <p className="mt-2 flex items-center gap-1 text-[10px] text-amber-700">
-                      <AlertCircle size={13} /> No supporting documents are attached to this request.
+                      <AlertCircle size={13} /> No supporting documents are attached. If they are required, return this request; otherwise confirm the approved waiver in Document Requirements.
                     </p>
                   )}
                 </InfoCard>
@@ -540,9 +553,10 @@ export default function HRAssessmentPage() {
                     onChange={(event) => setComment(event.target.value)}
                     maxLength={1000}
                     rows={3}
-                    placeholder="Enter your assessment comment or notes..."
+                    placeholder="Enter your assessment comment or notes (e.g. Employee details verified; forwarding for department clearance)..."
                     className="mt-2 w-full resize-y rounded-md border border-slate-200 px-3 py-2 text-[11px] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
+                  <span className="mt-1 block text-[9px] text-slate-500">Add a brief note before forwarding the request to the HR Workflow.</span>
                   <span className="mt-1 block text-right text-[9px] text-slate-400">{comment.length}/1000</span>
                 </label>
               </>

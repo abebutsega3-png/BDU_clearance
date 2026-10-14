@@ -1,9 +1,12 @@
-import { cloneElement, createContext, isValidElement, useContext, useMemo, useState } from 'react';
+import { cloneElement, isValidElement, useMemo, useState } from 'react';
+import HRLanguageContext from './hrLanguageContext';
+import { useOptionalHRLanguage } from './useHRLanguage';
 
-const HRLanguageContext = createContext(null);
 const LANGUAGE_KEY = 'hrOfficerLanguage';
 
 const translations = {
+  'Bahir Dar University': 'ባህር ዳር ዩኒቨርሲቲ',
+  'Employee Clearance': 'የሰራተኞች ማጽዳት',
   'Employee System': 'የሰራተኞች ስርዓት',
   'HR Officer': 'የሰው ሀብት ኦፊሰር',
   Clearance: 'ማጽዳት',
@@ -197,15 +200,4 @@ export function HRLanguageProvider({ children }) {
   }), [language]);
 
   return <HRLanguageContext.Provider value={value}>{children}</HRLanguageContext.Provider>;
-}
-
-export function useHRLanguage() {
-  const context = useContext(HRLanguageContext);
-  if (!context) throw new Error('useHRLanguage must be used inside HRLanguageProvider.');
-  return context;
-}
-
-export function useOptionalHRLanguage() {
-  const context = useContext(HRLanguageContext);
-  return context || { language: 'en', t: (english) => english };
 }

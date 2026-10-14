@@ -229,15 +229,15 @@ httpServer.on('error', (error) => {
 const startServer = async () => {
   console.log('Connecting to MongoDB Atlas...');
 
-  // 🟢 1. ከዳታቤዝ ጋር በአስተማማኝ ሁኔታ ለመገናኘት መሞከር (እስኪሳካ ድረስ በየ 3 ሰከንዱ መሞከር)
+  // 🟢 1. ከዳታቤዝ ጋር በአስተማማኝ ሁኔታ ለመገናኘት መሞከር (እስኪሳካ ድረስ በየ 1 ሰአት መሞከር)
   while (true) {
     const dbConnected = await connectToDB();
     if (dbConnected) {
       break;
     }
 
-    console.error('MongoDB is unavailable. Retrying connection in 3 seconds...');
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    console.error('MongoDB is unavailable. Retrying connection in 1 hour...');
+    await new Promise((resolve) => setTimeout(resolve, 3600000));
   }
 
   // 🟢 2. ዳታቤዙ ከተገናኘ በኋላ ብቻ ሰርቨሩን በይፋ ማስነሳት

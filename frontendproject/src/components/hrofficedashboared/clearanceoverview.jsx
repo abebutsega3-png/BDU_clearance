@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Clock3, RotateCcw, ShieldCheck } from "lucide-react";
-import { useHRLanguage } from "./HRLanguage";
+import { useHRLanguage } from "./useHRLanguage";
 
 const statusRows = [
 	{ label: "Awaiting review", key: "pending", color: "bg-amber-400", hex: "#f59e0b", icon: Clock3, to: "/hr-office/clearance-requests" },

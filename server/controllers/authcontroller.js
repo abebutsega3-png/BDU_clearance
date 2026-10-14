@@ -1,9 +1,10 @@
 import bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 import { recordAuditLog } from './auditLogger.js';
-import { sendNotificationEmail } from '../utils/emailService.js';
+import { sendNotificationEmail, sendPasswordResetEmail } from '../utils/emailService.js';
 import { resolveUserRoleState } from '../utils/userRoleState.js';
 
 const refreshCookieName = 'bdu_refresh_token';
@@ -178,6 +179,100 @@ const logout = (req, res) => {
   return res.status(200).json({ success: true });
 };
 
+const requestPasswordReset = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ success: false, message: 'Database unavailable. Please try again.' });
+  }
+
+  const identifier = String(req.body?.identifier || '').trim().toLowerCase();
+  if (!identifier) {
+    return res.status(400).json({ success: false, message: 'Username or email address is required.' });
+  }
+
+  const genericMessage = 'If an account matches that username or email, password reset instructions will be sent to its registered email address.';
+  try {
+    const user = await User.findOne({
+      $or: [{ email: identifier }, { username: identifier }],
+    })
+      .select('_id name username email')
+      .collation({ locale: 'en', strength: 2 })
+      .maxTimeMS(5000);
+
+    if (!user || !user.email) {
+      return res.status(200).json({ success: true, message: genericMessage });
+    }
+
+    const resetToken = randomBytes(32).toString('hex');
+    const hashedToken = createHash('sha256').update(resetToken).digest('hex');
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save();
+
+    const resetUrl = new URL('/login', process.env.APP_BASE_URL || 'http://localhost:5173');
+    resetUrl.searchParams.set('resetToken', resetToken);
+    try {
+      await sendPasswordResetEmail({ recipient: user, actionLink: resetUrl.toString() });
+    } catch (emailError) {
+      await User.updateOne(
+        { _id: user._id, passwordResetToken: hashedToken },
+        { $unset: { passwordResetToken: 1, passwordResetExpires: 1 } }
+      );
+      console.error('Password reset email delivery failed:', emailError.message);
+    }
+
+    return res.status(200).json({ success: true, message: genericMessage });
+  } catch (error) {
+    console.error('Password reset request failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to request a password reset right now. Please try again.' });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ success: false, message: 'Database unavailable. Please try again.' });
+  }
+
+  const { token, password, confirmPassword } = req.body || {};
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({ success: false, message: 'This password reset link is invalid or has expired.' });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
+  }
+  if (password !== confirmPassword) {
+    return res.status(400).json({ success: false, message: 'Passwords do not match.' });
+  }
+
+  try {
+    const hashedToken = createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: new Date() },
+    }).select('_id').maxTimeMS(5000);
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'This password reset link is invalid or has expired.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const result = await User.updateOne(
+      { _id: user._id, passwordResetToken: hashedToken, passwordResetExpires: { $gt: new Date() } },
+      {
+        $set: { password: passwordHash, passwordChangedAt: new Date() },
+        $unset: { passwordResetToken: 1, passwordResetExpires: 1 },
+        $inc: { tokenVersion: 1 },
+      }
+    );
+
+    if (result.modifiedCount !== 1) {
+      return res.status(400).json({ success: false, message: 'This password reset link is invalid or has expired.' });
+    }
+    return res.status(200).json({ success: true, message: 'Your password has been reset. You can now log in.' });
+  } catch (error) {
+    console.error('Password reset failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to reset the password right now. Please try again.' });
+  }
+};
+
 const verify = async (req, res) => {
   const user = req.user;
   if (!user) {
@@ -249,4 +344,4 @@ const getProfile = async (req, res) => {
   }
 };
 
-export { login, refresh, logout, verify, getProfile };
+export { login, refresh, logout, requestPasswordReset, resetPassword, verify, getProfile };

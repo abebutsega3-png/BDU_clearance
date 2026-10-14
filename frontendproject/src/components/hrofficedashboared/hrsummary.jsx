@@ -2,7 +2,7 @@ import React from "react";
 import { FaCheckCircle, FaClock, FaUserCheck, FaUsers, FaUndo } from "react-icons/fa";
 import { ClipboardCheck } from "lucide-react";
 import SummaryCard from "./summarycared";
-import { useHRLanguage } from "./HRLanguage";
+import { useHRLanguage } from "./useHRLanguage";
 
 const HrSummary = ({ metrics = {}, name }) => {
   const { language, t } = useHRLanguage();

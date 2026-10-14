@@ -4,7 +4,7 @@ import { Bell, CheckCircle2, ChevronDown, Globe2, LayoutDashboard, LockKeyhole, 
 import { useAuth } from '../../context/authContext';
 import { fetchUnreadNotificationCount } from '../../until/NotificationHelper';
 import UniversitySeal from '../UniversitySeal';
-import { useHRLanguage } from './HRLanguage';
+import { useHRLanguage } from './useHRLanguage';
 import { subscribeToNotifications } from '../../until/notificationSocket';
 
 const Navbar = () => {
@@ -85,29 +85,34 @@ const Navbar = () => {
   }, [location.pathname, user?._id, user?.id]);
 
   return (
-    <header className="flex min-h-[72px] items-center justify-end gap-2 bg-teal-700 px-3 text-white shadow-sm sm:gap-4 sm:px-6">
+    <header className="sticky top-0 z-30 flex min-h-[72px] items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 text-slate-700 shadow-sm sm:gap-4 sm:px-6">
+      <div className="hidden min-w-0 sm:block">
+        <p className="truncate text-sm font-bold text-[#10254b]">Employee Clearance System</p>
+        <p className="truncate text-[11px] text-slate-500">Bahir Dar University | HR Portal</p>
+      </div>
+      <div className="ml-auto flex items-center gap-2 sm:gap-4">
       <button
         type="button"
         onClick={openLanguageDialog}
         aria-label="Choose language"
         aria-haspopup="dialog"
-        className="inline-flex h-12 items-center gap-3 rounded-full border-2 border-white/90 px-5 text-base font-semibold text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+        className="inline-flex h-10 items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 text-sm font-semibold text-[#174a83] transition hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#174a83] sm:h-11 sm:gap-3 sm:px-4"
       >
-        <Globe2 size={22} aria-hidden="true" />
+        <Globe2 size={19} aria-hidden="true" />
         {language === 'am' ? 'አማርኛ' : 'English'}
-        <ChevronDown size={18} aria-hidden="true" />
+        <ChevronDown size={16} aria-hidden="true" />
       </button>
       <Link
         to="/hr-office/notifications"
         aria-label="HR notifications"
         title="Notifications"
-        className="relative rounded-full border border-white/20 p-3 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+        className="relative rounded-full p-2.5 text-[#174a83] transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#174a83]"
       >
         <Bell size={20} />
         {unreadCount > 0 && (
           <span
             aria-label={`${unreadCount} unread notifications`}
-            className="absolute -right-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-teal-700 bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+            className="absolute -right-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
           >
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
@@ -120,7 +125,7 @@ const Navbar = () => {
           aria-label="Open HR Officer menu"
           aria-haspopup="menu"
           aria-expanded={accountMenuOpen}
-          className="flex min-w-0 items-center gap-2 rounded-xl border-2 border-white/90 px-2 py-1.5 text-left transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+          className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#174a83]"
         >
           {user?.profileImage ? (
             <img src={user.profileImage} alt="HR Officer profile" className="h-9 w-9 shrink-0 rounded-full bg-white object-cover" />
@@ -130,14 +135,14 @@ const Navbar = () => {
           <div className="hidden min-w-0 sm:block">
             <p className="max-w-40 truncate text-xs font-semibold">{user?.email || user?.name || 'HR account'}</p>
           </div>
-          <ChevronDown size={15} className={`hidden transition-transform sm:block ${accountMenuOpen ? 'rotate-180' : ''}`} />
+          <ChevronDown size={15} className={`hidden text-[#174a83] transition-transform sm:block ${accountMenuOpen ? 'rotate-180' : ''}`} />
         </button>
         {accountMenuOpen && (
           <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-slate-700 shadow-xl">
             <div className="px-4 py-4">
               <p className="truncate text-sm font-semibold text-slate-800">{user?.name || 'HR Officer'}</p>
               <p className="mt-1 truncate text-xs text-slate-500">{user?.email || 'HR account'}</p>
-              <span className="mt-3 inline-flex rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-800">{t('HR Officer')}</span>
+              <span className="mt-3 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">{t('HR Officer')}</span>
             </div>
             <div className="border-t border-slate-200 py-1.5">
               <Link role="menuitem" to="/hr-office" onClick={closeAccountMenu} className="flex items-center gap-3 px-4 py-2.5 text-sm transition hover:bg-slate-50">
@@ -160,6 +165,7 @@ const Navbar = () => {
             </div>
           </div>
         )}
+      </div>
       </div>
       {languageDialogOpen && (
         <div
@@ -199,15 +205,15 @@ const Navbar = () => {
                     onClick={() => setSelectedLanguage(option.value)}
                     className={`flex min-h-[76px] w-full items-center justify-between rounded-md border px-4 py-3 text-left transition ${
                       isSelected
-                        ? 'border-emerald-500 text-emerald-600'
-                        : 'border-slate-200 text-slate-500 hover:border-emerald-300'
+                        ? 'border-[#174a83] text-[#174a83]'
+                        : 'border-slate-200 text-slate-500 hover:border-blue-300'
                     }`}
                   >
                     <span>
                       <span className="block text-sm">{option.name}</span>
                       <span className="block text-sm">{option.nativeName}</span>
                     </span>
-                    {isSelected && <CheckCircle2 size={19} className="fill-emerald-500 text-white" aria-hidden="true" />}
+                    {isSelected && <CheckCircle2 size={19} className="fill-[#174a83] text-white" aria-hidden="true" />}
                   </button>
                 );
               })}
@@ -215,7 +221,7 @@ const Navbar = () => {
             <button
               type="button"
               onClick={saveLanguage}
-              className="mt-5 h-11 w-full rounded-md bg-emerald-500 text-sm font-bold text-white transition hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+              className="mt-5 h-11 w-full rounded-md bg-[#174a83] text-sm font-bold text-white transition hover:bg-[#123b69] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#174a83]"
             >
               Save
             </button>

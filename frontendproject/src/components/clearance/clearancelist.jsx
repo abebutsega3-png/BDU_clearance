@@ -3,7 +3,8 @@ import axios from 'axios';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, Filter, Plus, Search, X } from 'lucide-react';
 import { fetchClearances, updateClearance } from '../../until/clearanceHelper';
-import { HRTranslatedView, useOptionalHRLanguage } from '../hrofficedashboared/HRLanguage';
+import { HRTranslatedView } from '../hrofficedashboared/HRLanguage';
+import { useOptionalHRLanguage } from '../hrofficedashboared/useHRLanguage';
 
 const ClearanceRequests = () => {
   const { t } = useOptionalHRLanguage();

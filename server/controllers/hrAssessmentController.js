@@ -15,6 +15,12 @@ const CHECKLIST_KEYS = [
   'employmentVerified',
   'noDuplicateRequest',
 ];
+const MANUAL_CHECKLIST_KEYS = [
+  'empInfoVerified',
+  'clearanceRequestVerified',
+  'documentVerified',
+  'employmentVerified',
+];
 
 const isHROfficer = (req) => {
   const role = String(req.user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
@@ -174,8 +180,8 @@ export const completeInitialHRAssessment = async (req, res) => {
   try {
     const { assessmentChecklist, hrComment = '' } = req.body || {};
     if (!assessmentChecklist || typeof assessmentChecklist !== 'object' || Array.isArray(assessmentChecklist)
-      || CHECKLIST_KEYS.some((key) => assessmentChecklist[key] !== true)) {
-      return res.status(400).json({ success: false, message: 'Pass every HR assessment checklist item before continuing to HR Workflow.' });
+      || MANUAL_CHECKLIST_KEYS.some((key) => assessmentChecklist[key] !== true)) {
+      return res.status(400).json({ success: false, message: 'Pass every manual HR assessment item before continuing to HR Workflow.' });
     }
     if (typeof hrComment !== 'string' || hrComment.length > 1000) {
       return res.status(400).json({ success: false, message: 'HR comments must be 1000 characters or fewer.' });

@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { useHRLanguage } from "./HRLanguage";
+import { useHRLanguage } from "./useHRLanguage";
 
 const Notifications = ({ notifications = [], loading = false }) => {
 	const { t } = useHRLanguage();

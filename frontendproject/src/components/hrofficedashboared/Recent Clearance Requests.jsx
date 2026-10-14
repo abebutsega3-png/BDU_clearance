@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Eye } from "lucide-react";
-import { useHRLanguage } from "./HRLanguage";
+import { useHRLanguage } from "./useHRLanguage";
 
 const statusClass = {
 	Pending: "bg-amber-50 text-amber-600",

@@ -12,15 +12,17 @@ import {
 } from 'lucide-react';
 
 const separationTypesUrl = 'http://localhost:3000/api/separation-types';
-const departmentsUrl = 'http://localhost:3000/api/departments';
 
 const emptyForm = {
   name: '',
+  code: '',
   description: '',
   noticePeriodDays: '30',
   requiredDepartments: [],
-  requiredDocuments: '',
+  requiredDocuments: [],
+  approvalMode: 'sequential',
   isActive: true,
+  autoDeactivateAccount: false,
 };
 
 const getAuthConfig = () => ({
@@ -45,20 +47,13 @@ const normalizeType = (type) => ({
 
 const loadSeparationData = async () => {
   const config = getAuthConfig();
-  const [typesResponse, departmentsResponse] = await Promise.all([
-    axios.get(separationTypesUrl, config),
-    axios.get(departmentsUrl, config),
-  ]);
+  const typesResponse = await axios.get(separationTypesUrl, config);
 
-  return {
-    types: (typesResponse.data?.data || []).map(normalizeType),
-    departments: departmentsResponse.data?.departments || [],
-  };
+  return (typesResponse.data?.data || []).map(normalizeType);
 };
 
 export default function HRSeparationTypes() {
   const [types, setTypes] = useState([]);
-  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -73,8 +68,7 @@ export default function HRSeparationTypes() {
     setError('');
     try {
       const data = await loadSeparationData();
-      setTypes(data.types);
-      setDepartments(data.departments);
+      setTypes(data);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -87,8 +81,7 @@ export default function HRSeparationTypes() {
     loadSeparationData()
       .then((data) => {
         if (!isCurrent) return;
-        setTypes(data.types);
-        setDepartments(data.departments);
+        setTypes(data);
       })
       .catch((requestError) => {
         if (isCurrent) setError(getErrorMessage(requestError));
@@ -105,6 +98,7 @@ export default function HRSeparationTypes() {
     if (!query) return types;
     return types.filter((type) => [
       type.name,
+      type.code,
       type.description,
       ...type.requiredDocuments,
       ...type.requiredDepartments.map(departmentName),
@@ -120,13 +114,16 @@ export default function HRSeparationTypes() {
   const openEdit = (type) => {
     setFormData({
       name: type.name || '',
+      code: type.code || '',
       description: type.description || '',
       noticePeriodDays: type.noticePeriodDays ?? '30',
       requiredDepartments: type.requiredDepartments.map((department) => (
         typeof department === 'string' ? department : department._id
       )).filter(Boolean),
-      requiredDocuments: type.requiredDocuments.join(', '),
+      requiredDocuments: type.requiredDocuments,
+      approvalMode: type.approvalMode || 'sequential',
       isActive: type.isActive !== false,
+      autoDeactivateAccount: type.autoDeactivateAccount === true,
     });
     setDialog({ mode: 'edit', type });
     setError('');
@@ -141,12 +138,10 @@ export default function HRSeparationTypes() {
     const payload = {
       ...formData,
       name: formData.name.trim(),
+      code: formData.code.trim().toUpperCase(),
       description: formData.description.trim(),
       noticePeriodDays: Number(formData.noticePeriodDays),
-      requiredDocuments: formData.requiredDocuments
-        .split(',')
-        .map((document) => document.trim())
-        .filter(Boolean),
+      requiredDocuments: formData.requiredDocuments,
     };
 
     try {
@@ -260,6 +255,7 @@ export default function HRSeparationTypes() {
               <thead className="bg-slate-50">
                 <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Code</th>
                   <th className="px-4 py-3">Description</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Required Departments</th>
@@ -272,6 +268,7 @@ export default function HRSeparationTypes() {
                 {filteredTypes.map((type) => (
                   <tr key={type._id} className="align-top transition hover:bg-slate-50/70">
                     <td className="px-4 py-4 text-sm font-semibold text-slate-800">{type.name}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-600">{type.code || '—'}</td>
                     <td className="max-w-56 px-4 py-4 text-sm text-slate-600">{type.description || '—'}</td>
                     <td className="px-4 py-4">
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${type.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
@@ -339,7 +336,7 @@ export default function HRSeparationTypes() {
                 ))}
                 {filteredTypes.length === 0 && (
                   <tr>
-                    <td colSpan="7" className="px-4 py-12 text-center text-sm text-slate-500">
+                    <td colSpan="8" className="px-4 py-12 text-center text-sm text-slate-500">
                       {search ? 'No separation types match your search.' : 'No separation types found. Add a type to get started.'}
                     </td>
                   </tr>
@@ -361,7 +358,7 @@ export default function HRSeparationTypes() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="separation-dialog-title"
-            className="my-auto max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-2xl"
+            className="my-auto max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl"
           >
             <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
               <div>
@@ -380,92 +377,94 @@ export default function HRSeparationTypes() {
             {dialog.mode === 'view' ? (
               <dl className="grid gap-4 p-5 sm:grid-cols-2">
                 <div><dt className="text-xs font-semibold uppercase text-slate-500">Type Name</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.name}</dd></div>
+                <div><dt className="text-xs font-semibold uppercase text-slate-500">Code</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.code || '—'}</dd></div>
                 <div><dt className="text-xs font-semibold uppercase text-slate-500">Status</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.isActive ? 'Active' : 'Inactive'}</dd></div>
+                <div><dt className="text-xs font-semibold uppercase text-slate-500">Approval Mode</dt><dd className="mt-1 text-sm capitalize text-slate-800">{dialog.type.approvalMode || 'Sequential'}</dd></div>
+                <div><dt className="text-xs font-semibold uppercase text-slate-500">Auto-deactivate account</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.autoDeactivateAccount ? 'Yes' : 'No'}</dd></div>
                 <div className="sm:col-span-2"><dt className="text-xs font-semibold uppercase text-slate-500">Description</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.description || '—'}</dd></div>
                 <div><dt className="text-xs font-semibold uppercase text-slate-500">Notice Period</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.noticePeriodDays > 0 ? `${dialog.type.noticePeriodDays} days` : 'N/A'}</dd></div>
                 <div><dt className="text-xs font-semibold uppercase text-slate-500">Required Departments</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.requiredDepartments.map((department) => typeof department === 'string' ? department : departmentName(department)).filter(Boolean).join(', ') || '—'}</dd></div>
                 <div className="sm:col-span-2"><dt className="text-xs font-semibold uppercase text-slate-500">Required Documents</dt><dd className="mt-1 text-sm text-slate-800">{dialog.type.requiredDocuments.join(', ') || '—'}</dd></div>
               </dl>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-4 p-5">
-                <label className="block text-sm font-medium text-slate-700">
-                  Type Name <span className="text-red-500">*</span>
-                  <input
-                    type="text"
-                    required
-                    maxLength={100}
-                    value={formData.name}
-                    onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    placeholder="e.g. Resignation"
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-700">
-                  Description <span className="text-red-500">*</span>
-                  <textarea
-                    required
-                    rows={3}
-                    maxLength={500}
-                    value={formData.description}
-                    onChange={(event) => setFormData({ ...formData, description: event.target.value })}
-                    className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    placeholder="Describe this separation type"
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-700">
-                  Required Departments
-                  <select
-                    multiple
-                    value={formData.requiredDepartments}
-                    onChange={(event) => setFormData({
-                      ...formData,
-                      requiredDepartments: Array.from(event.target.selectedOptions, (option) => option.value),
-                    })}
-                    className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  >
-                    {departments.map((department) => (
-                      <option key={department.id || department._id} value={department.id || department._id}>
-                        {departmentName(department)}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="mt-1 block text-xs font-normal text-slate-500">Hold Ctrl (Windows) or Command (Mac) to select multiple departments.</span>
-                </label>
-                <label className="block text-sm font-medium text-slate-700">
-                  Required Documents
-                  <input
-                    type="text"
-                    value={formData.requiredDocuments}
-                    onChange={(event) => setFormData({ ...formData, requiredDocuments: event.target.value })}
-                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    placeholder="Resignation Letter, ID Card"
-                  />
-                  <span className="mt-1 block text-xs font-normal text-slate-500">Separate document names with commas.</span>
-                </label>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Required Notice Period (days) <span className="text-red-500">*</span>
-                    <input
-                      type="number"
-                      min="0"
-                      required
-                      value={formData.noticePeriodDays}
-                      onChange={(event) => setFormData({ ...formData, noticePeriodDays: event.target.value })}
-                      className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </label>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Status
-                    <select
-                      value={formData.isActive ? 'active' : 'inactive'}
-                      onChange={(event) => setFormData({ ...formData, isActive: event.target.value === 'active' })}
-                      className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </label>
-                </div>
+              <form onSubmit={handleSubmit} className="space-y-5 p-5">
+                <section className="space-y-4">
+                  <h3 className="border-b border-blue-100 pb-2 text-sm font-semibold text-blue-800">1. Basic Information</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Type Name <span className="text-red-500">*</span>
+                      <input
+                        type="text"
+                        required
+                        maxLength={100}
+                        value={formData.name}
+                        onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="e.g. Resignation"
+                      />
+                    </label>
+                    <label className="block text-sm font-medium text-slate-700">
+                      Type Code <span className="text-red-500">*</span>
+                      <input
+                        type="text"
+                        required
+                        maxLength={20}
+                        pattern="[A-Za-z0-9_-]+"
+                        value={formData.code}
+                        onChange={(event) => setFormData({ ...formData, code: event.target.value.toUpperCase() })}
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm uppercase outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="e.g. SEP-RES"
+                      />
+                    </label>
+                    <label className="block text-sm font-medium text-slate-700">
+                      Required Notice Period (days) <span className="text-red-500">*</span>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={formData.noticePeriodDays}
+                        onChange={(event) => setFormData({ ...formData, noticePeriodDays: event.target.value })}
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                    <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
+                      Description <span className="text-red-500">*</span>
+                      <textarea
+                        required
+                        rows={3}
+                        maxLength={500}
+                        value={formData.description}
+                        onChange={(event) => setFormData({ ...formData, description: event.target.value })}
+                        className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="Describe this separation type"
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="space-y-3">
+                  <h3 className="border-b border-blue-100 pb-2 text-sm font-semibold text-blue-800">2. Status &amp; Actions</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.isActive}
+                        onChange={(event) => setFormData({ ...formData, isActive: event.target.checked })}
+                        className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      {formData.isActive ? 'Active' : 'Inactive'}
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.autoDeactivateAccount}
+                        onChange={(event) => setFormData({ ...formData, autoDeactivateAccount: event.target.checked })}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Auto-deactivate account on completion
+                    </label>
+                  </div>
+                </section>
                 {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
                 <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
                   <button type="button" onClick={() => setDialog(null)} disabled={saving} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
@@ -473,7 +472,7 @@ export default function HRSeparationTypes() {
                   </button>
                   <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                     {saving && <LoaderCircle size={15} className="animate-spin" />}
-                    {dialog.mode === 'edit' ? 'Update' : 'Save'}
+                    {dialog.mode === 'edit' ? 'Update Separation Type' : 'Add Separation Type'}
                   </button>
                 </div>
               </form>

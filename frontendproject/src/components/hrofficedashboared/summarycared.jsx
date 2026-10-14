@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { useHRLanguage } from "./HRLanguage";
+import { useHRLanguage } from "./useHRLanguage";
 
 function SummaryCard({
   icon: Icon,
@@ -21,7 +21,7 @@ function SummaryCard({
         border border-slate-200
         bg-white
         p-2.5
-        shadow-sm
+        shadow-md
         transition
         hover:-translate-y-0.5
         hover:shadow-md

@@ -65,7 +65,7 @@ function SelectField({ name, value, onChange, children, required }) {
 	return <select name={name} value={value} onChange={onChange} required={required} className={`${inputClass} appearance-none pr-8`} style={{ backgroundImage: 'linear-gradient(45deg, transparent 50%, #64748b 50%), linear-gradient(135deg, #64748b 50%, transparent 50%)', backgroundPosition: 'calc(100% - 13px) 50%, calc(100% - 9px) 50%', backgroundSize: '4px 4px, 4px 4px', backgroundRepeat: 'no-repeat' }}>{children}</select>;
 }
 
-function DateField({ name, value, onChange, required, error }) {
+function DateField({ name, value, onChange, required, error, min, max }) {
 	return <div className="relative">
 		<input
 			type="date"
@@ -73,6 +73,8 @@ function DateField({ name, value, onChange, required, error }) {
 			value={value}
 			onChange={onChange}
 			required={required}
+			min={min}
+			max={max}
 			aria-invalid={Boolean(error)}
 			aria-describedby={error ? `${name}-error` : undefined}
 			className={`${inputClass} pr-8 ${error ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : ''}`}
@@ -100,6 +102,9 @@ export default function AddClearance() {
 		lastWorkingDate: form.lastWorkingDate,
 		relievingDate: form.relievingDate,
 	});
+	const maxLastWorkingDate = new Date();
+	maxLastWorkingDate.setDate(maxLastWorkingDate.getDate() + 365);
+	const maxLastWorkingDateValue = getLocalDateInputValue(maxLastWorkingDate);
 	const lastWorkingDateOrderError = Boolean(
 		form.lastWorkingDate
 		&& form.relievingDate
@@ -233,7 +238,7 @@ export default function AddClearance() {
 							<h2 className="mb-4 flex items-center gap-3 text-[11px] font-bold text-blue-600"><span>Clearance Details</span><span className="h-px flex-1 bg-slate-200" /></h2>
 							<div className="grid grid-cols-1 gap-3 md:grid-cols-3">
 								<Field label="Clearance Reason" required><SelectField name="reason" value={form.reason} onChange={handleChange} required><option value="">{loadingSeparationTypes ? 'Loading reasons...' : 'Select Reason'}</option>{separationTypes.map((type) => <option key={type} value={type}>{type}</option>)}</SelectField>{!loadingSeparationTypes && separationTypes.length === 0 && <p className="mt-1 text-[10px] text-amber-700">No active separation types are available. Add one in HR Separation Types before creating a request.</p>}</Field>
-								<Field label="Last Working Date" required><DateField name="lastWorkingDate" value={form.lastWorkingDate} onChange={handleChange} required error={lastWorkingDateOrderError} />{lastWorkingDateOrderError && <p id="lastWorkingDate-error" role="alert" className="mt-1 text-[10px] text-red-600">Last working date cannot be after relieving date.</p>}</Field>
+								<Field label="Last Working Date" required><DateField name="lastWorkingDate" value={form.lastWorkingDate} onChange={handleChange} required min={form.requestDate || undefined} max={maxLastWorkingDateValue} error={lastWorkingDateOrderError} />{lastWorkingDateOrderError && <p id="lastWorkingDate-error" role="alert" className="mt-1 text-[10px] text-red-600">Last working date cannot be after relieving date.</p>}</Field>
 								<Field label="Relieving Date (if any)"><DateField name="relievingDate" value={form.relievingDate} onChange={handleChange} /></Field>
 								<Field label="Request Date"><DateField name="requestDate" value={form.requestDate} onChange={handleChange} /></Field>
 								<div className="md:col-span-2"><Field label="Remarks"><textarea name="remarks" value={form.remarks} onChange={handleChange} maxLength="500" rows="2" placeholder="Enter any remarks (optional)" className={`${inputClass} resize-none`} /><p className="mt-1 text-right text-[9px] text-slate-400">{form.remarks.length}/500</p></Field></div>

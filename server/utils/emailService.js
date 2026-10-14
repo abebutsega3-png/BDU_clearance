@@ -9,6 +9,21 @@ const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (character
   "'": '&#39;',
 }[character]));
 
+const createEmailTransporter = () => {
+  const { EMAIL_HOST, EMAIL_PORT, EMAIL_USER } = process.env;
+  const emailPassword = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD;
+  const port = Number(EMAIL_PORT || 465);
+  if (!EMAIL_USER || !emailPassword || !port) {
+    throw new Error('SMTP configuration is incomplete.');
+  }
+
+  const auth = { user: EMAIL_USER, pass: emailPassword };
+  const transportOptions = EMAIL_HOST
+    ? { host: EMAIL_HOST, port, secure: process.env.EMAIL_SECURE === 'true' || port === 465, auth }
+    : { service: process.env.EMAIL_SERVICE || 'gmail', auth };
+  return nodemailer.createTransport(transportOptions);
+};
+
 export const sendNotificationEmail = async ({ recipient, title, message, actionLink, notificationKey }) => {
   try {
     const settings = await SystemSettings.findOne().select('notifications').lean();
@@ -25,18 +40,7 @@ export const sendNotificationEmail = async ({ recipient, title, message, actionL
     const email = String(recipient?.email || '').trim();
     if (!email) return { sent: false, reason: 'Recipient email is missing.' };
 
-    const { EMAIL_HOST, EMAIL_PORT, EMAIL_USER } = process.env;
-    const emailPassword = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD;
-    const port = Number(EMAIL_PORT || 465);
-    if (!EMAIL_USER || !emailPassword || !port) {
-      return { sent: false, reason: 'SMTP configuration is incomplete.' };
-    }
-
-    const auth = { user: EMAIL_USER, pass: emailPassword };
-    const transportOptions = EMAIL_HOST
-      ? { host: EMAIL_HOST, port, secure: process.env.EMAIL_SECURE === 'true' || port === 465, auth }
-      : { service: process.env.EMAIL_SERVICE || 'gmail', auth };
-    const transporter = nodemailer.createTransport(transportOptions);
+    const transporter = createEmailTransporter();
     const appUrl = process.env.APP_BASE_URL || 'http://localhost:5173';
     const link = actionLink ? new URL(actionLink, appUrl).toString() : '';
     const text = `${message}${link ? `\n\nOpen: ${link}` : ''}`;
@@ -54,4 +58,19 @@ export const sendNotificationEmail = async ({ recipient, title, message, actionL
     console.error('Email notification delivery failed:', error.message);
     return { sent: false, reason: error.message };
   }
+};
+
+export const sendPasswordResetEmail = async ({ recipient, actionLink }) => {
+  const { EMAIL_USER } = process.env;
+  const transporter = createEmailTransporter();
+  const greeting = `Hello${recipient?.name ? ` ${recipient.name}` : ''},`;
+  const instructions = 'Use the link below to reset your Bahir Dar University account password. This link expires in one hour.';
+  const message = `${greeting}\n\n${instructions}\n\n${actionLink}\n\nIf you did not request a password reset, you can ignore this email.`;
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || EMAIL_USER,
+    to: recipient.email,
+    subject: 'Reset your BDU account password',
+    text: message,
+    html: `<p>${escapeHtml(greeting)}</p><p>${escapeHtml(instructions)}</p><p><a href="${escapeHtml(actionLink)}">Reset your password</a></p><p>If you did not request a password reset, you can ignore this email.</p>`,
+  });
 };

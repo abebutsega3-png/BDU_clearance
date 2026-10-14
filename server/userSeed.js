@@ -2,6 +2,7 @@ import User from "./models/User.js";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import connectToDB from "./db/db.js";
+
 const userRegister = async () => {
     try {
         const connected = await connectToDB();
@@ -10,6 +11,7 @@ const userRegister = async () => {
             return;
         }
 
+        // 1. Admin Account Configuration
         const adminEmail = (process.env.ADMIN_EMAIL || "admin@bdu.edu.et").trim().toLowerCase();
         const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
         const existingAdmin = await User.findOne({ email: adminEmail });
@@ -33,36 +35,50 @@ const userRegister = async () => {
             console.log(`Admin account created: ${adminEmail}`);
         }
 
+        // 2. HR Officer Account Configuration (Username: abebu | Password: 12345678)
+        const hrUsername = (process.env.HR_USERNAME || "abebu").trim();
         const hrEmail = (process.env.HR_EMAIL || "abebu@bdu.edu.et").trim().toLowerCase();
         const hrPassword = process.env.HR_PASSWORD || "12345678";
-        const existingHRUser = await User.findOne({ email: hrEmail });
+
+        // ቀደም ሲል በኢሜይል ወይም በዩዘርኔም የተመዘገበ ከሆነ መፈለጊያ
+        const existingHRUser = await User.findOne({
+            $or: [{ email: hrEmail }, { username: hrUsername }]
+        });
+
+        const hashedPassword = await bcrypt.hash(hrPassword, 10);
 
         if (existingHRUser) {
             existingHRUser.name = "HR Officer";
+            existingHRUser.username = hrUsername;
             existingHRUser.email = hrEmail;
-            existingHRUser.password = await bcrypt.hash(hrPassword, 10);
-            existingHRUser.role = "HR Officer";
+            existingHRUser.password = hashedPassword;
+            existingHRUser.role = "HR Officer"; // ወይም በስርዓትህ Role መሰረት "hr_officer"
             existingHRUser.status = "Active";
             await existingHRUser.save();
-            console.log(`HR Officer account ensured: ${hrEmail}`);
+            console.log(`HR Officer account updated/ensured: Username: ${hrUsername} | Email: ${hrEmail}`);
         } else {
             await User.create({
                 name: "HR Officer",
+                username: hrUsername,
                 email: hrEmail,
-                password: await bcrypt.hash(hrPassword, 10),
+                password: hashedPassword,
                 role: "HR Officer",
                 status: "Active"
             });
-            console.log(`HR Officer account created: ${hrEmail}`);
+            console.log(`HR Officer account created: Username: ${hrUsername} | Email: ${hrEmail}`);
         }
 
-        console.log(`Admin login: ${adminEmail} / ${adminPassword}`);
-        console.log(`HR Officer login: ${hrEmail} / ${hrPassword}`);
+        console.log("\n==========================================");
+        console.log(`🔑 Admin Login: ${adminEmail} / ${adminPassword}`);
+        console.log(`🔑 HR Officer Login: ${hrUsername} (or ${hrEmail}) / ${hrPassword}`);
+        console.log("==========================================\n");
+
     } catch (error) {
-        console.error("Error creating admin user:", error);
+        console.error("Error seeding users:", error);
         process.exitCode = 1;
     } finally {
         await mongoose.disconnect();
+        console.log("Database disconnected successfully.");
     }
 };
 

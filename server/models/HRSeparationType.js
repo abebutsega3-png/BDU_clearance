@@ -8,10 +8,22 @@ const HRSeparationTypeSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    code: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      sparse: true,
+      unique: true,
+    },
     description: {
       type: String,
       trim: true,
       default: '',
+    },
+    approvalMode: {
+      type: String,
+      enum: ['sequential', 'parallel'],
+      default: 'sequential',
     },
     noticePeriodDays: {
       type: Number,
@@ -39,6 +51,10 @@ const HRSeparationTypeSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    autoDeactivateAccount: {
+      type: Boolean,
+      default: false,
     },
   },
   {

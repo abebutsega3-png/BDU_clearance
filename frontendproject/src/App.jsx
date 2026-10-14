@@ -161,7 +161,7 @@ function MainLayout() {
 	  const isTransportRoute = location.pathname.startsWith('/transport-office');
 	 const assistantRoutePrefixes = ['/admin', '/hr-office', '/employee', '/department-head', '/finance-office', '/library-office', '/property', '/ict-office', '/registrar-office', '/clearance-office', '/transport-office', '/other-office'];
 	const showAssistant = location.pathname === '/contact' || assistantRoutePrefixes.some((prefix) => location.pathname.startsWith(prefix));
-  const allowedPathsForFooter = ['/', '/home', '/services', '/about', '/instruction', '/contact'];
+  const allowedPathsForFooter = ['/', '/home', '/services', '/about', '/instruction', '/contact', '/login'];
   const showFooter = allowedPathsForFooter.includes(location.pathname);
 
   return (

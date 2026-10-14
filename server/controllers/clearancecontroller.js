@@ -722,9 +722,9 @@ const addClearance = async (req, res) => {
 		if (lastWorkingDate < requestDate) {
 			return res.status(400).json({ success: false, message: 'Last working date cannot be earlier than the request date.' });
 		}
-		const maximumFutureDate = new Date();
-		maximumFutureDate.setDate(maximumFutureDate.getDate() + 365);
-		const maxFutureDateValue = normalizeDateOnly(maximumFutureDate.toISOString().slice(0, 10));
+		const maximumFutureDate = new Date(`${todayValue}T00:00:00.000Z`);
+		maximumFutureDate.setUTCDate(maximumFutureDate.getUTCDate() + 365);
+		const maxFutureDateValue = maximumFutureDate.toISOString().slice(0, 10);
 		if (lastWorkingDate > maxFutureDateValue) {
 			return res.status(400).json({ success: false, message: 'Last working date must be within a reasonable future window and cannot be more than one year ahead.' });
 		}
@@ -1015,6 +1015,12 @@ const updateClearance = async (req, res) => {
 			if (!reason) return res.status(400).json({ success: false, message: 'Clearance reason is required.' });
 			if (!lastWorkingDate || !requestDate || lastWorkingDate < requestDate) {
 				return res.status(400).json({ success: false, message: 'Last working date must be valid and cannot be earlier than the request date.' });
+			}
+			const todayValue = normalizeDateOnly(new Date().toISOString().slice(0, 10));
+			const maximumFutureDate = new Date(`${todayValue}T00:00:00.000Z`);
+			maximumFutureDate.setUTCDate(maximumFutureDate.getUTCDate() + 365);
+			if (lastWorkingDate > maximumFutureDate.toISOString().slice(0, 10)) {
+				return res.status(400).json({ success: false, message: 'Last working date must be within a reasonable future window and cannot be more than one year ahead.' });
 			}
 			if (requestUpdates.relievingDate && !relievingDate) {
 				return res.status(400).json({ success: false, message: 'Enter a valid relieving date.' });

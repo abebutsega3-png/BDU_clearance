@@ -290,6 +290,10 @@ export default function MyClearancePage() {
         setError('Last working date cannot be earlier than the request date.');
         return;
       }
+      if (returnedForm.lastWorkingDate > getFutureDateLimit()) {
+        setError('Last working date must be within a reasonable future window and cannot be more than one year ahead.');
+        return;
+      }
       if (returnedForm.relievingDate && returnedForm.lastWorkingDate > returnedForm.relievingDate) {
         setError('Last working date cannot be after relieving date.');
         return;
@@ -394,7 +398,7 @@ export default function MyClearancePage() {
                 <label className="mb-2 block text-[12px] font-semibold text-slate-700">Last Working Date <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input type="date" name="lastWorkingDate" min={getLocalDateOnly()} value={formData.lastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
+                  <input type="date" name="lastWorkingDate" min={getLocalDateOnly()} max={getFutureDateLimit()} value={formData.lastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
                 </div>
               </div>
 
@@ -645,6 +649,7 @@ export default function MyClearancePage() {
                             <input
                               type="date"
                               min={String(currentRequest?.requestDate || currentRequest?.createdAt || '').slice(0, 10)}
+                              max={getFutureDateLimit()}
                               value={returnedForm.lastWorkingDate}
                               onChange={(event) => setReturnedForm((current) => ({ ...current, lastWorkingDate: event.target.value }))}
                               className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[12px] font-normal outline-none focus:border-blue-500"
