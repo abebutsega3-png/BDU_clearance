@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Clock3, Eye, LoaderCircle, RotateCcw, Search, X } from 'lucide-react';
 
 const API_URL = 'http://localhost:3000/api/transport/history';
@@ -16,7 +17,9 @@ const formatDate = (value) => {
 
 const statusClass = (status) => status === 'Approved'
   ? 'bg-emerald-50 text-emerald-700'
-  : 'bg-rose-50 text-rose-700';
+  : status === 'Flagged'
+    ? 'bg-orange-50 text-orange-700'
+    : 'bg-rose-50 text-rose-700';
 
 function DetailItem({ label, value }) {
   return (
@@ -28,9 +31,10 @@ function DetailItem({ label, value }) {
 }
 
 export default function TransportClearanceHistory() {
+  const [searchParams] = useSearchParams();
   const [records, setRecords] = useState([]);
   const [summary, setSummary] = useState({ totalReviewed: 0, approved: 0, returned: 0 });
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchParams.get('search') || '');
   const [status, setStatus] = useState('All');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -125,6 +129,7 @@ export default function TransportClearanceHistory() {
             <option value="All">All Statuses</option>
             <option value="Approved">Approved</option>
             <option value="Returned">Returned</option>
+            <option value="Flagged">Flagged</option>
           </select>
         </label>
         <label className="relative block">

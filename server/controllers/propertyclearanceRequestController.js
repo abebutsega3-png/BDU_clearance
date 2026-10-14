@@ -235,7 +235,7 @@ export const startReview = async (req, res) => {
 
 export const approveClearance = async (req, res) => {
   try {
-    const { officerComment, completedChecks = [] } = req.body;
+    const { officerComment } = req.body;
     const request = await ClearanceRequest.findOne({ requestId: req.params.requestId, ...officeAssignmentFilter('Property / Asset Office') }).lean();
     if (!request) return res.status(400).json({ message: 'Request cannot be approved' });
     if (request.departmentStatus !== 'Approved') return res.status(400).json({ message: 'This request is waiting for Department Head approval' });
@@ -243,13 +243,6 @@ export const approveClearance = async (req, res) => {
     const propertySettings = officer?.propertySettings || {};
     const rules = propertySettings.clearanceRules || {};
     const checklist = propertySettings.clearanceChecklist || [];
-    const completedCheckKeys = Array.isArray(completedChecks)
-      ? [...new Set(completedChecks.filter((key) => typeof key === 'string'))]
-      : [];
-    const missingChecks = checklist.filter((item) => item.enabled && !completedCheckKeys.includes(item.key));
-    if (missingChecks.length) {
-      return res.status(400).json({ message: `Complete the required property checks before approval: ${missingChecks.map((item) => item.label).join(', ')}.` });
-    }
     const legacyRequiresNoOutstanding = checklist.some((item) => item.enabled && ['assetsReturned', 'noOutstandingProperty', 'propertyResponsibilityCleared'].includes(item.key));
     const requiresNoOutstanding = typeof rules.requireNoOutstandingAssets === 'boolean'
       ? rules.requireNoOutstandingAssets
@@ -272,11 +265,14 @@ export const approveClearance = async (req, res) => {
       office: 'Property / Asset Office',
       status: 'Completed',
       approvedBy,
+      officerName: approvedBy,
+      reviewedBy: approvedBy,
       approvedById: req.user?._id || null,
       performedBy: approvedBy,
       performedById: req.user?._id || null,
       reviewerId: req.user?._id || null,
       approvedAt,
+      reviewedAt: approvedAt,
       updatedAt: approvedAt,
     };
     if (propertyStepIndex >= 0) {
@@ -293,7 +289,7 @@ export const approveClearance = async (req, res) => {
         propertyReviewedById: req.user?._id || null,
         reviewedAt: new Date(),
         officerComment: officerComment || 'All assets verified and returned.',
-        completedPropertyChecks: completedCheckKeys,
+        completedPropertyChecks: [],
         checklistCompleted: true,
         currentStep: resolveNextStepAfterDecision('Property / Asset Office', 'Approved'),
         workflow
@@ -324,7 +320,11 @@ export const approveClearance = async (req, res) => {
       message: 'Your clearance has been approved by the Property / Asset Office.',
       type: 'CLEARANCE_PROGRESS_UPDATED',
     });
-    await recordPropertyAction(req, 'APPROVE_CLEARANCE', savedRequest.requestId, `Approved clearance ${savedRequest.requestId}`, { status: 'Under Review' }, { status: 'Approved' });
+    await recordPropertyAction(req, 'APPROVE_CLEARANCE', savedRequest.requestId, `Approved clearance ${savedRequest.requestId}`, { status: 'Under Review' }, {
+      status: 'Approved',
+      approvedBy,
+      approvedById: req.user?._id || null,
+    });
     res.status(200).json(savedRequest);
   } catch (error) {
     res.status(500).json({ message: 'Error approving clearance', error: error.message });

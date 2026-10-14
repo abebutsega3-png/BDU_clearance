@@ -10,6 +10,14 @@ const defaultNotes = [
   'No recent notifications.',
 ];
 
+const normalizeFinanceStatus = (value) => {
+  const status = String(value || '').trim().toLowerCase();
+  if (['approved', 'completed', 'cleared', 'financially cleared'].includes(status)) return 'Approved';
+  if (status.includes('return') || status.includes('reject')) return 'Returned';
+  if (['under review', 'in progress', 'review'].includes(status)) return 'In Progress';
+  return 'Pending';
+};
+
 const toneClasses = {
   blue: 'bg-blue-50 text-blue-700',
   amber: 'bg-amber-50 text-amber-700',
@@ -107,6 +115,7 @@ export const RecentNotifications = ({ notifications = defaultNotes, onViewAll })
 
 const SummaryCardDashboard = () => {
   const [loading, setLoading] = useState(true);
+  const [requestLoadError, setRequestLoadError] = useState('');
   const [dashboardData, setDashboardData] = useState({
     summary: { pending: 0, inProgress: 0, approved: 0, returned: 0, outstandingAmount: 0, totalRequests: 0 },
     pendingRequests: [],
@@ -128,8 +137,60 @@ const SummaryCardDashboard = () => {
           notifications: data.notifications || [],
           activities: data.activities || [],
         });
+        try {
+          const requestsResponse = await axios.get('http://localhost:3000/api/finance/clearance-requests/requests', {
+            params: { status: 'All' },
+          });
+          const financeRequests = requestsResponse.data?.requests || [];
+          const counts = financeRequests.reduce((currentCounts, request) => {
+            currentCounts[normalizeFinanceStatus(request.financeStatus)] += 1;
+            return currentCounts;
+          }, { Pending: 0, 'In Progress': 0, Approved: 0, Returned: 0 });
+          setDashboardData((current) => ({
+            ...current,
+            summary: {
+              ...current.summary,
+              pending: counts.Pending,
+              inProgress: counts['In Progress'],
+              approved: counts.Approved,
+              returned: counts.Returned,
+              totalRequests: financeRequests.length,
+            },
+            pendingRequests: financeRequests.filter((request) => normalizeFinanceStatus(request.financeStatus) === 'Pending'),
+          }));
+          setRequestLoadError('');
+        } catch (error) {
+          console.error('Error loading finance requests for dashboard totals:', error);
+          setRequestLoadError('Unable to refresh Finance Clearance Requests for dashboard totals.');
+        }
       } catch (error) {
         console.error('Error fetching finance dashboard data:', error);
+        try {
+          const requestsResponse = await axios.get('http://localhost:3000/api/finance/clearance-requests/requests', {
+            params: { status: 'All' },
+          });
+          const financeRequests = requestsResponse.data?.requests || [];
+          const counts = financeRequests.reduce((currentCounts, request) => {
+            currentCounts[normalizeFinanceStatus(request.financeStatus)] += 1;
+            return currentCounts;
+          }, { Pending: 0, 'In Progress': 0, Approved: 0, Returned: 0 });
+          setDashboardData((current) => ({
+            ...current,
+            summary: {
+              ...current.summary,
+              pending: counts.Pending,
+              inProgress: counts['In Progress'],
+              approved: counts.Approved,
+              returned: counts.Returned,
+              totalRequests: financeRequests.length,
+            },
+            pendingRequests: financeRequests.filter((request) => normalizeFinanceStatus(request.financeStatus) === 'Pending'),
+          }));
+          setRequestLoadError('');
+        } catch (requestError) {
+          console.error('Unable to load finance requests for dashboard fallback:', requestError);
+          setRequestLoadError('Unable to load Finance Clearance Requests for dashboard totals.');
+        }
       } finally {
         setLoading(false);
       }
@@ -181,6 +242,12 @@ const SummaryCardDashboard = () => {
           </div>
         </div>
       </div>
+
+      {requestLoadError && (
+        <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {requestLoadError}
+        </p>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {cardsData.map((card, index) => (

@@ -87,6 +87,7 @@ export const getTransportStatusFilter = (status) => {
 export const normalizeTransportStatus = (value) => {
   const status = String(value || '').trim().toLowerCase();
   if (['approved', 'completed', 'cleared'].includes(status)) return 'Approved';
+  if (status === 'flagged') return 'Flagged';
   if (['returned', 'rejected'].includes(status)) return 'Returned';
   if (['under review', 'in progress', 'review'].includes(status)) return 'Under Review';
   if (status === 'cancelled') return 'Cancelled';

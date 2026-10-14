@@ -226,27 +226,27 @@ httpServer.on('error', (error) => {
   process.exit(1);
 });
 
-const startServer = async () => {
-  console.log('Connecting to MongoDB Atlas...');
+const connectToDatabaseWithRetry = async () => {
+  console.log('Connecting to MongoDB...');
 
-  // 🟢 1. ከዳታቤዝ ጋር በአስተማማኝ ሁኔታ ለመገናኘት መሞከር (እስኪሳካ ድረስ በየ 1 ሰአት መሞከር)
   while (true) {
     const dbConnected = await connectToDB();
     if (dbConnected) {
       break;
     }
 
-    console.error('MongoDB is unavailable. Retrying connection in 1 hour...');
-    await new Promise((resolve) => setTimeout(resolve, 3600000));
+    console.error('MongoDB is unavailable. Retrying connection in 10 seconds...');
+    await new Promise((resolve) => setTimeout(resolve, 10000));
   }
+};
 
-  // 🟢 2. ዳታቤዙ ከተገናኘ በኋላ ብቻ ሰርቨሩን በይፋ ማስነሳት
+const startServer = () => {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running successfully on http://127.0.0.1:${PORT}`);
+    void connectToDatabaseWithRetry().catch((error) => {
+      console.error('Database connection retry failed:', error.message);
+    });
   });
 };
 
-void startServer().catch((error) => {
-  console.error('Server startup failed:', error.message);
-  process.exitCode = 1;
-});
+startServer();

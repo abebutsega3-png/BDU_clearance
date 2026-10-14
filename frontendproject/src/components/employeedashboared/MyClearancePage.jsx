@@ -15,6 +15,7 @@ import { useAuth } from '../../context/authContext';
 import { createClearance, fetchClearances, updateClearance } from '../../until/MyclearanceHelper';
 import { computeClearanceProgress, getClearanceRequestStatus } from '../../until/clearanceProgress';
 import { fetchActiveSeparationTypes } from '../../until/separationTypeHelper';
+import { freshChecklist, getChecklistProfile } from '../departmentheaddashboared/departmentChecklist';
 import EmployeeNavbar from './employeenavbar';
 import EmployeeSidebar from './employeesidbar';
 
@@ -252,12 +253,22 @@ export default function MyClearancePage() {
   };
 
   const currentRequest = requests.find((request) => request.requestId === selectedRequestId) || requests[0] || { requestId: 'No request selected' };
+  const departmentChecklistProfile = currentRequest?._id
+    ? getChecklistProfile(currentRequest, profile)
+    : null;
+  const departmentChecklist = departmentChecklistProfile
+    ? freshChecklist(departmentChecklistProfile, currentRequest)
+    : [];
+  const departmentChecklistClearedCount = departmentChecklist.filter((item) => item.status === 'Cleared').length;
   const progressInfo = computeClearanceProgress(currentRequest);
   const progressSteps = requests.length ? [...progressInfo.steps, progressInfo.finalHRStep] : [];
   const returnedStep = progressInfo.returnedStep;
   const isReturnedRequest = Boolean(returnedStep) || ['Returned', 'Rejected', 'returned', 'rejected'].includes(String(currentRequest?.status || ''));
   const isHRReturnedRequest = isReturnedRequest
     && (currentRequest?.initialHRStatus === 'Returned' || /^hr officer$/i.test(String(currentRequest?.returnedOffice || '')));
+  const isDepartmentHeadReturnedRequest = isReturnedRequest
+    && currentRequest?.departmentStatus === 'Returned'
+    && /^department head$/i.test(String(currentRequest?.returnedOffice || ''));
   const isResolvableReturn = isReturnedRequest && currentRequest?.returnResolvable !== false && currentRequest?.isResolvable !== false;
 
   const requestProgressInfo = (request) => {
@@ -319,6 +330,8 @@ export default function MyClearancePage() {
         setResolving(false);
         setMessage(isHRReturnedRequest
           ? 'Your corrected request has been resubmitted to HR for review.'
+          : isDepartmentHeadReturnedRequest
+            ? 'Your corrected request has been resubmitted to the Department Head.'
           : 'Your request has been resubmitted for clearance review.');
       }
     } catch (requestError) {
@@ -540,6 +553,54 @@ export default function MyClearancePage() {
                   <InfoField label="Last Working Date" value={currentRequest.lastWorkingDate || currentRequest.expectedLastWorkingDate || '-'} />
                 </div>
               </div>
+            </div>
+          </section>
+        )}
+
+        {departmentChecklistProfile && (
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div>
+                <h3 className="text-[18px] font-bold text-slate-800">{departmentChecklistProfile.title}</h3>
+                <p className="mt-1 text-[11px] text-slate-500">{departmentChecklistProfile.description}</p>
+              </div>
+              <span className="rounded-md bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-700">
+                {departmentChecklistClearedCount} / {departmentChecklist.length} Cleared
+              </span>
+            </div>
+            <div className="max-h-96 overflow-auto">
+              <table className="w-full min-w-[680px] text-left text-[11px]">
+                <thead className="sticky top-0 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="w-10 px-4 py-2.5 text-center">#</th>
+                    <th className="px-4 py-2.5">Category</th>
+                    <th className="px-4 py-2.5">Description / Details</th>
+                    <th className="px-4 py-2.5">Status</th>
+                    <th className="px-4 py-2.5">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {departmentChecklist.map((item, index) => {
+                    const sectionTitle = departmentChecklistProfile.sections.find((section) => section.key === item.section)?.title || 'Department';
+                    const statusClass = item.status === 'Cleared'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : item.status === 'N/A'
+                        ? 'bg-slate-100 text-slate-600'
+                        : 'bg-amber-50 text-amber-700';
+                    return (
+                      <tr key={`${item.section}-${item.item}`}>
+                        <td className="px-4 py-2.5 text-center text-slate-400">{index + 1}</td>
+                        <td className="px-4 py-2.5 font-medium text-slate-600">{sectionTitle}</td>
+                        <td className="px-4 py-2.5 font-semibold text-slate-800">{item.item}</td>
+                        <td className="px-4 py-2.5">
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${statusClass}`}>{item.status}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-600">{item.note || '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </section>
         )}

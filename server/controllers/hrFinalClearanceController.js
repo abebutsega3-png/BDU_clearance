@@ -659,13 +659,49 @@ const resolvePropertyAuditReviewer = async (clearance, offices) => {
     return offices;
   }
 
+  const propertyWorkflowSteps = [...(Array.isArray(clearance.workflow) ? clearance.workflow : [])]
+    .reverse()
+    .filter((step) => normalizeOfficeName(step.office || step.name || step.department) === 'Property / Asset Office');
+  const propertyStep = propertyWorkflowSteps.find((step) => approvedStatuses.includes(normalizeOfficeStatus(step.status)))
+    || propertyWorkflowSteps[0]
+    || {};
+  const reviewerName = [
+    clearance.propertyReviewedBy,
+    propertyStep.approvedBy,
+    propertyStep.reviewedBy,
+    propertyStep.clearedBy,
+    propertyStep.performedBy,
+    propertyStep.officerName,
+  ].find((name) => name && !isReviewerRoleLabel(name));
+  const reviewerId = clearance.propertyReviewedById
+    || propertyStep.reviewerId
+    || propertyStep.approvedById
+    || propertyStep.reviewedById
+    || propertyStep.performedById;
+  const [storedReviewer] = await resolveOfficeReviewers([{ clearedBy: reviewerName, reviewerId }]);
+  if (storedReviewer?.clearedBy && storedReviewer.clearedBy !== '—') {
+    return offices.map((office) => office === propertyOffice
+      ? { ...office, clearedBy: storedReviewer.clearedBy }
+      : office);
+  }
+
   const requestId = String(clearance.requestId || '').trim();
   if (!requestId) return offices;
-  const auditLog = await AuditLog.findOne({
+  const auditLogs = await AuditLog.find({
     module: 'Property Clearance',
     action: 'APPROVE_CLEARANCE',
     description: { $regex: requestId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' },
-  }).sort({ createdAt: -1 }).select('userId').lean();
+  }).sort({ createdAt: -1 }).select('userId newValues').lean();
+  const auditLog = auditLogs.find((entry) => {
+    const name = String(entry.newValues?.approvedBy || '').trim();
+    return name && !isReviewerRoleLabel(name);
+  }) || auditLogs.find((entry) => entry.userId);
+  const auditReviewerName = String(auditLog?.newValues?.approvedBy || '').trim();
+  if (auditReviewerName && !isReviewerRoleLabel(auditReviewerName)) {
+    return offices.map((office) => office === propertyOffice
+      ? { ...office, clearedBy: auditReviewerName }
+      : office);
+  }
   if (!auditLog?.userId) return offices;
 
   const [reviewer] = await resolveOfficeReviewers([{ reviewerId: auditLog.userId }]);
@@ -733,6 +769,13 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         || finalHRApprovalStep?.performedById || finalHRApprovalStep?.approvedById
         || finalHRApprovalStep?.reviewedById || finalHRApprovalStep?.reviewerId,
     }]);
+    const propertyOfficeReviewer = departmentClearances.find(
+      (office) => office.office === 'Property / Asset Office',
+    )?.clearedBy;
+    const propertyReviewedBy = propertyOfficeReviewer
+      && !['—', '-', 'Property Officer'].includes(String(propertyOfficeReviewer).trim())
+      ? propertyOfficeReviewer
+      : clearance.propertyReviewedBy;
     const progress = totalDepartments === 0
       ? (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved' ? 100 : 0)
       : Math.round((approvedCount / totalDepartments) * 100);
@@ -812,10 +855,12 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         financeReviewedAt: clearance.financeReviewedAt,
         libraryReviewedBy: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
         libraryReviewedAt: clearance.libraryReviewedAt,
-        propertyReviewedBy: clearance.propertyReviewedBy,
+        propertyReviewedBy,
         propertyReviewedAt: clearance.propertyReviewedAt,
         ictReviewedBy: clearance.ictReviewedBy || clearance.ictClearance?.reviewedBy,
         ictReviewedAt: clearance.ictReviewedAt,
+        transportReviewedBy: clearance.transportReviewedBy,
+        transportReviewedAt: clearance.transportReviewedAt || clearance.transportReview?.reviewedAt,
         departmentReviewedBy: clearance.departmentReviewedBy || clearance.departmentClearance?.reviewedBy,
         departmentReviewedAt: clearance.departmentReviewedAt,
         supportingDocument: clearance.supportingDocument || clearance.documentUrl || clearance.attachment || '',

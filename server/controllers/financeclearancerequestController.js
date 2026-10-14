@@ -8,13 +8,12 @@ import {
   calculateFinancialOutstanding,
 } from "../utils/financialRecordBalance.js";
 import { normalizeRoutedOffice, officeAssignmentFilter } from '../utils/clearanceWorkflow.js';
+import { isFinanceOfficer } from '../utils/roleAccess.js';
 
 const isOfficeAssigned = (request, office) => request?.manualRoutingEnabled !== true
   || (request.assignedDepartments || []).some(
     (assignedOffice) => normalizeRoutedOffice(assignedOffice) === normalizeRoutedOffice(office),
   );
-const isFinanceOfficer = (user) => ['finance', 'finance officer']
-  .includes(String(user?.role || '').toLowerCase().replace(/[_-]+/g, ' ').trim());
 
 const createRoleNotification = async ({
   role,
@@ -436,11 +435,15 @@ export const startFinanceReview = async (req, res) => {
     request.financeReviewedAt = new Date();
 
     await request.save();
-    await notifyFinanceOfficers({
-      type: "REQUEST_ASSIGNED",
-      employeeName: request.employeeName || "An employee",
-      requestId: request.requestId || request._id?.toString?.() || "",
-    });
+    try {
+      await notifyFinanceOfficers({
+        type: "REQUEST_ASSIGNED",
+        employeeName: request.employeeName || "An employee",
+        requestId: request.requestId || request._id?.toString?.() || "",
+      });
+    } catch (notificationError) {
+      console.error(`Finance review started for ${request.requestId}, but notification failed:`, notificationError);
+    }
 
     res.status(200).json({
       success: true,
@@ -448,6 +451,7 @@ export const startFinanceReview = async (req, res) => {
       request,
     });
   } catch (error) {
+    console.error('Unable to start finance clearance review:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -475,6 +479,14 @@ export const approveFinanceClearance = async (req, res) => {
       });
     }
 
+    const comment = String(req.body.comment || req.body.remarks || '').trim();
+    if (!comment) {
+      return res.status(400).json({
+        success: false,
+        message: "An officer comment is required before confirming the clearance decision.",
+      });
+    }
+
     const financialRecords = await FinancialRecord.find({ employeeId: request.employeeId }).lean();
     const totalOutstanding = calculateFinancialOutstanding(financialRecords);
     if (totalOutstanding > 0) {
@@ -485,7 +497,6 @@ export const approveFinanceClearance = async (req, res) => {
       });
     }
 
-    const comment = String(req.body.comment || req.body.remarks || '').trim();
     request.financeStatus = "Approved";
     request.financeRemarks = comment;
     request.financeReviewedBy = req.user?.fullName || req.user?.name || "Finance Officer";
@@ -552,6 +563,12 @@ export const returnFinanceRequest = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "Return reason is required" });
+    }
+    if (!comment) {
+      return res.status(400).json({
+        success: false,
+        message: "An officer comment is required before confirming the clearance decision.",
+      });
     }
 
     const request = await ClearanceRequest.findById(id);

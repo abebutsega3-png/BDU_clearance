@@ -3,6 +3,7 @@ import authMiddleware from '../middleware/authMiddleware.js';
 import { getDashboardData } from '../controllers/transportDashboardController.js';
 import {
 	approveTransportClearance,
+	flagTransportClearance,
 	getTransportRequestById,
 	getTransportRequests,
 	returnTransportClearance,
@@ -27,6 +28,7 @@ router.get('/requests', authMiddleware, getTransportRequests);
 router.get('/requests/:requestId', authMiddleware, getTransportRequestById);
 router.patch('/requests/:requestId/start-review', authMiddleware, startTransportReview);
 router.patch('/requests/:requestId/approve', authMiddleware, approveTransportClearance);
+router.patch('/requests/:requestId/flag', authMiddleware, flagTransportClearance);
 router.patch('/requests/:requestId/return', authMiddleware, returnTransportClearance);
 router.get('/employees/search', authMiddleware, searchAssignableEmployees);
 router.post('/assigned-vehicles/records', authMiddleware, createVehicleRecord);

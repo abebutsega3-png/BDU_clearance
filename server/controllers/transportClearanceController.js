@@ -144,8 +144,8 @@ export const getTransportRequests = async (req, res) => {
 
   try {
     const status = String(req.query.status || 'Pending');
-    if (!['Pending', 'Approved', 'Returned', 'All'].includes(status)) {
-      return res.status(400).json({ message: 'Status must be Pending, Approved, Returned, or All.' });
+    if (!['Pending', 'Approved', 'Returned', 'Flagged', 'All'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be Pending, Approved, Returned, Flagged, or All.' });
     }
     const filters = [transportReviewableFilter];
     const statusFilter = getTransportStatusFilter(status);
@@ -324,6 +324,7 @@ export const approveTransportClearance = async (req, res) => {
     updateTransportWorkflowStep(request, 'Completed', {
       approvedBy: reviewer,
       reviewedBy: reviewer,
+      approvedAt: reviewedAt,
       reviewedAt,
       completedAt: reviewedAt,
       comment: officerNotes,
@@ -432,6 +433,7 @@ export const returnTransportClearance = async (req, res) => {
       officerNotes: officerComment,
       returnReason,
     };
+
     request.status = 'Returned';
     request.overallStatus = 'Returned';
     request.returnReason = returnReason;
@@ -464,5 +466,92 @@ export const returnTransportClearance = async (req, res) => {
   } catch (error) {
     console.error('Error returning Transport clearance:', error.message);
     return res.status(500).json({ message: 'Unable to return Transport clearance.' });
+  }
+};
+
+export const flagTransportClearance = async (req, res) => {
+  if (rejectNonTransportOfficer(req, res)) return;
+
+  try {
+    const request = await getReviewableRequest(req.params.requestId);
+    if (!request) return res.status(404).json({ message: 'Transport clearance request not found.' });
+    const currentStatus = getTransportRequestStatus(request);
+    if (!['Pending', 'Under Review'].includes(currentStatus)) {
+      return res.status(409).json({ message: 'Only pending or under-review requests can be flagged for HR review.' });
+    }
+
+    const reviewer = req.user?.fullName || req.user?.name || 'Transport Officer';
+    const reviewedAt = new Date();
+    const officerNotes = String(req.body?.officerNotes || '').trim();
+    updateTransportWorkflowStep(request, 'Flagged', {
+      reviewedBy: reviewer,
+      reviewedAt,
+      comment: officerNotes,
+      returnReason: '',
+    });
+    request.transportStatus = 'Flagged';
+    request.transportReviewedBy = reviewer;
+    request.transportReviewedAt = reviewedAt;
+    request.transportOfficerComment = officerNotes;
+    request.transportReturnReason = '';
+    request.transportReview = {
+      ...(request.transportReview || {}),
+      status: 'Flagged',
+      reviewedBy: reviewer,
+      reviewedAt,
+      officerNotes,
+      returnReason: '',
+    };
+    request.status = 'In Progress';
+    request.overallStatus = 'In Progress';
+    request.returnReason = '';
+    request.returnedReason = '';
+    request.returnedRemark = '';
+    request.returnedBy = '';
+    request.returnedOffice = '';
+    request.returnedAt = null;
+    request.affectedField = 'Transport Clearance';
+    request.currentStep = 'HR Officer';
+    await request.save();
+
+    await recordTransportAction(
+      req,
+      request,
+      'FLAG_FOR_HR_REVIEW',
+      currentStatus,
+      'Flagged',
+      `Transport clearance flagged for HR review for ${request.requestId}.`,
+      { officerComment: officerNotes },
+    );
+
+    try {
+      const hrOfficers = await User.find({
+        $or: [
+          { role: { $regex: '^hr[ _]officer$', $options: 'i' } },
+          { roles: { $regex: '^hr[ _]officer$', $options: 'i' } },
+        ],
+      }).select('_id name').lean();
+      if (hrOfficers.length) {
+        await Notification.insertMany(hrOfficers.map((officer) => ({
+          recipientId: officer._id,
+          targetName: officer.name || 'HR Officer',
+          title: 'Transport Clearance Flagged for HR Review',
+          message: `Transport clearance for ${request.employeeName || 'the employee'}${request.employeeId ? ` (${request.employeeId})` : ''} requires further HR review.${officerNotes ? ` Comment: ${officerNotes}` : ''}`,
+          type: 'ready_review',
+          actionText: 'Review Request',
+          actionLink: '/hr-office/clearance-requests',
+          relatedRequestId: request.requestId,
+          clearanceRequestId: request.requestId,
+          isRead: false,
+        })));
+      }
+    } catch (notificationError) {
+      console.warn(`Unable to notify HR about flagged Transport request ${request.requestId}:`, notificationError.message);
+    }
+
+    return res.status(200).json({ success: true, request: mapTransportRequest(request.toObject()) });
+  } catch (error) {
+    console.error('Error flagging Transport clearance for HR review:', error.message);
+    return res.status(500).json({ message: 'Unable to flag Transport clearance for HR review.' });
   }
 };

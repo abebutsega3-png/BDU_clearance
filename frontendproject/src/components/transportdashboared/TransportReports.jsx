@@ -67,12 +67,15 @@ const reportTypes = [
 export default function TransportReports() {
   const [searchParams] = useSearchParams();
   const requestedReportType = searchParams.get('reportType');
+  const requestedEmployee = searchParams.get('employee') || '';
   const [draftFilters, setDraftFilters] = useState(() => ({
     ...initialFilters(),
+    employee: requestedEmployee,
     ...(reportTypes.some(({ value }) => value === requestedReportType) ? { reportType: requestedReportType } : {}),
   }));
   const [reportFilters, setReportFilters] = useState(() => ({
     ...initialFilters(),
+    employee: requestedEmployee,
     ...(reportTypes.some(({ value }) => value === requestedReportType) ? { reportType: requestedReportType } : {}),
   }));
   const [report, setReport] = useState(null);
@@ -92,6 +95,12 @@ export default function TransportReports() {
       ? current
       : { ...current, reportType: requestedReportType, status: 'All' });
   }, [requestedReportType]);
+
+  useEffect(() => {
+    if (!requestedEmployee) return;
+    setDraftFilters((current) => current.employee === requestedEmployee ? current : { ...current, employee: requestedEmployee });
+    setReportFilters((current) => current.employee === requestedEmployee ? current : { ...current, employee: requestedEmployee });
+  }, [requestedEmployee]);
 
   useEffect(() => {
     const controller = new AbortController();

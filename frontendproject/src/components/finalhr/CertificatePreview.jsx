@@ -94,6 +94,9 @@ const getOfficeSummary = (clearance) => {
       || [...matchingSteps].reverse().find((step) => step?.status)
       || {};
     const mappedFields = officeStatusFields[normalizeOfficeName(office.name)] || [];
+    const officeProgress = [...(Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : [])]
+      .reverse()
+      .find((entry) => normalizeOfficeName(entry?.office || entry?.name) === normalizeOfficeName(office.name));
     const status = normalizeOfficeName(office.name) === 'departmenthead'
       ? clearance?.departmentStatus
       : mappedFields.length
@@ -102,6 +105,9 @@ const getOfficeSummary = (clearance) => {
     const isHrOffice = normalizeOfficeName(office.name) === 'finalhrclearance';
     const reviewerCandidates = [
       office.approvedBy,
+      officeProgress?.clearedBy,
+      officeProgress?.approvedBy,
+      officeProgress?.officerName,
       mappedFields.length ? clearance?.[mappedFields[1]] : '',
       match?.approvedBy,
       match?.reviewedBy,
@@ -112,7 +118,17 @@ const getOfficeSummary = (clearance) => {
     const approvedBy = reviewerCandidates
       .map(displayReviewerName)
       .find((name) => name !== '—') || '—';
-    const approvalDate = office.approvalDate || (mappedFields.length ? clearance?.[mappedFields[2]] : '');
+    const approvalDate = [
+      office.approvalDate,
+      officeProgress?.clearedDate,
+      mappedFields.length ? clearance?.[mappedFields[2]] : '',
+      office === 'Transport Office' ? clearance?.transportReview?.reviewedAt : '',
+      match?.approvedAt,
+      match?.completedAt,
+      match?.reviewedAt,
+      match?.timestamp,
+      match?.updatedAt,
+    ].find((date) => date && date !== '-' && date !== '—');
     const resolvedStatus = isHrOffice && initialHRApproved
       ? 'APPROVED'
       : status && !['pending', ''].includes(String(status).toLowerCase())
@@ -122,7 +138,7 @@ const getOfficeSummary = (clearance) => {
       ...office,
       status: String(resolvedStatus).toUpperCase(),
       approvedBy,
-      approvalDate: approvalDate || match?.approvedAt || match?.completedAt || match?.reviewedAt || match?.timestamp || match?.updatedAt || '',
+      approvalDate: approvalDate || '',
     };
   });
 };

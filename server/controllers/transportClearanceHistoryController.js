@@ -5,7 +5,7 @@ import User from '../models/User.js';
 import Asset from '../models/propertyAsset.js';
 import { isTransportOfficer } from '../utils/roleAccess.js';
 
-const decisionActions = ['APPROVE_CLEARANCE', 'RETURN_CLEARANCE'];
+const decisionActions = ['APPROVE_CLEARANCE', 'RETURN_CLEARANCE', 'FLAG_FOR_HR_REVIEW'];
 const vehicleAssetQuery = {
   $or: [
     { assetName: { $regex: '\\b(vehicle|transport|buses?|pickup|sedan|cars?|vans?|trucks?)\\b', $options: 'i' } },
@@ -44,7 +44,7 @@ const mapHistoryEntry = ({ audit, request, employee, reviewer, vehicleNumber }) 
     ? request.department.departmentName || request.department.name
     : request?.department;
   const status = audit.newValues?.status
-    || (audit.action === 'APPROVE_CLEARANCE' ? 'Approved' : 'Returned');
+    || (audit.action === 'APPROVE_CLEARANCE' ? 'Approved' : audit.action === 'FLAG_FOR_HR_REVIEW' ? 'Flagged' : 'Returned');
 
   return {
     id: String(audit._id),
@@ -129,8 +129,8 @@ const getTransportClearanceHistory = async (req, res) => {
 
   try {
     const { search = '', status = 'All', fromDate = '', toDate = '' } = req.query;
-    if (!['All', 'Approved', 'Returned'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Status must be All, Approved, or Returned.' });
+    if (!['All', 'Approved', 'Returned', 'Flagged'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Status must be All, Approved, Returned, or Flagged.' });
     }
     const from = parseDateBound(String(fromDate), false);
     const to = parseDateBound(String(toDate), true);
@@ -146,6 +146,7 @@ const getTransportClearanceHistory = async (req, res) => {
       totalReviewed: allEntries.length,
       approved: allEntries.filter((entry) => entry.status === 'Approved').length,
       returned: allEntries.filter((entry) => entry.status === 'Returned').length,
+      flagged: allEntries.filter((entry) => entry.status === 'Flagged').length,
     };
     const searchTerm = String(search).trim().toLowerCase();
     const records = allEntries.filter((entry) => {

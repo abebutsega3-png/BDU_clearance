@@ -14,6 +14,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
+import { freshChecklist, getChecklistProfile } from './departmentChecklist';
 
 const departmentUpdateUrl = (id) => `http://localhost:3000/api/clearance/${id}`;
 const updateDepartmentClearance = async (id, payload) => {
@@ -63,6 +64,10 @@ export default function ClearanceRequests() {
   const [error, setError] = useState('');
   const [departmentClearanceItems, setDepartmentClearanceItems] = useState([]);
   const [stats, setStats] = useState({ all: 0, pending: 0, underReview: 0, approved: 0, returned: 0, completed: 0 });
+  const checklistProfile = selectedRequest ? getChecklistProfile(selectedRequest) : null;
+  const checklistPreview = selectedRequest && checklistProfile
+    ? freshChecklist(checklistProfile, selectedRequest)
+    : [];
 
   const fetchRequests = async () => {
     try {
@@ -682,6 +687,52 @@ export default function ClearanceRequests() {
                   </div>
                 </div>
               </div>
+
+              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">{checklistProfile?.title || 'Department Clearance Checklist'}</h3>
+                    <p className="mt-1 text-[11px] text-slate-500">{checklistProfile?.description}</p>
+                  </div>
+                  <span className="rounded-md bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+                    {checklistPreview.filter((item) => item.status === 'Cleared').length} / {checklistPreview.length} Cleared
+                  </span>
+                </div>
+                <div className="max-h-72 overflow-auto">
+                  <table className="w-full min-w-[620px] text-left text-[11px]">
+                    <thead className="sticky top-0 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="w-10 px-3 py-2 text-center">#</th>
+                        <th className="px-3 py-2">Category</th>
+                        <th className="px-3 py-2">Description / Details</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {checklistPreview.map((item, index) => {
+                        const sectionTitle = checklistProfile?.sections.find((section) => section.key === item.section)?.title || 'Department';
+                        const statusClass = item.status === 'Cleared'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : item.status === 'N/A'
+                            ? 'bg-slate-100 text-slate-600'
+                            : 'bg-amber-50 text-amber-700';
+                        return (
+                          <tr key={`${item.section}-${item.item}`}>
+                            <td className="px-3 py-2 text-center text-slate-400">{index + 1}</td>
+                            <td className="px-3 py-2 font-medium text-slate-600">{sectionTitle}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">{item.item}</td>
+                            <td className="px-3 py-2">
+                              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass}`}>{item.status}</span>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600">{item.note || '-'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
 
               {/* Decision Form Section */}
               <div className="border border-slate-200 rounded-lg p-5 bg-white">

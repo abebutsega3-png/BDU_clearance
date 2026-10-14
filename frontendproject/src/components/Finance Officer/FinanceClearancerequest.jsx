@@ -52,7 +52,7 @@ const normalizeFinanceStatus = (value) => {
 const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) => {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
-  const [verificationResult, setVerificationResult] = useState(openReturnMode ? 'Return' : 'Clear');
+  const [verificationResult, setVerificationResult] = useState(openReturnMode ? 'Not Cleared' : '');
   const [comment, setComment] = useState('');
   const [returnReason, setReturnReason] = useState('');
   const [loading, setLoading] = useState(true);
@@ -104,19 +104,29 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
         setErrorMessage(res.message || 'Unable to start the review.');
       }
     } catch (err) {
-      setErrorMessage(err.response?.data?.message || 'Unable to start the review. Please try again.');
+      console.error('Unable to start finance clearance review:', err);
+      setErrorMessage(
+        err.response?.data?.message
+        || err.response?.data?.error
+        || err.message
+        || 'Unable to start the review. Please try again.'
+      );
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleApprove = async () => {
+    if (!comment.trim()) {
+      setErrorMessage('Officer comment is required before confirming this decision.');
+      return;
+    }
     setActionLoading(true);
     setErrorMessage('');
     try {
       const res = await approveFinanceClearance(requestId, comment.trim());
       if (res.success) {
-        setSuccessMessage('Financial clearance approved successfully.');
+        setSuccessMessage('Finance clearance marked Cleared successfully.');
         setData((current) => ({ ...current, ...res.request, financeStatus: 'Approved' }));
       } else {
         setErrorMessage(res.message || 'Unable to approve this clearance.');
@@ -133,12 +143,16 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
       setErrorMessage('Return reason is required.');
       return;
     }
+    if (!comment.trim()) {
+      setErrorMessage('Officer comment is required before confirming this decision.');
+      return;
+    }
     setActionLoading(true);
     setErrorMessage('');
     try {
       const res = await returnFinanceRequest(requestId, returnReason.trim(), comment.trim());
       if (res.success) {
-        setSuccessMessage('Request returned to employee successfully.');
+        setSuccessMessage('Finance clearance marked Not Cleared and returned successfully.');
         setComment('');
         setReturnReason('');
         setData((current) => ({ ...current, ...res.request, financeStatus: 'Returned' }));
@@ -184,6 +198,8 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
     .reduce((sum, record) => sum + recordOutstanding(record), 0);
   const outstandingLoan = amountByType(['loan']);
   const salaryAdvance = amountByType(['advance', 'salary advance']);
+  const hasReviewDecision = normalizeFinanceStatus(data.financeStatus) === 'Under Review'
+    || (normalizeFinanceStatus(data.financeStatus) === 'Pending' && openReturnMode);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 text-xs text-slate-700">
@@ -279,15 +295,64 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
             </div>
           )}
 
-          {(normalizeFinanceStatus(data.financeStatus) === 'Under Review' || (normalizeFinanceStatus(data.financeStatus) === 'Pending' && verificationResult === 'Return')) && (
+          {hasReviewDecision && (
             <div className="space-y-5">
-              {verificationResult === 'Return' && (
-                <label className="block text-sm font-medium text-slate-700">Return Reason *
-                  <input value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Outstanding loan balance" className="mt-2 w-full rounded-lg border border-slate-300 p-3 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100" />
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-semibold text-slate-800">Finance Clearance Decision <span className="text-rose-600">*</span></legend>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    { value: 'Cleared', label: 'Cleared', color: 'emerald' },
+                    { value: 'Not Cleared', label: 'Not Cleared', color: 'rose' },
+                  ].map((decision) => (
+                    <label
+                      key={decision.value}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2.5 font-semibold transition focus-within:ring-2 focus-within:ring-blue-500 ${
+                        verificationResult === decision.value
+                          ? decision.color === 'emerald'
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                            : 'border-rose-500 bg-rose-50 text-rose-800'
+                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="finance-clearance-decision"
+                        value={decision.value}
+                        checked={verificationResult === decision.value}
+                        onChange={() => {
+                          setVerificationResult(decision.value);
+                          setErrorMessage('');
+                        }}
+                      />
+                      {decision.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {verificationResult === 'Not Cleared' && (
+                <label className="block text-sm font-medium text-slate-700">
+                  Return Reason <span className="text-rose-600">*</span>
+                  <input
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    placeholder="Explain what must be corrected..."
+                    className="mt-2 w-full rounded-lg border border-slate-300 p-3 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                    required
+                  />
                 </label>
               )}
-              <label className="block text-sm font-medium text-slate-700">Officer Comment
-                <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Enter verification comment..." className="mt-2 w-full rounded-lg border border-slate-300 p-3 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100" rows="3" />
+
+              <label className="block text-sm font-medium text-slate-700">
+                Officer Comment <span className="text-rose-600">*</span>
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Enter the reason for your clearance decision..."
+                  className="mt-2 w-full rounded-lg border border-slate-300 p-3 outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                  rows="3"
+                  required
+                />
               </label>
 
               <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -300,36 +365,44 @@ const FinanceClearanceDetails = ({ requestId, onBack, openReturnMode = false }) 
                 >
                   <Boxes size={14} /> Finance Record Assets
                 </button>
-                {normalizeFinanceStatus(data.financeStatus) === 'Under Review' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setVerificationResult('Return')}
-                      disabled={actionLoading}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-3 py-2.5 font-semibold text-rose-700 ring-1 ring-inset ring-rose-200 transition hover:bg-rose-100 disabled:opacity-50"
-                    >
-                      <RotateCcw size={14} /> Return Request
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleApprove}
-                      disabled={actionLoading || Number(totalOutstanding || 0) > 0}
-                      title={Number(totalOutstanding || 0) > 0 ? 'Outstanding balance must be paid before approval.' : undefined}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <CheckCircle2 size={14} />{actionLoading ? 'Signing...' : 'Approve Clearance'}
-                    </button>
-                  </>
-                )}
-                </div>
-              </div>
-              {verificationResult === 'Return' && (
-                <div className="flex justify-end border-t border-slate-100 pt-3">
-                  <button type="button" onClick={handleReturn} disabled={actionLoading} className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50">
-                    {actionLoading ? 'Returning...' : 'Confirm Return Request'}
+                  <button
+                    type="button"
+                    onClick={() => verificationResult === 'Cleared' ? handleApprove() : handleReturn()}
+                    disabled={
+                      actionLoading
+                      || !verificationResult
+                      || !comment.trim()
+                      || (verificationResult === 'Cleared' && Number(totalOutstanding || 0) > 0)
+                      || (verificationResult === 'Not Cleared' && !returnReason.trim())
+                    }
+                    title={
+                      verificationResult === 'Cleared' && Number(totalOutstanding || 0) > 0
+                        ? 'Outstanding balance must be paid before approval.'
+                        : !verificationResult
+                          ? 'Choose Cleared or Not Cleared.'
+                          : !comment.trim()
+                            ? 'Officer comment is required.'
+                            : verificationResult === 'Not Cleared' && !returnReason.trim()
+                              ? 'Return reason is required.'
+                              : undefined
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      verificationResult === 'Not Cleared'
+                        ? 'bg-rose-600 hover:bg-rose-700'
+                        : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
+                  >
+                    {verificationResult === 'Not Cleared' ? <RotateCcw size={14} /> : <CheckCircle2 size={14} />}
+                    {actionLoading
+                      ? 'Saving Decision...'
+                      : verificationResult === 'Cleared'
+                        ? 'Confirm Cleared'
+                        : verificationResult === 'Not Cleared'
+                          ? 'Confirm Not Cleared'
+                          : 'Choose a Decision'}
                   </button>
                 </div>
-              )}
+              </div>
             </div>
           )}
 

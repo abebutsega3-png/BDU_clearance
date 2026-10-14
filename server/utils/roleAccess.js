@@ -49,3 +49,9 @@ export const userHasRole = (user, expectedRole) => {
 };
 
 export const isTransportOfficer = (user) => userHasRole(user, 'transport officer');
+
+export const isFinanceOfficer = (user) => {
+  const financeRoles = new Set(['finance', 'finance officer']);
+  const candidates = typeof user === 'string' ? [user] : getRoleCandidates(user);
+  return candidates.some((candidate) => financeRoles.has(normalizeRoleValue(candidate)));
+};

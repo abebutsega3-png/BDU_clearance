@@ -94,6 +94,7 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
   const checklistRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [verificationResult, setVerificationResult] = useState('Clear');
+  const [clearanceDecision, setClearanceDecision] = useState('Cleared');
   const [comment, setComment] = useState('');
   const [returnReason, setReturnReason] = useState('');
   const [clearanceRules, setClearanceRules] = useState(DEFAULT_CLEARANCE_RULES);
@@ -149,6 +150,12 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
       if (signal?.aborted) return;
       setData(request);
       setVerificationResult(request.libraryVerificationResult || request.verificationResult || 'Clear');
+      setClearanceDecision(
+        request.libraryStatus === 'Rejected' || request.libraryStatus === 'Returned'
+          || request.libraryVerificationResult === 'Not Clear' || request.verificationResult === 'Not Clear'
+          ? 'Not Cleared'
+          : 'Cleared',
+      );
       setComment(request.libraryComment || request.comment || '');
       setReturnReason(request.libraryReturnReason || request.returnReason || request.remarks || '');
       setLoading(false);
@@ -397,12 +404,54 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
             </div>
           </section>}
 
-          {canReview && <section className="grid gap-3 sm:grid-cols-2">
-            <label className="block font-semibold text-slate-700">Officer Comment <span className="font-normal text-slate-400">(optional)</span>
-              <textarea rows={2} placeholder={hasConfiguredOutstanding ? 'Employee has outstanding library materials or fees.' : 'No outstanding library obligations.'} value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-teal-600" />
-            </label>
-            <label className="block font-semibold text-slate-700">Return Reason <span className="font-normal text-rose-600">(required to return)</span>
-              <textarea rows={2} placeholder="Describe the outstanding library obligation." value={returnReason} onChange={(event) => setReturnReason(event.target.value)} className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-rose-500" />
+          {canReview && <section className="rounded-lg border border-slate-200 p-3 sm:p-4">
+            <h2 className="font-bold text-slate-900">Library Clearance Decision</h2>
+            <fieldset className="mt-3 grid gap-2 sm:grid-cols-2">
+              <legend className="sr-only">Decision status</legend>
+              {[
+                { value: 'Cleared', title: 'Cleared', description: 'Library obligations fulfilled.', icon: CheckCircle2, active: 'border-emerald-500 bg-emerald-50 text-emerald-800' },
+                { value: 'Not Cleared', title: 'Not Cleared', description: 'Return the request to the employee for correction and resubmission.', icon: X, active: 'border-rose-500 bg-rose-50 text-rose-800' },
+              ].map(({ value, title, description, icon: Icon, active }) => (
+                <label key={value} className={`flex cursor-pointer gap-3 rounded-md border p-3 ${clearanceDecision === value ? active : 'border-slate-200 bg-white text-slate-700'}`}>
+                  <input
+                    type="radio"
+                    name="libraryClearanceDecision"
+                    value={value}
+                    checked={clearanceDecision === value}
+                    onChange={() => { setClearanceDecision(value); setErrorMsg(''); }}
+                    className="mt-0.5 h-4 w-4 accent-teal-700"
+                  />
+                  <span>
+                    <span className="flex items-center gap-1.5 font-semibold"><Icon size={14} />{title}</span>
+                    <span className="mt-1 block text-[10px] leading-4">{description}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            {clearanceDecision === 'Not Cleared' && (
+              <label className="mt-3 block font-semibold text-slate-700">
+                Return Reason <span className="font-normal text-rose-600">(required)</span>
+                <textarea
+                  rows={2}
+                  maxLength={1000}
+                  required
+                  placeholder="Describe what the employee needs to correct."
+                  value={returnReason}
+                  onChange={(event) => { setReturnReason(event.target.value); setErrorMsg(''); }}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-rose-500"
+                />
+              </label>
+            )}
+            <label className="mt-3 block font-semibold text-slate-700">
+              Internal Comment <span className="font-normal text-slate-400">(optional)</span>
+              <textarea
+                rows={2}
+                maxLength={1000}
+                placeholder={hasConfiguredOutstanding ? 'Employee has outstanding library materials or fees.' : 'No outstanding library obligations.'}
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white p-2.5 font-normal outline-none focus:border-teal-600"
+              />
             </label>
           </section>}
 
@@ -432,7 +481,6 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {libraryStatus === 'Pending' && <button type="button" onClick={handleStartReview} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"><Play size={13} /> Start Review</button>}
-            {canReview && <button type="button" onClick={handleReturn} className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-white px-3 py-2 text-[10px] font-semibold text-rose-700 hover:bg-rose-50"><RotateCcw size={13} /> Return Request</button>}
             <button
               type="button"
               onClick={() => navigate(`/library-office/library-records${employeeIdentifier ? `?employeeId=${encodeURIComponent(employeeIdentifier)}` : ''}`)}
@@ -440,7 +488,9 @@ export default function LibraryClearanceViewModal({ requestId, onClose, onRefres
             >
               <BookOpen size={13} /> View Asset Records
             </button>
-            {canReview && <button type="button" onClick={handleApprove} disabled={!checklistComplete || hasConfiguredOutstanding} title={hasConfiguredOutstanding ? 'Resolve outstanding items required by the Library clearance rules.' : !checklistComplete ? 'Complete the checklist before approving.' : ''} className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={13} /> Approve Clearance</button>}
+            {canReview && (clearanceDecision === 'Not Cleared'
+              ? <button type="button" onClick={handleReturn} disabled={!returnReason.trim()} className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-3 py-2 text-[10px] font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"><RotateCcw size={13} /> Return to Employee</button>
+              : <button type="button" onClick={handleApprove} disabled={!checklistComplete || hasConfiguredOutstanding} title={hasConfiguredOutstanding ? 'Resolve outstanding items required by the Library clearance rules.' : !checklistComplete ? 'Complete the checklist before approving.' : ''} className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={13} /> Approve &amp; Clear Library Obligations</button>)}
             <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-100">Close</button>
           </div>
         </footer>

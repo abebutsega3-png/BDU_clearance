@@ -72,7 +72,7 @@ const clearanceSchema = new mongoose.Schema({
 	departmentReviewedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 	departmentReviewedAt: { type: Date, default: null },
 	departmentComment: { type: String, default: '' },
-	transportStatus: { type: String, enum: ['', 'Pending', 'Under Review', 'In Progress', 'Approved', 'Returned'], default: '' },
+	transportStatus: { type: String, enum: ['', 'Pending', 'Under Review', 'In Progress', 'Approved', 'Returned', 'Flagged'], default: '' },
 	transportReviewedBy: { type: String, default: '' },
 	transportReviewedAt: { type: Date, default: null },
 	transportReturnReason: { type: String, default: '' },

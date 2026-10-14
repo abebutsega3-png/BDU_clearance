@@ -3,12 +3,16 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  BadgeCheck,
   Bus,
   CheckCircle2,
   ClipboardCheck,
   Eye,
+  FileText,
+  History,
   LoaderCircle,
   Search,
+  ShieldAlert,
   X,
 } from 'lucide-react';
 
@@ -42,8 +46,20 @@ const formatDate = (value) => {
 const statusClass = (status) => {
   if (status === 'Approved') return 'bg-emerald-50 text-emerald-700';
   if (status === 'Returned') return 'bg-rose-50 text-rose-700';
+  if (status === 'Flagged') return 'bg-orange-50 text-orange-700';
   if (status === 'Under Review') return 'bg-sky-50 text-sky-700';
   return 'bg-amber-50 text-amber-800';
+};
+
+const isReturnedAsset = (asset) => ['returned', 'cleared', 'available', 'not applicable']
+  .includes(String(asset.status || '').trim().toLowerCase());
+const isVehicleAsset = (asset) => /vehicle|bus/i.test(`${asset.assetName || ''} ${asset.assetType || ''} ${asset.category || ''}`);
+const isFuelCardAsset = (asset) => /fuel.?card/i.test(`${asset.assetName || ''} ${asset.assetType || ''} ${asset.category || ''}`);
+const getOutstandingFineCount = (transportInformation) => {
+  const fines = transportInformation?.outstandingFines;
+  if (Array.isArray(fines)) return fines.length;
+  if (Number.isFinite(Number(fines))) return Math.max(0, Number(fines));
+  return fines ? 1 : 0;
 };
 
 function InfoItem({ label, value }) {
@@ -77,12 +93,13 @@ export default function TransportClearanceRequests() {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedRequest, setSelectedRequest] = useState(null);
-  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
   const [recordCheck, setRecordCheck] = useState(emptyRecordCheck);
   const [officerNotes, setOfficerNotes] = useState('');
   const [returnReason, setReturnReason] = useState('');
+  const [clearanceDecision, setClearanceDecision] = useState('Cleared');
   const [returnError, setReturnError] = useState('');
   const [actionError, setActionError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -134,6 +151,7 @@ export default function TransportClearanceRequests() {
     setRecordCheck(emptyRecordCheck);
     setOfficerNotes('');
     setReturnReason('');
+    setClearanceDecision('Cleared');
     setConfirmApproval(false);
 
     try {
@@ -143,16 +161,27 @@ export default function TransportClearanceRequests() {
       const transportAssets = request.transportAssets || [];
       const savedReview = request.transportReview || {};
       const normalizeStatus = (value) => value === true ? 'Cleared' : value === false ? 'Pending' : ['Cleared', 'Pending', 'N/A'].includes(value) ? value : 'Pending';
-      const hasAssignedVehicle = savedReview.hasAssignedVehicle ?? (transportAssets.length ? true : null);
+      const hasAssignedVehicle = savedReview.hasAssignedVehicle ?? (transportAssets.length ? true : false);
+      const noRecords = transportAssets.length === 0
+        && getOutstandingFineCount(request.transportInformation) === 0
+        && !request.transportInformation?.outstandingIssue;
+      const defaultNoVehicleChecks = hasAssignedVehicle === false
+        ? Object.fromEntries(vehicleCheckFields.map((field) => [field, 'N/A']))
+        : {};
+      const defaultNoRecordsChecks = noRecords
+        ? Object.fromEntries(['noOutstandingIssue', 'vehicleHandover', 'transportRecords', 'noUnreturnedTransportProperty', 'noOtherObligation'].map((field) => [field, 'Cleared']))
+        : {};
       setRecordCheck({
         ...emptyRecordCheck,
         ...savedReview,
         hasAssignedVehicle,
         ...Object.fromEntries(allCheckFields.map((field) => [field, normalizeStatus(savedReview[field])])),
-        ...(hasAssignedVehicle === false ? Object.fromEntries(vehicleCheckFields.map((field) => [field, 'N/A'])) : {}),
+        ...defaultNoVehicleChecks,
+        ...defaultNoRecordsChecks,
       });
       setOfficerNotes(request.transportReview?.officerNotes || request.officerComment || '');
       setReturnReason(request.returnReason || '');
+      setClearanceDecision(savedReview.status === 'Flagged' ? 'Not Cleared' : 'Cleared');
     } catch (requestError) {
       setDetailError(requestError.response?.data?.message || 'Unable to load this clearance request.');
     } finally {
@@ -223,7 +252,11 @@ export default function TransportClearanceRequests() {
       setConfirmApproval(false);
       setRefreshKey((key) => key + 1);
     } catch (requestError) {
-      setActionError(requestError.response?.data?.message || 'Unable to save the Transport clearance decision.');
+      const message = requestError.response?.data?.message
+        || (requestError.code === 'ERR_NETWORK'
+          ? 'Cannot connect to the backend server at localhost:3000. Start the server and confirm port 3000 is available, then try again.'
+          : 'Unable to save the Transport clearance decision.');
+      setActionError(message);
       setConfirmApproval(false);
     } finally {
       setActionLoading(false);
@@ -231,10 +264,31 @@ export default function TransportClearanceRequests() {
   };
 
   const transportInfo = selectedRequest?.transportInformation;
+  const transportAssets = selectedRequest?.transportAssets || [];
+  const assignedVehicles = transportAssets.filter((asset) => isVehicleAsset(asset) && !isReturnedAsset(asset)).length;
+  const fuelCards = transportInfo?.fuelCards || transportInfo?.assignedFuelCards;
+  const assignedFuelCards = Array.isArray(fuelCards)
+    ? fuelCards.filter((card) => !isReturnedAsset(card)).length
+    : Number.isFinite(Number(transportInfo?.fuelCardCount ?? transportInfo?.assignedFuelCardCount))
+      ? Math.max(0, Number(transportInfo?.fuelCardCount ?? transportInfo?.assignedFuelCardCount))
+      : transportAssets.filter((asset) => isFuelCardAsset(asset) && !isReturnedAsset(asset)).length;
+  const outstandingFines = getOutstandingFineCount(transportInfo);
+  const hasTransportRecords = transportAssets.length > 0 || outstandingFines > 0 || Boolean(transportInfo?.outstandingIssue);
   const vehicleDescription = typeof transportInfo?.assignedVehicle === 'string'
     ? transportInfo.assignedVehicle
     : transportInfo?.assignedVehicle?.plateNumber || transportInfo?.assignedVehicle?.vehicleNumber || transportInfo?.assignedVehicle?.name;
   const readOnly = !canDecide;
+  const workflowStages = Array.isArray(selectedRequest?.workflow) && selectedRequest.workflow.length
+    ? selectedRequest.workflow
+    : (selectedRequest?.requiredOffices || []).map((office) => ({ office, status: 'Pending' }));
+  const getWorkflowStageClass = (stage) => {
+    const stageName = String(stage.office || stage.name || '').toLowerCase();
+    const stageStatus = String(stage.status || '').toLowerCase();
+    if (['completed', 'approved', 'cleared'].includes(stageStatus)) return 'bg-emerald-100 text-emerald-800';
+    if (stageName.includes('transport') && canDecide) return 'bg-teal-100 text-teal-800';
+    if (['in progress', 'under review'].includes(stageStatus)) return 'bg-blue-100 text-blue-800';
+    return 'bg-slate-100 text-slate-600';
+  };
 
   return (
     <section className="space-y-4">
@@ -256,7 +310,7 @@ export default function TransportClearanceRequests() {
 
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Request status">
-          {['Pending', 'Approved', 'Returned', 'All'].map((status) => (
+          {['Pending', 'Approved', 'Returned', 'Flagged', 'All'].map((status) => (
             <button
               key={status}
               type="button"
@@ -318,13 +372,17 @@ export default function TransportClearanceRequests() {
 
       {selectedRequest && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDetails(); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="transport-review-title" className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-md bg-white shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="transport-review-title" className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
             <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 sm:px-6">
               <div>
                 <p className="text-[10px] font-semibold uppercase text-teal-700">{selectedRequest.requestId}</p>
-                <h2 id="transport-review-title" className="mt-1 text-lg font-bold text-slate-900">Transport Clearance Review</h2>
+                <h2 id="transport-review-title" className="mt-1 text-lg font-bold text-slate-900">Transport Clearance Review Details</h2>
+                <p className="mt-1 text-xs text-slate-500">Auto-populated from vehicle and licensing records</p>
               </div>
-              <button type="button" aria-label="Close request details" onClick={closeDetails} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={18} /></button>
+              <div className="flex items-center gap-3">
+                <span className={`rounded-full px-3 py-1 text-[10px] font-semibold ${statusClass(selectedRequest.status)}`}>{selectedRequest.status}</span>
+                <button type="button" aria-label="Close request details" onClick={closeDetails} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><X size={18} /></button>
+              </div>
             </header>
 
             <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-6">
@@ -337,10 +395,22 @@ export default function TransportClearanceRequests() {
                   {detailError && <p role="alert" className="rounded border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{detailError}</p>}
                   {actionError && <p role="alert" className="rounded border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{actionError}</p>}
 
+                  {workflowStages.length > 0 && (
+                    <nav aria-label="Clearance workflow" className="flex flex-wrap items-center gap-1.5">
+                      {workflowStages.map((stage, index) => (
+                        <React.Fragment key={`${stage.office || stage.name}-${index}`}>
+                          {index > 0 && <span aria-hidden="true" className="text-slate-300">›</span>}
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${getWorkflowStageClass(stage)}`}>
+                            {stage.office || stage.name}
+                          </span>
+                        </React.Fragment>
+                      ))}
+                    </nav>
+                  )}
+
                   <section>
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <h3 className="text-sm font-bold text-slate-900">Employee Information</h3>
-                      <span className={`rounded px-2.5 py-1 text-[10px] font-semibold ${statusClass(selectedRequest.status)}`}>{selectedRequest.status}</span>
                     </div>
                     <dl className="grid grid-cols-1 gap-x-5 sm:grid-cols-2 lg:grid-cols-3">
                       <InfoItem label="Employee Name" value={selectedRequest.employee?.fullName || selectedRequest.employeeName} />
@@ -359,30 +429,80 @@ export default function TransportClearanceRequests() {
                     </dl>
                   </section>
 
-                  <section className="rounded-md border border-cyan-100 bg-cyan-50/70 p-4">
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-900"><Bus size={16} className="text-cyan-800" />Transport Information</div>
-                    <p className="mt-2 text-xs leading-5 text-slate-700">
-                      {vehicleDescription || (selectedRequest.transportAssets?.length
-                        ? 'Vehicle or transport property records are linked to this employee.'
-                        : 'No vehicle entry was found in the Property/Asset registry. Verify assigned vehicles and obligations in Transport Office records.')}
-                    </p>
-                    {selectedRequest.transportAssets?.length > 0 && (
-                      <ul className="mt-3 divide-y divide-cyan-100 rounded border border-cyan-100 bg-white">
-                        {selectedRequest.transportAssets.map((asset) => (
-                          <li key={asset.assetId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
-                            <span className="font-medium text-slate-800">{asset.plateNumber || asset.vehicleNumber || asset.assetId} <span className="ml-1 text-slate-500">{asset.assetType || asset.category || asset.assetName}</span></span>
-                            <span className="text-slate-600">{asset.status} · {asset.condition}{asset.assignedDate ? ` · Assigned ${formatDate(asset.assignedDate)}` : ''}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {selectedRequest.transportInformation?.outstandingIssue && (
-                      <p className="mt-2 text-xs font-medium text-rose-700">Outstanding issue: {selectedRequest.transportInformation.outstandingIssue}</p>
+                  <section className="rounded-md border border-slate-200 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-bold text-slate-900"><Bus size={16} className="text-cyan-800" />Transport &amp; Vehicle Records</div>
+                      <span className="text-[10px] text-slate-500">Registry records linked to this employee</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {[
+                        ['Assigned Vehicles', assignedVehicles, Bus],
+                        ['Assigned Fuel Cards', assignedFuelCards, BadgeCheck],
+                        ['Outstanding Fines', outstandingFines, ShieldAlert],
+                      ].map(([label, count, Icon]) => (
+                        <div key={label} className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+                          <Icon size={16} className="text-teal-700" />
+                          <div><p className="text-[10px] font-medium text-slate-500">{label}</p><p className="text-sm font-bold text-slate-900">{count}</p></div>
+                        </div>
+                      ))}
+                    </div>
+                    {hasTransportRecords ? (
+                      <div className="mt-3 overflow-x-auto rounded border border-slate-200">
+                        <table className="w-full min-w-[620px] text-left text-xs">
+                          <thead className="bg-slate-50 text-[10px] uppercase text-slate-500">
+                            <tr><th className="px-3 py-2">Record</th><th className="px-3 py-2">Identifier</th><th className="px-3 py-2">Details</th><th className="px-3 py-2">Status</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {transportAssets.map((asset) => (
+                              <tr key={asset.assetId}>
+                                <td className="px-3 py-2 font-medium text-slate-800">{asset.assetName || asset.assetType || asset.category || 'Transport asset'}</td>
+                                <td className="px-3 py-2 text-slate-600">{asset.plateNumber || asset.vehicleNumber || asset.assetId || '—'}</td>
+                                <td className="px-3 py-2 text-slate-600">{[asset.make, asset.model, asset.condition].filter(Boolean).join(' · ') || vehicleDescription || '—'}</td>
+                                <td className="px-3 py-2 text-slate-600">{asset.status || '—'}</td>
+                              </tr>
+                            ))}
+                            {outstandingFines > 0 && <tr><td className="px-3 py-2 font-medium text-rose-700">Outstanding fines</td><td className="px-3 py-2">—</td><td className="px-3 py-2">{Array.isArray(transportInfo?.outstandingFines) ? transportInfo.outstandingFines.map((fine) => typeof fine === 'string' ? fine : fine.description || fine.reason || '').filter(Boolean).join('; ') : transportInfo?.outstandingIssue || 'Fine record available'}</td><td className="px-3 py-2 text-rose-700">Outstanding</td></tr>}
+                            {outstandingFines === 0 && transportInfo?.outstandingIssue && <tr><td className="px-3 py-2 font-medium text-rose-700">Outstanding obligation</td><td className="px-3 py-2">—</td><td className="px-3 py-2">{transportInfo.outstandingIssue}</td><td className="px-3 py-2 text-rose-700">Requires review</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-800">
+                        This employee has no registered transport assets or pending transport-related obligations. You can proceed with the standard clearance procedure.
+                      </p>
                     )}
                     {selectedRequest.returnReason && selectedRequest.status === 'Returned' && (
                       <p className="mt-2 rounded border border-rose-200 bg-white px-3 py-2 text-xs text-rose-800"><strong>Previous return reason:</strong> {selectedRequest.returnReason}</p>
                     )}
                   </section>
+
+                  {canDecide && (
+                    <section className="rounded-md border border-slate-200 p-4">
+                      <h3 className="text-sm font-bold text-slate-900">Transport Clearance Decision</h3>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {[
+                          { value: 'Cleared', title: 'Cleared', description: 'Transport and licensing obligations are cleared.', icon: CheckCircle2, active: 'border-emerald-500 bg-emerald-50 text-emerald-800' },
+                          { value: 'Not Cleared', title: 'Not Cleared', description: 'Return the request to the employee for correction and resubmission.', icon: X, active: 'border-rose-500 bg-rose-50 text-rose-800' },
+                        ].map(({ value, title, description, icon: Icon, active }) => (
+                          <label key={value} className={`flex cursor-pointer gap-3 rounded-md border p-3 ${clearanceDecision === value ? active : 'border-slate-200 bg-white text-slate-700'}`}>
+                            <input type="radio" name="transportClearanceDecision" value={value} checked={clearanceDecision === value} onChange={() => { setClearanceDecision(value); setReturnError(''); }} className="mt-0.5 h-4 w-4 accent-teal-700" />
+                            <span><span className="flex items-center gap-1.5 text-xs font-semibold"><Icon size={14} />{title}</span><span className="mt-1 block text-[10px] leading-4">{description}</span></span>
+                          </label>
+                        ))}
+                      </div>
+                      {clearanceDecision === 'Not Cleared' && (
+                        <label className="mt-3 block">
+                          <span className="mb-1.5 block text-xs font-semibold text-slate-700">Return Reason <span className="font-normal text-rose-600">(required)</span></span>
+                          <textarea value={returnReason} onChange={(event) => { setReturnReason(event.target.value); setReturnError(''); }} rows={2} maxLength={1000} required className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-xs outline-none focus:border-rose-600 focus:ring-2 focus:ring-rose-100" placeholder="Explain what the employee needs to correct before resubmitting." />
+                          {returnError && <p role="alert" className="mt-1 text-[11px] text-rose-700">{returnError}</p>}
+                        </label>
+                      )}
+                      <label className="mt-3 block">
+                        <span className="mb-1.5 block text-xs font-semibold text-slate-700">Internal Comment <span className="font-normal text-slate-500">(optional)</span></span>
+                        <textarea value={officerNotes} onChange={(event) => setOfficerNotes(event.target.value)} disabled={!canDecide} rows={2} maxLength={1000} className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-xs outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50" placeholder="Add an internal comment for the HR review record, if needed." />
+                      </label>
+                    </section>
+                  )}
 
                   {checklistOpen && <>
                   {selectedRequest.status === 'Pending' && <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Start Review before changing checklist items or making a clearance decision.</p>}
@@ -428,21 +548,19 @@ export default function TransportClearanceRequests() {
                   </section>
 
                   <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">Officer Notes</span>
-                    <textarea value={officerNotes} onChange={(event) => setOfficerNotes(event.target.value)} disabled={readOnly} rows={2} maxLength={1000} className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-xs outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50" placeholder="Add a note about the transport record review" />
+                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">Remark</span>
+                    <textarea
+                      value={officerNotes}
+                      onChange={(event) => setOfficerNotes(event.target.value)}
+                      disabled={readOnly}
+                      required={false}
+                      rows={2}
+                      maxLength={1000}
+                      className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-xs outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-50"
+                      placeholder="Officer remark"
+                    />
                   </label>
 
-                  {canDecide && (
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-semibold text-slate-700">Return Reason <span className="text-rose-600">(required to return)</span></span>
-                      <textarea value={returnReason} onChange={(event) => { setReturnReason(event.target.value); setReturnError(''); }} rows={2} maxLength={1000} className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-xs outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100" placeholder="For example: Assigned vehicle has not been returned." />
-                      {returnError && <span className="mt-1 block text-[11px] text-rose-700">{returnError}</span>}
-                    </label>
-                  )}
-                  {canDecide && <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
-                    <button type="button" onClick={() => finishDecision('return')} disabled={actionLoading || !returnReason.trim()} className="rounded-md border border-rose-300 bg-white px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50">{actionLoading ? 'Saving...' : 'Return to Employee'}</button>
-                    <button type="button" onClick={() => setConfirmApproval(true)} disabled={actionLoading || !canApprove} title={!canApprove ? 'Complete the transport record checks before approval' : undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={14} />Approve / Clear</button>
-                  </div>}
                   </>}
                 </>
               )}
@@ -451,8 +569,13 @@ export default function TransportClearanceRequests() {
             {!detailLoading && !detailError && (
               <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-6">
                 {selectedRequest.status === 'Pending' && <button type="button" onClick={startReview} disabled={actionLoading} className="rounded-md bg-teal-700 px-4 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50">{actionLoading ? 'Starting...' : 'Start Review'}</button>}
-                {(selectedRequest.employee?.employeeId || selectedRequest.employeeId) && <Link to={`/transport-office/assigned-vehicles?search=${encodeURIComponent(selectedRequest.employee?.employeeId || selectedRequest.employeeId)}&requestId=${encodeURIComponent(selectedRequest.requestId)}`} state={{ transportClearanceContext: { request: selectedRequest, recordCheck, officerNotes, returnReason } }} className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-700"><Bus size={14} />Assigned Vehicle Record</Link>}
-                <button type="button" onClick={() => setChecklistOpen((open) => !open)} aria-expanded={checklistOpen} className="rounded-md border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-100">{checklistOpen ? 'Close Checklist' : 'Open Checklist'}</button>
+                {(selectedRequest.employee?.employeeId || selectedRequest.employeeId) && <Link to={`/transport-office/assigned-vehicles?search=${encodeURIComponent(selectedRequest.employee?.employeeId || selectedRequest.employeeId)}&requestId=${encodeURIComponent(selectedRequest.requestId)}`} state={{ transportClearanceContext: { request: selectedRequest, recordCheck, officerNotes, returnReason } }} className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-700"><Bus size={14} />Assigned Vehicle Record</Link>}
+                <Link to={`/transport-office/reports?reportType=clearance&employee=${encodeURIComponent(selectedRequest.employee?.employeeId || selectedRequest.employeeId || '')}`} className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-700"><FileText size={14} />View Detail Report</Link>
+                <Link to={`/transport-office/history?search=${encodeURIComponent(selectedRequest.requestId)}`} className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-700"><History size={14} />View History</Link>
+                <button type="button" onClick={() => setChecklistOpen((open) => !open)} aria-expanded={checklistOpen} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">{checklistOpen ? 'Close Checklist' : 'Open Checklist'}</button>
+                {canDecide && (clearanceDecision === 'Not Cleared'
+                  ? <button type="button" onClick={() => finishDecision('return')} disabled={actionLoading || !returnReason.trim()} className="inline-flex items-center justify-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"><X size={14} />{actionLoading ? 'Returning...' : 'Return to Employee'}</button>
+                  : <button type="button" onClick={() => setConfirmApproval(true)} disabled={actionLoading || !canApprove} title={!canApprove ? 'Complete the transport record checks before approval' : undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 size={14} />Approve &amp; Clear Transport Obligations</button>)}
                 <button type="button" onClick={closeDetails} disabled={actionLoading} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Close</button>
               </footer>
             )}

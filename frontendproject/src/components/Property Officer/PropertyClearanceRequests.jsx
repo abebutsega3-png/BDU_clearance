@@ -38,8 +38,6 @@ export default function PropertyClearanceRequests() {
   const [assetLoadError, setAssetLoadError] = useState('');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsError, setSettingsError] = useState('');
-  const [requiredChecks, setRequiredChecks] = useState([]);
-  const [completedChecks, setCompletedChecks] = useState([]);
   const [approvalRules, setApprovalRules] = useState({ requireNoOutstandingAssets: true, requireOfficerComment: false });
   const [updatingAssetId, setUpdatingAssetId] = useState('');
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -49,6 +47,7 @@ export default function PropertyClearanceRequests() {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnReason, setReturnReason] = useState('');
   const [officerComment, setOfficerComment] = useState('');
+  const [clearanceDecision, setClearanceDecision] = useState('');
 
   // Real data only; no seeded display rows.
   const [requests, setRequests] = useState([]);
@@ -156,7 +155,6 @@ export default function PropertyClearanceRequests() {
         });
         const settings = response.data?.profile?.propertySettings || {};
         if (!active) return;
-        setRequiredChecks(Array.isArray(settings.clearanceChecklist) ? settings.clearanceChecklist : []);
         setApprovalRules((current) => ({ ...current, ...(settings.clearanceRules || {}) }));
         setSettingsLoaded(true);
       } catch (error) {
@@ -222,7 +220,7 @@ export default function PropertyClearanceRequests() {
     }
     setSelectedRequest(latestRequest);
     setOfficerComment(latestRequest.officerComment || '');
-    setCompletedChecks(Array.isArray(latestRequest.completedPropertyChecks) ? latestRequest.completedPropertyChecks : []);
+    setClearanceDecision('');
     setIsModalOpen(true);
     const assets = await loadEmployeeAssets(latestRequest);
     setSelectedRequest((current) => current?.requestId === latestRequest.requestId ? { ...current, assets } : current);
@@ -278,8 +276,7 @@ export default function PropertyClearanceRequests() {
     if (!selectedRequest) return;
     try {
       const response = await axios.patch(`http://localhost:3000/api/property/clearance-requests/requests/${selectedRequest.requestId}/approve`, {
-        officerComment,
-        completedChecks
+        officerComment
       });
       const savedRequest = response.data;
       if (savedRequest?.propertyStatus !== 'Approved') {
@@ -301,29 +298,43 @@ export default function PropertyClearanceRequests() {
     }
   };
 
+  const handleSubmitDecision = () => {
+    if (clearanceDecision === 'Cleared') {
+      handleApprove();
+    } else if (clearanceDecision === 'Not Cleared') {
+      setShowReturnModal(true);
+    }
+  };
+
   // Action 3: Return Request Confirm
   const handleConfirmReturn = async () => {
-    if (!returnReason.trim()) return;
+    if (!selectedRequest || !returnReason.trim()) return;
     try {
-      await axios.patch(`http://localhost:3000/api/property/clearance-requests/requests/${selectedRequest.requestId}/return`, {
+      const response = await axios.patch(`http://localhost:3000/api/property/clearance-requests/requests/${selectedRequest.requestId}/return`, {
         returnReason,
         officerComment
       });
+      const savedRequest = response.data;
+      if (savedRequest?.propertyStatus !== 'Returned') {
+        throw new Error(t('The server did not confirm the request was marked Not Cleared.', 'አገልጋዩ ጥያቄው እንዳልጸዳ አላረጋገጠም።'));
+      }
+      const updated = {
+        ...selectedRequest,
+        ...savedRequest,
+        status: 'Returned',
+        propertyStatus: 'Returned',
+        returnReason,
+        officerComment: officerComment || returnReason
+      };
+      setSelectedRequest(updated);
+      setRequests((current) => current.map((request) => request.requestId === updated.requestId ? updated : request));
+      setShowReturnModal(false);
+      setIsModalOpen(false);
+      setReturnReason('');
     } catch (err) {
-      console.warn('API error, applying client-side status update');
+      console.error('Property clearance return failed:', err);
+      alert(err.response?.data?.message || err.message || t('Unable to mark this request Not Cleared. Please try again.', 'ይህን ጥያቄ አልጸዳም ብሎ ማመልከት አልተቻለም። እባክዎ እንደገና ይሞክሩ።'));
     }
-    const updated = { 
-      ...selectedRequest, 
-      status: 'Returned', 
-      propertyStatus: 'Returned',
-      returnReason, 
-      officerComment: returnReason 
-    };
-    setSelectedRequest(updated);
-    setRequests(requests.map(r => r.requestId === updated.requestId ? updated : r));
-    setShowReturnModal(false);
-    setIsModalOpen(false);
-    setReturnReason('');
   };
 
   // Assets Calculation Helpers
@@ -335,21 +346,18 @@ export default function PropertyClearanceRequests() {
   };
 
   const selectedAssetCounts = getAssetCounts(selectedRequest?.assets || []);
-  const enabledRequiredChecks = requiredChecks.filter((check) => check.enabled);
-  const missingRequiredChecks = enabledRequiredChecks.filter((check) => !completedChecks.includes(check.key));
   const approvalBlocked = !settingsLoaded
     || Boolean(settingsError)
     || loadingAssets
     || Boolean(assetLoadError)
     || (approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0)
-    || missingRequiredChecks.length > 0
     || (approvalRules.requireOfficerComment && !officerComment.trim());
 
   const filterLabels = {
     All: t('All', 'ሁሉም'),
     Pending: t('Pending', 'በመጠባበቅ ላይ'),
     'Under Review': t('Under Review', 'በግምገማ ላይ'),
-    Approved: t('Approved', 'ጸድቋል'),
+    Approved: t('Cleared', 'ጸድቋል'),
     Returned: t('Returned', 'ተመልሷል')
   };
   const localizedSettingsError = settingsError === 'Unable to load property clearance settings.'
@@ -433,7 +441,7 @@ export default function PropertyClearanceRequests() {
                         req.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
                         'bg-rose-100 text-rose-800'
                       }`}>
-                        {req.status}
+                        {req.status === 'Approved' ? t('Cleared', 'ጸድቷል') : req.status}
                       </span>
                     </td>
                     <td className="p-3 text-right">
@@ -518,7 +526,9 @@ export default function PropertyClearanceRequests() {
                 </div>
                 <div>
                   <span className="text-slate-400 block">{t('Status:', 'ሁኔታ፡')}</span>
-                  <span className="font-semibold text-slate-700">{selectedRequest.status}</span>
+                  <span className="font-semibold text-slate-700">
+                    {selectedRequest.status === 'Approved' ? t('Cleared', 'ጸድቷል') : selectedRequest.status}
+                  </span>
                 </div>
               </div>
             </div>
@@ -637,30 +647,6 @@ export default function PropertyClearanceRequests() {
 
             {selectedRequest.status === 'Under Review' && (
               <div className="space-y-3">
-                <section className="rounded-lg border border-slate-200 bg-white p-3">
-                  <h3 className="mb-2 text-[11px] font-bold text-slate-800">{t('Required Property Checks', 'አስፈላጊ የንብረት ማረጋገጫዎች')}</h3>
-                  {settingsError ? (
-                    <p role="alert" className="text-[10px] text-rose-700">{localizedSettingsError}</p>
-                  ) : enabledRequiredChecks.length ? (
-                    <div className="space-y-2">
-                      {enabledRequiredChecks.map((check) => (
-                        <label key={check.key} className="flex items-center gap-2 text-[10px] text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={completedChecks.includes(check.key)}
-                            onChange={(event) => setCompletedChecks((current) => event.target.checked
-                              ? [...new Set([...current, check.key])]
-                              : current.filter((key) => key !== check.key))}
-                            className="h-3.5 w-3.5 accent-teal-600"
-                          />
-                          {check.label}
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-slate-500">{t('No additional property checklist items are required.', 'ተጨማሪ የንብረት ማረጋገጫ ዝርዝሮች አያስፈልጉም።')}</p>
-                  )}
-                </section>
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-800 text-[11px] block">
                     {t('Officer Comment', 'የኃላፊ አስተያየት')} {approvalRules.requireOfficerComment && <span className="text-rose-600">*</span>}
@@ -673,6 +659,36 @@ export default function PropertyClearanceRequests() {
                     className="w-full p-2.5 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-teal-500 focus:border-teal-500 outline-none"
                   />
                 </div>
+                <fieldset className="space-y-1.5">
+                  <legend className="font-semibold text-slate-800 text-[11px]">
+                    {t('Clearance Decision', 'የማጽዳት ውሳኔ')} <span className="text-rose-600">*</span>
+                  </legend>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { value: 'Cleared', label: t('Cleared', 'ጸድቷል'), selectedClass: 'border-emerald-500 bg-emerald-50 text-emerald-800' },
+                      { value: 'Not Cleared', label: t('Not Cleared', 'አልጸዳም'), selectedClass: 'border-rose-500 bg-rose-50 text-rose-800' }
+                    ].map((option) => (
+                      <label
+                        key={option.value}
+                        className={`cursor-pointer rounded-lg border px-3 py-2 text-xs font-semibold transition-colors focus-within:ring-2 focus-within:ring-teal-500 ${
+                          clearanceDecision === option.value
+                            ? option.selectedClass
+                            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="property-clearance-decision"
+                          value={option.value}
+                          checked={clearanceDecision === option.value}
+                          onChange={() => setClearanceDecision(option.value)}
+                          className="sr-only focus-visible:outline-none"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
             )}
 
@@ -682,7 +698,9 @@ export default function PropertyClearanceRequests() {
               {/* Status Badge */}
               <div className="flex items-center space-x-1.5">
                 <span className="text-slate-400 font-semibold">{t('Current State:', 'አሁን ያለው ሁኔታ፡')}</span>
-                <span className="font-bold text-slate-800">{selectedRequest.status}</span>
+                <span className="font-bold text-slate-800">
+                  {selectedRequest.status === 'Approved' ? t('Cleared', 'ጸድቷል') : selectedRequest.status}
+                </span>
               </div>
 
               {/* Contextual Actions */}
@@ -729,25 +747,27 @@ export default function PropertyClearanceRequests() {
                       <span>{t('Employee Assets', 'የሰራተኛ ንብረቶች')}</span>
                     </button>
                     <button
-                      onClick={() => setShowReturnModal(true)}
-                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold rounded-lg flex items-center space-x-1 transition-colors"
-                    >
-                      <RotateCcw size={14} />
-                      <span>{t('Return Clearance', 'ማጽደቂያውን መልስ')}</span>
-                    </button>
-
-                    <button
-                      onClick={handleApprove}
-                      disabled={approvalBlocked}
+                      onClick={handleSubmitDecision}
+                      disabled={!clearanceDecision || (clearanceDecision === 'Cleared' && approvalBlocked)}
                       className={`px-3 py-1.5 font-semibold rounded-lg flex items-center space-x-1 transition-colors ${
-                        approvalBlocked
+                        !clearanceDecision || (clearanceDecision === 'Cleared' && approvalBlocked)
                           ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          : clearanceDecision === 'Not Cleared'
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       }`}
-                      title={localizedSettingsError || (loadingAssets ? t('Waiting for asset records to load.', 'የንብረት መዝገቦች እስኪጫኑ በመጠባበቅ ላይ።') : assetLoadError || (approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0 ? t('Disabled:', 'ተሰናክሏል፡') + ` ${selectedAssetCounts.outstanding} ` + t('outstanding asset(s) remain.', 'ያልተመለሱ ንብረቶች ቀርተዋል።') : missingRequiredChecks.length ? t('Complete all required property checks before approval.', 'ከማጽደቅ በፊት ሁሉንም አስፈላጊ የንብረት ማረጋገጫዎች ያጠናቅቁ።') : approvalRules.requireOfficerComment && !officerComment.trim() ? t('An officer comment is required before approval.', 'ከማጽደቅ በፊት የኃላፊ አስተያየት ያስፈልጋል።') : ''))}
+                      title={clearanceDecision === 'Cleared'
+                        ? localizedSettingsError || (loadingAssets ? t('Waiting for asset records to load.', 'የንብረት መዝገቦች እስኪጫኑ በመጠባበቅ ላይ።') : assetLoadError || (approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0 ? t('Disabled:', 'ተሰናክሏል፡') + ` ${selectedAssetCounts.outstanding} ` + t('outstanding asset(s) remain.', 'ያልተመለሱ ንብረቶች ቀርተዋል።') : approvalRules.requireOfficerComment && !officerComment.trim() ? t('An officer comment is required before approval.', 'ከማጽደቅ በፊት የኃላፊ አስተያየት ያስፈልጋል።') : ''))
+                        : !clearanceDecision ? t('Choose Cleared or Not Cleared to continue.', 'ለመቀጠል ጸድቷል ወይም አልጸዳም ይምረጡ።') : ''}
                     >
-                      <CheckCircle2 size={14} />
-                      <span>{t('Approve Clearance', 'ማጽደቂያውን አጽድቅ')}</span>
+                      {clearanceDecision === 'Not Cleared' ? <RotateCcw size={14} /> : <CheckCircle2 size={14} />}
+                      <span>
+                        {clearanceDecision === 'Cleared'
+                          ? t('Confirm Cleared', 'ጸድቷል ብለው ያረጋግጡ')
+                          : clearanceDecision === 'Not Cleared'
+                            ? t('Continue: Not Cleared', 'ቀጥል፡ አልጸዳም')
+                            : t('Select a Decision', 'ውሳኔ ይምረጡ')}
+                      </span>
                     </button>
                   </>
                 )}
@@ -757,11 +777,6 @@ export default function PropertyClearanceRequests() {
             {selectedRequest.status === 'Under Review' && approvalRules.requireNoOutstandingAssets && selectedAssetCounts.outstanding > 0 && (
               <p className="mt-2 text-right text-[10px] font-medium text-amber-700">
                 {t('Disabled:', 'ተሰናክሏል፡')} {selectedAssetCounts.outstanding} {t('outstanding asset(s) remain.', 'ያልተመለሱ ንብረቶች ቀርተዋል።')}
-              </p>
-            )}
-            {selectedRequest.status === 'Under Review' && missingRequiredChecks.length > 0 && (
-              <p className="mt-2 text-right text-[10px] font-medium text-amber-700">
-                {t('Complete', 'ያጠናቅቁ')} {missingRequiredChecks.length} {t('required property check(s) before approval.', 'አስፈላጊ የንብረት ማረጋገጫዎችን ከማጽደቅ በፊት።')}
               </p>
             )}
             {selectedRequest.status === 'Under Review' && approvalRules.requireOfficerComment && !officerComment.trim() && (
@@ -783,7 +798,7 @@ export default function PropertyClearanceRequests() {
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
               <h3 className="font-bold text-rose-900 flex items-center space-x-1.5">
                 <AlertTriangle size={16} className="text-rose-600" />
-                <span>{t('Return Clearance Request', 'የማጽደቂያ ጥያቄውን መልስ')}</span>
+                <span>{t('Mark Request Not Cleared', 'ጥያቄውን አልጸዳም ብለው ይመዝግቡ')}</span>
               </h3>
               <button onClick={() => setShowReturnModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={15} />
@@ -791,7 +806,7 @@ export default function PropertyClearanceRequests() {
             </div>
 
             <p className="text-slate-600 text-[11px]">
-              {t('Explain why this request is being returned to the employee for follow-up.', 'ይህ ጥያቄ ለተጨማሪ እርምጃ ወደ ሰራተኛው ለምን እንደሚመለስ ያብራሩ።')}
+              {t('Explain why this request is not cleared. The reason will be sent to the employee for correction.', 'ይህ ጥያቄ ለምን እንዳልጸዳ ያብራሩ። ምክንያቱ ለማስተካከያ ወደ ሰራተኛው ይላካል።')}
             </p>
 
             {/* Mandatory Reason Textarea */}
@@ -824,7 +839,7 @@ export default function PropertyClearanceRequests() {
                     : 'bg-rose-600 hover:bg-rose-700 text-white'
                 }`}
               >
-                {t('Confirm Return', 'መመለሱን አረጋግጥ')}
+                {t('Confirm Not Cleared', 'አልጸዳም ብለው ያረጋግጡ')}
               </button>
             </div>
 

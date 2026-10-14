@@ -23,11 +23,12 @@ const isValidDateOnly = (value) => {
 };
 
 const normalizeFinanceStatus = (value) => {
-  const status = (value || '').toString().trim();
-  if (!status) return 'Pending';
-  const lower = status.toLowerCase();
-  if (lower === 'in progress' || lower === 'under review' || lower === 'review') return 'In Progress';
-  return status;
+  const status = String(value || '').trim().toLowerCase();
+  if (!status || ['pending', 'not started', 'awaiting review', 'pending finance clearance'].includes(status)) return 'Pending';
+  if (['in progress', 'under review', 'review'].includes(status)) return 'In Progress';
+  if (['approved', 'completed', 'cleared', 'financially cleared'].includes(status)) return 'Approved';
+  if (status.includes('return') || status.includes('reject')) return 'Returned';
+  return 'Pending';
 };
 
 export const getFinanceDashboard = async (req, res) => {
@@ -37,39 +38,13 @@ export const getFinanceDashboard = async (req, res) => {
       ...officeAssignmentFilter('Finance Office'),
     };
     const [
-      pending,
-      inProgress,
-      approved,
-      returned,
+      financeRequests,
       outstandingRecords,
-      pendingRequests,
       notifications,
       activities
     ] = await Promise.all([
-      ClearanceRequest.countDocuments({
-        $and: [financeQueueFilter, {
-          $or: [
-          { financeStatus: 'Pending' },
-          { financeStatus: { $exists: false } },
-          { financeStatus: null },
-          { financeStatus: '' },
-          ],
-        }],
-      }),
-      ClearanceRequest.countDocuments({ ...financeQueueFilter, financeStatus: { $in: ['In Progress', 'Under Review'] } }),
-      ClearanceRequest.countDocuments({ ...financeQueueFilter, financeStatus: 'Approved' }),
-      ClearanceRequest.countDocuments({ ...financeQueueFilter, financeStatus: 'Returned' }),
+      ClearanceRequest.find(financeQueueFilter).sort({ createdAt: -1 }).lean(),
       FinancialRecord.find({}).sort({ createdAt: -1 }).lean(),
-      ClearanceRequest.find({
-        $and: [financeQueueFilter, {
-          $or: [
-          { financeStatus: { $in: ['Pending', 'In Progress', 'Under Review'] } },
-          { financeStatus: { $exists: false } },
-          { financeStatus: null },
-          { financeStatus: '' },
-          ],
-        }],
-      }).sort({ createdAt: -1 }).limit(10).lean(),
       Notification.find({}).sort({ createdAt: -1 }).limit(5).lean(),
       AuditLog.find({
         $or: [
@@ -82,7 +57,7 @@ export const getFinanceDashboard = async (req, res) => {
 
     const employeeIds = [
       ...new Set([
-        ...pendingRequests.map((item) => item.employeeId).filter(Boolean),
+        ...financeRequests.map((item) => item.employeeId).filter(Boolean),
         ...outstandingRecords.map((item) => item.employeeId).filter(Boolean)
       ])
     ];
@@ -96,7 +71,7 @@ export const getFinanceDashboard = async (req, res) => {
       employeeMap[employee.employeeId] = employee;
     });
 
-    const requestsWithEmployee = pendingRequests.map((request) => {
+    const requestsWithEmployee = financeRequests.map((request) => {
       const employee = employeeMap[request.employeeId] || {};
       return {
         ...request,
@@ -107,6 +82,15 @@ export const getFinanceDashboard = async (req, res) => {
         status: normalizeFinanceStatus(request.financeStatus)
       };
     });
+    const financeCounts = requestsWithEmployee.reduce((counts, request) => {
+      const status = normalizeFinanceStatus(request.financeStatus);
+      counts[status] += 1;
+      return counts;
+    }, { Pending: 0, 'In Progress': 0, Approved: 0, Returned: 0 });
+    const pending = financeCounts.Pending;
+    const inProgress = financeCounts['In Progress'];
+    const approved = financeCounts.Approved;
+    const returned = financeCounts.Returned;
 
     const outstandingByEmployee = new Map();
     outstandingRecords.forEach((record) => {
@@ -141,9 +125,9 @@ export const getFinanceDashboard = async (req, res) => {
         approved,
         returned,
         outstandingAmount,
-        totalRequests: pending + inProgress + approved + returned
+        totalRequests: requestsWithEmployee.length
       },
-      pendingRequests: requestsWithEmployee,
+      pendingRequests: requestsWithEmployee.filter((request) => request.status === 'Pending').slice(0, 10),
       outstandingObligations: obligationsWithEmployee,
       notifications,
       activities

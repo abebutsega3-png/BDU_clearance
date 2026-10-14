@@ -619,18 +619,20 @@ export default function HRAssessmentPage() {
                           <option>Other</option>
                         </select>
                       </label>
-                      {returnReason === 'Other' && (
-                        <label className="block text-[10px] font-medium text-slate-700">
-                          Specify reason <span className="text-red-500">*</span>
-                          <input
-                            value={comment}
-                            onChange={(event) => setComment(event.target.value)}
-                            maxLength={1000}
-                            className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[10px] outline-none focus:border-blue-500"
-                            placeholder="Describe what needs correction"
-                          />
-                        </label>
-                      )}
+                      <label className="block text-[10px] font-medium text-slate-700">
+                        HR Comment <span className="text-red-500">*</span>
+                        <textarea
+                          value={comment}
+                          onChange={(event) => setComment(event.target.value)}
+                          maxLength={1000}
+                          rows={3}
+                          required
+                          className="mt-1.5 w-full resize-y rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[10px] outline-none focus:border-blue-500"
+                          placeholder={returnReason === 'Other'
+                            ? 'Specify the reason and explain what needs correction'
+                            : 'Explain what the employee needs to correct'}
+                        />
+                      </label>
                     </div>
                   )}
 

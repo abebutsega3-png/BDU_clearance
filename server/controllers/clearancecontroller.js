@@ -988,8 +988,64 @@ const updateClearance = async (req, res) => {
 				&& (existing.workflow || []).some((step) => normalizeRoutedOffice(step.office || step.name).toLowerCase() === normalizeRoutedOffice(returnedOffice).toLowerCase()
 					&& ['returned', 'rejected'].includes(String(step.status || '').toLowerCase()));
 			const initialHRReturn = existing.initialHRStatus === 'Returned';
-			if (existing.status !== 'Returned' || (!initialHRReturn && !customOfficeReturn)) {
-				return res.status(409).json({ success: false, message: 'Only requests returned by Initial HR or an assigned clearance office can be corrected and resubmitted here.' });
+			const topLevelReturnRecorded = [existing.status, existing.overallStatus]
+				.some((status) => ['returned', 'rejected'].includes(String(status || '').toLowerCase()));
+			const finalHRWorkflowReturn = (existing.workflow || []).some((step) => (
+				['returned', 'rejected'].includes(String(step.status || '').toLowerCase())
+				&& /final\s*hr|hr\s*final/i.test(String(step.office || step.name || step.action || ''))
+			));
+			const normalizedReturnedOffice = normalizeRoutedOffice(returnedOffice).toLowerCase();
+			const departmentWorkflowReturn = (existing.workflow || []).some((step) => (
+				normalizeRoutedOffice(step.office || step.name).toLowerCase() === 'department head'
+				&& ['returned', 'rejected'].includes(String(step.status || '').toLowerCase())
+			));
+			const departmentHeadReturn = normalizedReturnedOffice === 'department head'
+				&& (
+					existing.departmentStatus === 'Returned'
+					|| existing.departmentClearance?.status === 'Returned'
+					|| (existing.departmentClearances || []).some((decision) => (
+						normalizeRoutedOffice(decision.office || decision.name).toLowerCase() === 'department head'
+						&& ['returned', 'rejected'].includes(String(decision.status || '').toLowerCase())
+					))
+					|| departmentWorkflowReturn
+					|| topLevelReturnRecorded
+				);
+			const finalHRReturn = /^hr officer$/i.test(returnedOffice)
+				&& (
+					normalizeRoutedOffice(existing.affectedField).toLowerCase() === normalizeRoutedOffice(FINAL_HR_STAGE).toLowerCase()
+					|| finalHRWorkflowReturn
+				);
+			const returnedOfficeWorkflowStep = (existing.workflow || []).some((step) => (
+				normalizeRoutedOffice(step.office || step.name).toLowerCase() === normalizedReturnedOffice
+				&& ['returned', 'rejected'].includes(String(step.status || '').toLowerCase())
+			));
+			const officeStatusFields = {
+				'finance office': 'financeStatus',
+				'library': 'libraryStatus',
+				'property / asset office': 'propertyStatus',
+				'ict office': 'ictStatus',
+				'transport office': 'transportStatus',
+			};
+			const officeStatusField = officeStatusFields[normalizedReturnedOffice];
+			const returnedOfficeStatus = officeStatusField ? String(existing[officeStatusField] || '').toLowerCase() : '';
+			const officeSpecificReturn = ['returned', 'rejected'].includes(returnedOfficeStatus)
+				|| (normalizedReturnedOffice === 'ict office' && ['returned', 'rejected'].includes(String(existing.ictClearance?.status || '').toLowerCase()))
+				|| (normalizedReturnedOffice === 'transport office' && ['returned', 'rejected'].includes(String(existing.transportReview?.status || '').toLowerCase()));
+			const configuredOffices = [
+				...(Array.isArray(existing.requiredOffices) ? existing.requiredOffices : []),
+				...(Array.isArray(existing.assignedDepartments) ? existing.assignedDepartments : []),
+			];
+			const isConfiguredOffice = configuredOffices.some((office) => (
+				normalizeRoutedOffice(office).toLowerCase() === normalizedReturnedOffice
+			));
+			const assignedOfficeReturn = Boolean(returnedOffice)
+				&& (
+					returnedOfficeWorkflowStep
+					|| (isConfiguredOffice && (officeSpecificReturn || topLevelReturnRecorded))
+				);
+			const clearanceOfficeReturn = customOfficeReturn || assignedOfficeReturn;
+			if (!initialHRReturn && !clearanceOfficeReturn && !departmentHeadReturn && !finalHRReturn) {
+				return res.status(409).json({ success: false, message: 'Only requests returned by Initial HR, Department Head, Final HR, or an assigned clearance office can be corrected and resubmitted here.' });
 			}
 
 			const existingClearanceType = String(
@@ -1034,6 +1090,7 @@ const updateClearance = async (req, res) => {
 
 			const previousReturn = {
 				returnedBy: existing.returnedBy || existing.initialHRReviewedBy || 'HR Officer',
+				returnedOffice: returnedOffice || (initialHRReturn ? 'Initial HR Review' : ''),
 				returnedAt: existing.returnedAt || existing.initialHRReviewedAt || null,
 				reason: existing.returnedReason || existing.initialHRRemarks || existing.returnReason || '',
 				remark: existing.returnedRemark || existing.initialHRRemarks || existing.officerComment || '',
@@ -1056,9 +1113,9 @@ const updateClearance = async (req, res) => {
 			existing.relievingDate = relievingDate;
 			existing.remarks = String(requestUpdates.remarks ?? existing.remarks ?? '');
 			existing.officerComment = resolutionRemark;
-			existing.status = customOfficeReturn ? 'In Progress' : 'Pending';
+			existing.status = clearanceOfficeReturn || departmentHeadReturn || finalHRReturn ? 'In Progress' : 'Pending';
 			existing.overallStatus = 'In Progress';
-			if (!customOfficeReturn) {
+			if (!clearanceOfficeReturn && !departmentHeadReturn && !finalHRReturn) {
 				existing.initialHRStatus = 'Pending';
 				existing.initialHRAssessmentCompleted = false;
 				existing.assessmentChecklist = {
@@ -1074,6 +1131,37 @@ const updateClearance = async (req, res) => {
 				existing.initialHRRemarks = '';
 				existing.hrComment = '';
 			}
+			if (departmentHeadReturn) {
+				existing.departmentStatus = 'Pending';
+				existing.departmentReturnReason = '';
+				existing.departmentClearance = {
+					...(existing.departmentClearance || {}),
+					status: 'Pending',
+					reviewedBy: '',
+					reviewedById: null,
+					reviewedAt: null,
+					returnReason: '',
+					employeeResolutionRemark: resolutionRemark,
+					updatedAt: now,
+				};
+				existing.departmentClearances = (Array.isArray(existing.departmentClearances) ? existing.departmentClearances : []).map((decision) => (
+					normalizeRoutedOffice(decision.office || decision.name).toLowerCase() === 'department head'
+						? { ...decision, status: 'Pending', reviewedBy: '', reviewedById: null, reviewedAt: null, returnReason: '', employeeResolutionRemark: resolutionRemark, updatedAt: now }
+						: decision
+				));
+				existing.departmentReviewedBy = '';
+				existing.departmentReviewedById = null;
+				existing.departmentReviewedAt = null;
+			}
+			if (clearanceOfficeReturn) {
+				if (officeStatusField) existing[officeStatusField] = 'Pending';
+				if (normalizedReturnedOffice === 'ict office' && existing.ictClearance) {
+					existing.ictClearance = { ...existing.ictClearance, status: 'Pending', returnReason: '' };
+				}
+				if (normalizedReturnedOffice === 'transport office' && existing.transportReview) {
+					existing.transportReview = { ...existing.transportReview, status: 'Pending', returnReason: '' };
+				}
+			}
 			existing.returnReason = '';
 			existing.returnedBy = '';
 			existing.returnedOffice = '';
@@ -1081,19 +1169,40 @@ const updateClearance = async (req, res) => {
 			existing.returnedReason = '';
 			existing.returnedRemark = '';
 			existing.affectedField = '';
-			existing.currentStep = customOfficeReturn ? returnedOffice : 'Initial HR Review';
+			existing.currentStep = clearanceOfficeReturn
+				? returnedOffice
+				: departmentHeadReturn
+					? 'Department Head'
+					: finalHRReturn
+						? FINAL_HR_STAGE
+						: 'Initial HR Review';
 			existing.workflow = (Array.isArray(existing.workflow) ? existing.workflow : []).map((step) => {
-				if (customOfficeReturn && normalizeRoutedOffice(step.office || step.name).toLowerCase() === normalizeRoutedOffice(returnedOffice).toLowerCase()) {
+				if (finalHRReturn && /final\s*hr|hr\s*final/i.test(String(step.office || step.name || step.action || ''))) {
+					return { ...step, office: FINAL_HR_STAGE, status: 'Pending', returnReason: '', remarks: resolutionRemark, updatedAt: now };
+				}
+				if (departmentHeadReturn && normalizeRoutedOffice(step.office || step.name).toLowerCase() === 'department head') {
+					return { ...step, status: 'Pending', returnReason: '', remarks: resolutionRemark, updatedAt: now };
+				}
+				if (clearanceOfficeReturn && normalizeRoutedOffice(step.office || step.name).toLowerCase() === normalizedReturnedOffice) {
 					return { ...step, status: 'Pending', updatedAt: now, remarks: '', returnReason: '' };
 				}
-				return /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')) && !customOfficeReturn
+				return /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')) && !clearanceOfficeReturn && !departmentHeadReturn && !finalHRReturn
 					? { ...step, office: 'Initial HR Review', status: 'Pending', updatedAt: now, remarks: '', returnReason: '' }
 					: step;
 			});
+			if (finalHRReturn && !existing.workflow.some((step) => /final\s*hr|hr\s*final/i.test(String(step.office || step.name || step.action || '')))) {
+				existing.workflow.push({
+					office: FINAL_HR_STAGE,
+					status: 'Pending',
+					returnReason: '',
+					remarks: resolutionRemark,
+					updatedAt: now,
+				});
+			}
 			existing.logs = [
 				...(Array.isArray(existing.logs) ? existing.logs : []),
 				{
-					action: customOfficeReturn ? 'RESUBMITTED_TO_CLEARANCE_OFFICE' : 'RESUBMITTED_BY_EMPLOYEE',
+					action: clearanceOfficeReturn ? 'RESUBMITTED_TO_CLEARANCE_OFFICE' : departmentHeadReturn ? 'RESUBMITTED_TO_DEPARTMENT_HEAD' : finalHRReturn ? 'RESUBMITTED_TO_FINAL_HR' : 'RESUBMITTED_BY_EMPLOYEE',
 					actor: req.user?.name || req.user?.fullName || 'Employee',
 					actorId: req.user?._id || null,
 					comment: resolutionRemark,
@@ -1108,11 +1217,21 @@ const updateClearance = async (req, res) => {
 				await recordAuditLog({
 					req,
 					user: req.user,
-					action: customOfficeReturn ? 'RESUBMIT_CLEARANCE_AFTER_OFFICE_RETURN' : 'RESUBMIT_CLEARANCE_AFTER_HR_RETURN',
+					action: departmentHeadReturn
+						? 'RESUBMIT_CLEARANCE_AFTER_DEPARTMENT_RETURN'
+						: clearanceOfficeReturn
+							? 'RESUBMIT_CLEARANCE_AFTER_OFFICE_RETURN'
+							: finalHRReturn
+								? 'RESUBMIT_CLEARANCE_AFTER_FINAL_HR_RETURN'
+							: 'RESUBMIT_CLEARANCE_AFTER_HR_RETURN',
 					module: 'Clearance Request',
-					description: customOfficeReturn
-						? `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to ${returnedOffice}.`
-						: `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to Initial HR Review.`,
+					description: departmentHeadReturn
+						? `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to the Department Head.`
+						: clearanceOfficeReturn
+							? `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to ${returnedOffice}.`
+							: finalHRReturn
+								? `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to Final HR Clearance.`
+							: `${clearance.employeeName || 'An employee'} corrected and resubmitted clearance request ${clearance.requestId || clearance._id} to Initial HR Review.`,
 					oldValues: { requestId: clearance.requestId, status: 'Returned', lastWorkingDate: previousReturn.lastWorkingDate },
 					newValues: { requestId: clearance.requestId, status: clearance.status, lastWorkingDate },
 				});
@@ -1120,7 +1239,24 @@ const updateClearance = async (req, res) => {
 				console.error('Failed to record clearance resubmission audit log:', auditError.message);
 			}
 
-			if (customOfficeReturn) {
+			if (finalHRReturn) {
+				await notifyHrOfficers({
+					clearance,
+					type: 'CLEARANCE_RESUBMITTED',
+					title: 'Final HR Clearance Resubmitted',
+					message: `${clearance.employeeName || 'An employee'} corrected and resubmitted request ${clearance.requestId || 'N/A'} after Final HR feedback.`,
+					actionText: 'Review Request',
+					actionLink: '/hr-office/final-hr-clearance',
+				});
+			} else if (departmentHeadReturn) {
+				await notifyDepartmentHeads({
+					clearance,
+					type: 'EMPLOYEE_UPDATED_REQUEST_DEPARTMENT',
+					title: 'Department Clearance Resubmitted',
+					message: `${clearance.employeeName || 'An employee'} corrected and resubmitted request ${clearance.requestId || 'N/A'} after Department Head feedback.`,
+					actionText: 'Review Request',
+				});
+			} else if (clearanceOfficeReturn) {
 				const officeRole = await Role.findOne({ name: returnedOffice, isActive: true, isClearanceOffice: true }).select('name').lean();
 				const officeUsers = officeRole
 					? await User.find({ $or: [{ role: officeRole.name }, { activeRole: officeRole.name }, { roles: officeRole.name }] }).select('_id name')
@@ -1149,7 +1285,14 @@ const updateClearance = async (req, res) => {
 					actionLink: `/hr-office/assessment/${encodeURIComponent(clearance._id)}`,
 				});
 			}
-			return res.status(200).json({ success: true, message: 'Clearance request resubmitted to Initial HR Review.', clearance });
+			const resubmissionMessage = departmentHeadReturn
+				? 'Clearance request resubmitted to Department Head.'
+				: clearanceOfficeReturn
+					? `Clearance request resubmitted to ${returnedOffice}.`
+					: finalHRReturn
+						? 'Clearance request resubmitted to Final HR Clearance.'
+						: 'Clearance request resubmitted to Initial HR Review.';
+			return res.status(200).json({ success: true, message: resubmissionMessage, clearance });
 		}
 		let resubmittedToFinance = false;
 		const hasExplicitDepartmentDecision = requestUpdates.departmentDecision && typeof requestUpdates.departmentDecision === 'object';
