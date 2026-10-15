@@ -392,7 +392,34 @@ const getClearances = async (_req, res) => {
 			.sort({ createdAt: -1 })
 			.maxTimeMS(15000)
 			.lean();
-		return res.status(200).json({ success: true, clearances });
+		const employeeIds = [...new Set(clearances
+			.map((clearance) => String(clearance.employeeId || clearance.employee?.employeeId || '').trim())
+			.filter(Boolean))];
+		const employees = employeeIds.length
+			? await Employee.find({ employeeId: { $in: employeeIds } }).select('employeeId campus department').lean()
+			: [];
+		const employeesById = new Map(employees.map((employee) => [employee.employeeId, employee]));
+		const enrichedClearances = clearances.map((clearance) => {
+			const employeeId = String(clearance.employeeId || clearance.employee?.employeeId || '').trim();
+			const employee = employeesById.get(employeeId);
+			const campus = [employee?.campus, clearance.campus, clearance.employee?.campus]
+				.map((value) => String(value || '').trim())
+				.find(Boolean) || 'Main Campus';
+			const department = employee?.department
+				|| clearance.department?.name
+				|| clearance.department?.departmentName
+				|| (typeof clearance.department === 'string' ? clearance.department : '')
+				|| clearance.employee?.department;
+			return {
+				...clearance,
+				campus,
+				...(department ? { department } : {}),
+				...(clearance.employee && typeof clearance.employee === 'object'
+					? { employee: { ...clearance.employee, campus, ...(department ? { department } : {}) } }
+					: {}),
+			};
+		});
+		return res.status(200).json({ success: true, clearances: enrichedClearances });
 	} catch (error) {
 		console.error('Error in getClearances:', error);
 		const timedOut = error.code === 50 || (error.name === 'MongooseError' && /timed out/i.test(error.message));
@@ -815,6 +842,9 @@ const addClearance = async (req, res) => {
 			...(initiatedByHR ? { reason } : {}),
 			employeeId: employeeRecord?.employeeId || req.body?.employeeId || req.user?.employeeId || '',
 			department: resolvedDepartment,
+			campus: [employeeRecord?.campus, req.user?.campus, req.body?.campus]
+				.map((value) => String(value || '').trim())
+				.find(Boolean) || 'Main Campus',
 			requestSource: initiatedByHR ? 'HR Officer' : 'Employee Portal',
 			initiatedBy: req.user?._id || null,
 			initiatedByName: req.user?.fullName || req.user?.name || '',

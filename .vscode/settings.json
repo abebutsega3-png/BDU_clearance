@@ -1,3 +1,5 @@
 {
-  "debug.javascript.autoAttachFilter": "disabled"
+  "debug.javascript.autoAttachFilter": "disabled",
+  "testing.automaticallyOpenPeekViewDuringAutoRun": true,
+  "git.decorations.enabled": true
 }

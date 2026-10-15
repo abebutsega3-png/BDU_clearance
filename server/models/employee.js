@@ -13,7 +13,7 @@ const employeeSchema = new mongoose.Schema({
 	department: { type: String, required: true, trim: true },
 	departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
 	position: { type: String, required: true, trim: true },
-	campus: { type: String, required: true, trim: true },
+	campus: { type: String, required: true, trim: true, default: 'Main Campus' },
 	category: { type: String, trim: true, default: 'Not specified' },
 	employmentType: { type: String, required: true, trim: true },
 	hireDate: { type: Date, required: true },

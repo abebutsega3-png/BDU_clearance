@@ -41,6 +41,8 @@ export default function AdminDashboard() {
   const security = dashboard?.security || {};
   const recentUsers = dashboard?.recentUsers || [];
   const recentEmployees = dashboard?.recentEmployees || [];
+  const displayedRecentUsers = recentUsers.slice(0, 4);
+  const displayedRecentEmployees = recentEmployees.slice(0, 4);
   const formatNumber = (value) => Number(value || 0).toLocaleString();
   const topCards = [
     { title: t('Total Users'), val: stats.totalUsers, sub: t('All system users'), icon: <Users className="text-blue-600" size={18} />, bg: 'bg-blue-50' },
@@ -173,39 +175,39 @@ export default function AdminDashboard() {
           </div>
 
           {/* Recently added records */}
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3">
+          <div className="h-[360px] min-h-0 bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col gap-3">
             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
               <h3 className="font-bold text-slate-800">{t('Recently Added')}</h3>
               <button type="button" onClick={() => navigate('/admin/users')} className="text-blue-600 text-[10px] font-medium hover:underline">{t('View Users')}</button>
             </div>
-            <div className="space-y-2 text-[10px]">
-              {recentUsers.length === 0 && <p className="text-slate-400 py-1">{t('No users added yet.')}</p>}
-              {recentUsers.map((user) => (
-                <div key={user._id} className="flex items-center justify-between border-b border-slate-50 pb-2 last:border-none">
-                  <div>
-                    <p className="font-semibold text-slate-700">{user.name || user.username || t('Unnamed user')}</p>
-                    <p className="text-slate-400">{user.role || t('No role')}</p>
-                  </div>
-                  <span className="text-slate-400">{t('User')}</span>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-slate-100 pt-2">
-              <div className="flex justify-between items-center mb-2">
-                <h4 className="font-semibold text-slate-700">{t('Employees')}</h4>
-                <button type="button" onClick={() => navigate('/admin/employees')} className="text-blue-600 text-[10px] font-medium hover:underline">{t('View Employees')}</button>
-              </div>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <div className="space-y-2 text-[10px]">
-                {recentEmployees.length === 0 && <p className="text-slate-400 py-1">{t('No employees added yet.')}</p>}
-                {recentEmployees.map((employee) => (
-                  <div key={employee._id} className="flex items-center justify-between border-b border-slate-50 pb-2 last:border-none">
+                {recentUsers.length === 0 && <p className="text-slate-400 py-1">{t('No users added yet.')}</p>}
+                {displayedRecentUsers.map((user) => (
+                  <div key={user._id} className="flex items-center justify-between border-b border-slate-50 pb-2 last:border-none">
                     <div>
-                      <p className="font-semibold text-slate-700">{employee.fullName}</p>
-                      <p className="text-slate-400">{employee.employeeId}</p>
+                      <p className="font-semibold text-slate-700">{user.name || user.username || t('Unnamed user')}</p>
+                      <p className="text-slate-400">{user.role || t('No role')}</p>
                     </div>
-                    <span className="text-slate-400">{t('Employee')}</span>
+                    <span className="text-slate-400">{t('User')}</span>
                   </div>
                 ))}
+                <div className="border-t border-slate-100 pt-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-semibold text-slate-700">{t('Employees')}</h4>
+                    <button type="button" onClick={() => navigate('/admin/employees')} className="text-blue-600 text-[10px] font-medium hover:underline">{t('View Employees')}</button>
+                  </div>
+                  {recentEmployees.length === 0 && <p className="text-slate-400 py-1">{t('No employees added yet.')}</p>}
+                  {displayedRecentEmployees.map((employee) => (
+                    <div key={employee._id} className="flex items-center justify-between border-b border-slate-50 pb-2 last:border-none">
+                      <div>
+                        <p className="font-semibold text-slate-700">{employee.fullName}</p>
+                        <p className="text-slate-400">{employee.employeeId}</p>
+                      </div>
+                      <span className="text-slate-400">{t('Employee')}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer,
+  Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis
 } from 'recharts';
 import {
@@ -20,6 +20,8 @@ const STATUS_COLORS = {
 };
 const STATUS_FILTERS = ['All Types', 'Pending', 'In Progress', 'Completed', 'Rejected', 'Overdue'];
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_CAMPUS = 'Main Campus';
+const COMPLETED_STEP_STATUSES = new Set(['approved', 'completed', 'cleared']);
 
 const statusOf = (item) => {
   const status = String(item.status || 'Pending').toLowerCase();
@@ -30,14 +32,76 @@ const statusOf = (item) => {
   if (status === 'pending') return 'Pending';
   return item.status || 'Pending';
 };
-const campusOf = (item) => item.campus || item.employee?.campus || 'Unknown campus';
-const departmentOf = (item) => item.department?.name || (typeof item.department === 'string' ? item.department : '') || 'Unknown department';
+const campusOf = (item) => [item.campus, item.employee?.campus]
+  .map((value) => String(value || '').trim())
+  .find(Boolean) || DEFAULT_CAMPUS;
+const departmentOf = (item) => item.department?.name || item.department?.departmentName
+  || (typeof item.department === 'string' ? item.department : '')
+  || item.employee?.department || 'Unknown department';
 const nameOf = (item) => item.employeeName || item.employee?.fullName || item.employee?.name || (typeof item.employee === 'string' ? item.employee : '') || 'Unknown employee';
+const reasonOf = (item) => String(item.reason || item.clearanceReason || item.clearanceType || '').trim() || 'Unspecified';
 const dateOf = (item) => item.requestDate || item.submittedDate || item.createdAt;
 const parseDate = (value) => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+const formatInputDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const officeDecisionDates = (request) => {
+  const normalizeOffice = (value) => {
+    const office = value.toLowerCase();
+    if (/initial\s*hr/.test(office)) return 'Initial HR Review';
+    if (/final\s*hr|hr\s*final/.test(office)) return 'Final HR Clearance';
+    if (/department/.test(office)) return 'Department Head';
+    if (/finance/.test(office)) return 'Finance Office';
+    if (/library/.test(office)) return 'Library';
+    if (/property|asset/.test(office)) return 'Property / Asset Office';
+    if (/\bict\b/.test(office)) return 'ICT Office';
+    if (/transport/.test(office)) return 'Transport Office';
+    return value.trim();
+  };
+  const fields = [
+    ['Initial HR Review', request.initialHRStatus, request.initialHRReviewedAt],
+    ['Department Head', request.departmentStatus, request.departmentReviewedAt],
+    ['Finance Office', request.financeStatus, request.financeReviewedAt],
+    ['Library', request.libraryStatus, request.libraryReviewedAt],
+    ['Property / Asset Office', request.propertyStatus, request.propertyReviewedAt],
+    ['ICT Office', request.ictStatus || request.ictClearance?.status, request.ictReviewedAt || request.ictClearance?.reviewedAt],
+    ['Transport Office', request.transportStatus, request.transportReviewedAt],
+    ['Final HR Clearance', request.finalHRStatus, request.finalHRApprovalDate || request.completionDate],
+  ].map(([office, status, date]) => ({
+    office,
+    status: String(status || '').toLowerCase(),
+    date: parseDate(date),
+  })).filter((step) => step.date && COMPLETED_STEP_STATUSES.has(step.status));
+
+  const workflow = [...(Array.isArray(request.workflow) ? request.workflow : []),
+    ...(Array.isArray(request.departmentClearances) ? request.departmentClearances : [])]
+    .map((step) => ({
+      office: normalizeOffice(String(step.office || step.name || step.department || '').trim()),
+      status: String(step.status || '').toLowerCase(),
+      date: parseDate(step.reviewedAt || step.completedAt || step.timestamp || step.updatedAt),
+    }))
+    .filter((step) => step.office && step.date && COMPLETED_STEP_STATUSES.has(step.status));
+
+  const latestWorkflowSteps = new Map();
+  workflow.forEach((step) => {
+    const key = step.office.toLowerCase();
+    if (!latestWorkflowSteps.has(key) || latestWorkflowSteps.get(key).date < step.date) {
+      latestWorkflowSteps.set(key, step);
+    }
+  });
+  const recordedOffices = new Set(latestWorkflowSteps.keys());
+  return [
+    ...latestWorkflowSteps.values(),
+    ...fields.filter((step) => !recordedOffices.has(step.office.toLowerCase())),
+  ].sort((first, second) => first.date - second.date);
 };
 
 export default function SystemAdminReports() {
@@ -45,6 +109,7 @@ export default function SystemAdminReports() {
   const [clearances, setClearances] = useState([]);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [datePreset, setDatePreset] = useState('All time');
   const [campus, setCampus] = useState('All Campuses');
   const [department, setDepartment] = useState('All Departments');
   const [reportType, setReportType] = useState('All Types');
@@ -93,26 +158,85 @@ export default function SystemAdminReports() {
     value,
     color: ['#2563eb', '#10b981', '#a855f7', '#f59e0b', '#ef4444'][index % 5],
   })).sort((a, b) => b.value - a.value).slice(0, 5);
-  const monthlyData = useMemo(() => {
-    const year = new Date().getFullYear();
-    const months = Array.from({ length: 12 }, (_, index) => ({
-      month: new Date(year, index, 1).toLocaleString('en', { month: 'short' }),
-      Completed: 0,
-      'In Progress': 0,
-      Pending: 0,
-      Rejected: 0,
-    }));
-    clearances
-      .filter((item) => (campus === 'All Campuses' || campusOf(item) === campus)
-        && (department === 'All Departments' || departmentOf(item) === department))
-      .forEach((item) => {
-        const date = parseDate(dateOf(item));
-        if (!date || date.getFullYear() !== year) return;
-        const status = statusOf(item);
-        if (months[date.getMonth()][status] !== undefined) months[date.getMonth()][status] += 1;
+  const departmentRequestData = useMemo(() => Object.entries(filteredRequests.reduce((counts, item) => {
+    const name = departmentOf(item);
+    counts[name] = (counts[name] || 0) + 1;
+    return counts;
+  }, {})).map(([name, requests]) => ({ name, requests }))
+    .sort((first, second) => second.requests - first.requests)
+    .slice(0, 10), [filteredRequests]);
+  const reasonData = useMemo(() => Object.entries(filteredRequests.reduce((counts, item) => {
+    const reason = reasonOf(item);
+    counts[reason] = (counts[reason] || 0) + 1;
+    return counts;
+  }, {})).map(([name, value], index) => ({
+    name,
+    value,
+    color: ['#2563eb', '#10b981', '#a855f7', '#f59e0b', '#ef4444', '#06b6d4'][index % 6],
+  })).sort((first, second) => second.value - first.value).slice(0, 8), [filteredRequests]);
+  const bottleneckData = useMemo(() => {
+    const durationsByOffice = new Map();
+    filteredRequests.forEach((request) => {
+      const requestedAt = parseDate(dateOf(request));
+      if (!requestedAt) return;
+      let previousDate = requestedAt;
+      officeDecisionDates(request).forEach((step) => {
+        const days = (step.date - previousDate) / 86400000;
+        if (days >= 0) {
+          const durations = durationsByOffice.get(step.office) || [];
+          durations.push(days);
+          durationsByOffice.set(step.office, durations);
+        }
+        previousDate = step.date;
       });
-    return months;
-  }, [clearances, campus, department]);
+    });
+    return [...durationsByOffice.entries()].map(([name, durations]) => ({
+      name,
+      averageDays: durations.reduce((total, days) => total + days, 0) / durations.length,
+      decisions: durations.length,
+    })).sort((first, second) => second.averageDays - first.averageDays).slice(0, 8);
+  }, [filteredRequests]);
+  const monthlyData = useMemo(() => {
+    const months = new Map();
+    filteredRequests.forEach((item) => {
+      const date = parseDate(dateOf(item));
+      if (!date) return;
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      if (!months.has(key)) {
+        months.set(key, {
+          month: date.toLocaleString('en', { month: 'short', year: '2-digit' }),
+          Completed: 0,
+          'In Progress': 0,
+          Pending: 0,
+          Rejected: 0,
+        });
+      }
+      const status = statusOf(item);
+      if (months.get(key)[status] !== undefined) months.get(key)[status] += 1;
+    });
+    if (!fromDate && !toDate) {
+      const year = new Date().getFullYear();
+      for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+        const key = `${year}-${monthIndex}`;
+        if (!months.has(key)) {
+          months.set(key, {
+            month: new Date(year, monthIndex, 1).toLocaleString('en', { month: 'short', year: '2-digit' }),
+            Completed: 0,
+            'In Progress': 0,
+            Pending: 0,
+            Rejected: 0,
+          });
+        }
+      }
+    }
+    return [...months.entries()]
+      .sort(([first], [second]) => {
+        const [firstYear, firstMonth] = first.split('-').map(Number);
+        const [secondYear, secondMonth] = second.split('-').map(Number);
+        return firstYear - secondYear || firstMonth - secondMonth;
+      })
+      .map(([, value]) => value);
+  }, [filteredRequests, fromDate, toDate]);
   const completedDurations = filteredRequests.flatMap((item) => {
     const requested = parseDate(dateOf(item));
     const completed = parseDate(item.completionDate || item.relievingDate);
@@ -128,6 +252,35 @@ export default function SystemAdminReports() {
   const formatDate = (value) => parseDate(value)?.toLocaleDateString() || '-';
   const resetPage = (setter, value) => {
     setter(value);
+    setPage(1);
+  };
+  const applyDatePreset = (preset) => {
+    setDatePreset(preset);
+    if (preset === 'All time') {
+      setFromDate('');
+      setToDate('');
+      setPage(1);
+      return;
+    }
+    if (preset === 'Custom date range') {
+      setPage(1);
+      return;
+    }
+    const today = new Date();
+    let start;
+    let end = today;
+    if (preset === 'Today') {
+      start = today;
+    } else if (preset === 'This month') {
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else if (preset === 'This year') {
+      start = new Date(today.getFullYear(), 0, 1);
+    } else {
+      setPage(1);
+      return;
+    }
+    setFromDate(formatInputDate(start));
+    setToDate(formatInputDate(end));
     setPage(1);
   };
   const exportReport = (format) => {
@@ -159,6 +312,11 @@ export default function SystemAdminReports() {
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:flex xl:items-end">
+          <FilterField label={t('Reporting Period')}>
+            <select value={datePreset} onChange={(event) => applyDatePreset(event.target.value)} className="control">
+              {['All time', 'Custom date range', 'Today', 'This month', 'This year'].map((value) => <option key={value} value={value}>{t(value)}</option>)}
+            </select>
+          </FilterField>
           <FilterField label="Campus">
             <select value={campus} onChange={(event) => resetPage(setCampus, event.target.value)} className="control">
               <option value="All Campuses">{t('All Campuses')}</option>{campuses.map((value) => <option key={value} value={value}>{value}</option>)}
@@ -176,8 +334,8 @@ export default function SystemAdminReports() {
           </FilterField>
           <FilterField label="Date Range">
             <div className="flex gap-1">
-              <input aria-label={t('From date')} type="date" value={fromDate} onChange={(event) => resetPage(setFromDate, event.target.value)} className="control min-w-0" />
-              <input aria-label={t('To date')} type="date" value={toDate} onChange={(event) => resetPage(setToDate, event.target.value)} className="control min-w-0" />
+              <input aria-label={t('From date')} type="date" value={fromDate} onChange={(event) => { setDatePreset('Custom date range'); resetPage(setFromDate, event.target.value); }} className="control min-w-0" />
+              <input aria-label={t('To date')} type="date" value={toDate} onChange={(event) => { setDatePreset('Custom date range'); resetPage(setToDate, event.target.value); }} className="control min-w-0" />
             </div>
           </FilterField>
           <button type="button" onClick={() => setMessage(`${filteredRequests.length} requests included in this report.`)} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 font-semibold text-white hover:bg-blue-700">
@@ -219,13 +377,13 @@ export default function SystemAdminReports() {
           ) : <EmptyMessage loading={loading} />}
         </Panel>
 
-        <Panel title={t('Monthly Clearance Trend (This Year')}>
+        <Panel title={t('Monthly Clearance Trend')}>
           <div className="h-[132px]">
             {loading ? <EmptyMessage loading={loading} /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={monthlyData} margin={{ top: 8, right: 6, left: -24, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 8 }} interval={0} />
+                  <XAxis dataKey="month" tick={{ fontSize: 8 }} interval="preserveStartEnd" />
                   <YAxis allowDecimals={false} domain={[0, (maxValue) => Math.max(maxValue, 1)]} tick={{ fontSize: 8 }} width={26} />
                   <Tooltip />
                   <Line type="monotone" dataKey="Completed" stroke="#10b981" strokeWidth={1.5} dot={{ r: 2 }} />
@@ -268,13 +426,80 @@ export default function SystemAdminReports() {
         </Panel>
       </section>
 
+      <section className="grid gap-3 lg:grid-cols-3">
+        <Panel title={t('Clearance Requests by Department')}>
+          {loading || departmentRequestData.length ? (
+            <div className="h-56">
+              {loading ? <EmptyMessage loading /> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={departmentRequestData} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 9 }} />
+                    <YAxis type="category" dataKey="name" width={112} tick={{ fontSize: 8 }} />
+                    <Tooltip />
+                    <Bar dataKey="requests" name={t('Requests')} fill="#2563eb" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          ) : <EmptyMessage loading={false} />}
+        </Panel>
+
+        <Panel title={t('Department Bottleneck Analysis')}>
+          {loading || bottleneckData.length ? (
+            <div className="h-56">
+              {loading ? <EmptyMessage loading /> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={bottleneckData} layout="vertical" margin={{ top: 4, right: 18, left: 8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                    <XAxis type="number" tick={{ fontSize: 9 }} tickFormatter={(value) => `${value.toFixed(1)}d`} />
+                    <YAxis type="category" dataKey="name" width={112} tick={{ fontSize: 8 }} />
+                    <Tooltip formatter={(value, _name, item) => [`${Number(value).toFixed(1)} days (${item.payload.decisions} decisions)`, t('Average decision time')]} />
+                    <Bar dataKey="averageDays" name={t('Average days')} fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          ) : <EmptyMessage loading={false} />}
+        </Panel>
+
+        <Panel title={t('Clearance Reason Breakdown')}>
+          {loading || reasonData.length ? (
+            <div className="flex h-56 items-center justify-center gap-2">
+              {loading ? <EmptyMessage loading /> : (
+                <>
+                  <div className="h-44 w-44 shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={reasonData} dataKey="value" nameKey="name" innerRadius="48%" outerRadius="78%" paddingAngle={2}>
+                          {reasonData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    {reasonData.map((entry) => (
+                      <div key={entry.name} className="flex items-center justify-between gap-1 text-[9px]">
+                        <span className="flex min-w-0 items-center gap-1"><i className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} /><span className="truncate">{entry.name}</span></span>
+                        <strong className="shrink-0">{entry.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : <EmptyMessage loading={false} />}
+        </Panel>
+      </section>
+
       <section>
         <Panel title={t('Quick Actions')}>
-          <div className="grid gap-2">
-            <Link to="/admin/employees" className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><Users size={14} className="text-blue-600" />{t('View All Employees')}</Link>
-            <button type="button" onClick={() => exportReport('pdf')} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-left font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><FileDown size={14} className="text-red-500" />Export PDF</button>
-            <button type="button" onClick={() => exportReport('excel')} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-left font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><FileSpreadsheet size={14} className="text-emerald-600" />Export Excel</button>
-            <button type="button" onClick={() => exportReport('print')} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-left font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><Printer size={14} className="text-blue-600" />Print Report</button>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/admin/employees" className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><Users size={14} className="text-blue-600" />{t('View All Employees')}</Link>
+            <button type="button" onClick={() => exportReport('pdf')} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><FileDown size={14} className="text-red-500" />Export PDF</button>
+            <button type="button" onClick={() => exportReport('excel')} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><FileSpreadsheet size={14} className="text-emerald-600" />Export Excel</button>
+            <button type="button" onClick={() => exportReport('print')} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left font-medium text-slate-700 transition hover:border-blue-200 hover:bg-blue-50"><Printer size={14} className="text-blue-600" />Print Report</button>
           </div>
         </Panel>
       </section>

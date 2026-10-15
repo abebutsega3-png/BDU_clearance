@@ -10,6 +10,7 @@ const clearanceSchema = new mongoose.Schema({
 	employeeId: { type: String, default: '' },
 	employeeName: { type: String, default: '' },
 	department: { type: mongoose.Schema.Types.Mixed, default: '' },
+	campus: { type: String, trim: true, default: 'Main Campus' },
 	departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null, index: true },
 	assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
 	requestSource: { type: String, enum: ['Employee Portal', 'HR Officer'], default: 'Employee Portal', index: true },
