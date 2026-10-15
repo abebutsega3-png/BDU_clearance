@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/authContext';
+import { useEmployeeLanguage } from '../employeedashboared/EmployeeLanguage';
 import { changeMyPassword, fetchMyProfile, updateMyProfile } from '../../until/MyprofileHelper';
 import EmployeeNavbar from '../employeedashboared/employeenavbar';
 import EmployeeSidebar from '../employeedashboared/employeesidbar';
@@ -12,6 +13,7 @@ import {
 
 export default function UserProfile() {
   const { user, login } = useAuth();
+  const { resolvedTheme } = useEmployeeLanguage();
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const isEmployeeProfile = pathname === '/employee/profile';
@@ -181,7 +183,7 @@ export default function UserProfile() {
     const roleTitle = assignedRoles.length ? assignedRoles.join(', ') : userData.position || 'Employee';
 
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-800">
+      <div className={`min-h-screen text-slate-800 ${isEmployeeProfile && resolvedTheme === 'dark' ? 'employee-dashboard employee-theme-dark' : 'bg-slate-50'}`}>
         <div className="hidden lg:block"><EmployeeSidebar /></div>
         {menuOpen && (
           <>
@@ -296,7 +298,7 @@ export default function UserProfile() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 text-xs font-sans pb-10">
+    <div className={`min-h-screen text-slate-800 text-xs font-sans pb-10 ${isEmployeeProfile && resolvedTheme === 'dark' ? 'employee-dashboard employee-theme-dark' : 'bg-slate-100'}`}>
       {isEmployeeProfile && <>
         <div className="hidden lg:block"><EmployeeSidebar /></div>
         {menuOpen && <><button type="button" aria-label="Close menu" className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" onClick={() => setMenuOpen(false)} /><div className="relative z-50 lg:hidden"><EmployeeSidebar onNavigate={() => setMenuOpen(false)} /></div></>}

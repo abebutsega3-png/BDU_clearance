@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../context/authContext';
+import { useEmployeeLanguage } from './EmployeeLanguage';
 import EmployeeNavbar from './employeenavbar';
 import EmployeeSidebar from './employeesidbar';
 import EmployeeMyCertificates from './EmployeeMyCertificates';
 
 export default function EmployeeDocuments() {
   const { user } = useAuth();
+  const { resolvedTheme, t } = useEmployeeLanguage();
   const [menuOpen, setMenuOpen] = useState(false);
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +58,7 @@ export default function EmployeeDocuments() {
   }, [apiBaseUrl, user?._id, user?.employee?.employeeId, user?.employeeId]);
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className={`employee-dashboard min-h-screen ${resolvedTheme === 'dark' ? 'employee-theme-dark' : 'bg-slate-100'}`}>
       <div className="hidden lg:block"><EmployeeSidebar /></div>
       {menuOpen && (
         <>
@@ -67,11 +69,11 @@ export default function EmployeeDocuments() {
       <EmployeeNavbar onMenuClick={() => setMenuOpen(true)} />
       <main className="p-4 md:p-8 lg:ml-72">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">My Certificates</h1>
-          <p className="mt-1 text-sm text-gray-600">View and download certificates issued by the Human Resource Office.</p>
+          <h1 className="text-2xl font-bold text-gray-900">{t('My Certificates')}</h1>
+          <p className="mt-1 text-sm text-gray-600">{t('View and download certificates issued by the Human Resource Office.')}</p>
         </div>
         <div className="rounded-lg bg-white p-6 shadow-sm">
-          {loading ? <p className="py-8 text-center text-sm text-gray-500">Loading certificates...</p> : error ? <p role="alert" className="py-8 text-center text-sm text-red-600">{error}</p> : <EmployeeMyCertificates certificates={certificates} apiBaseUrl={apiBaseUrl} />}
+          {loading ? <p className="py-8 text-center text-sm text-gray-500">{t('Loading certificates...')}</p> : error ? <p role="alert" className="py-8 text-center text-sm text-red-600">{t(error)}</p> : <EmployeeMyCertificates certificates={certificates} apiBaseUrl={apiBaseUrl} />}
         </div>
       </main>
     </div>

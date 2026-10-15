@@ -1,4 +1,5 @@
 import Clearance from '../models/clearance.js';
+import SystemSettings from '../models/SystemSettings.js';
 import HRSeparationType from '../models/HRSeparationType.js';
 import mongoose from 'mongoose';
 import Notification from '../models/Notification.js';
@@ -30,6 +31,8 @@ import { isDepartmentNotificationEnabled } from './notificationcontroller.js';
 import { notifyTransportOfficers } from '../utils/transportNotifications.js';
 import { resetTransportReviewForResubmission } from '../utils/transportClearance.js';
 import { dispatchNotificationEmails } from '../utils/notificationEmailDispatcher.js';
+import { resolveClearanceRequestFields } from '../utils/clearanceRequestFields.js';
+import { applyHROfficePolicy, getEnabledHROffices } from '../utils/hrSettings.js';
 
 const libraryChecklistItems = [
 	'Borrowed books and circulation records',
@@ -715,11 +718,11 @@ const findCompletedDuplicateRequest = async ({ employeeFilter, reason, clearance
 	const completedRequests = await Clearance.find({
 		...employeeFilter,
 		status: { $in: ['Completed', 'Final HR Clearance Completed'] },
-	}).sort({ createdAt: -1 }).limit(50).select('requestId status reason clearanceType').lean();
+	}).sort({ createdAt: -1 }).limit(50).select('requestId status reason clearanceType clearanceReason').lean();
 
 	return completedRequests.find((existing) => {
 		const existingReason = normalizeDuplicateMatchValue(existing.reason || existing.clearanceReason || existing.clearanceType || '');
-		const existingType = normalizeDuplicateMatchValue(existing.clearanceType || existing.reason || 'Resignation');
+		const existingType = normalizeDuplicateMatchValue(existing.clearanceReason || existing.clearanceType || existing.reason || 'Resignation');
 		return existingReason === normalizedReason && existingType === normalizedType;
 	}) || null;
 };
@@ -758,7 +761,7 @@ const addClearance = async (req, res) => {
 		if (relievingDate && lastWorkingDate > relievingDate) {
 			return res.status(400).json({ success: false, message: 'Last working date cannot be after relieving date.' });
 		}
-		const reason = String(req.body?.reason || req.body?.clearanceReason || '').trim();
+		const { clearanceType, reason } = resolveClearanceRequestFields(req.body, initiatedByHR);
 		if (initiatedByHR && !reason) {
 			return res.status(400).json({ success: false, message: 'Select a clearance reason before creating the request.' });
 		}
@@ -794,32 +797,29 @@ const addClearance = async (req, res) => {
 			const completedDuplicateRequest = await findCompletedDuplicateRequest({
 				employeeFilter,
 				reason,
-				clearanceType: req.body?.clearanceType || req.body?.clearanceReason || reason || 'Resignation',
+				clearanceType,
 			});
 			if (completedDuplicateRequest) {
 				return res.status(409).json({
 					success: false,
-					message: `A completed clearance request with the same reason (${reason || 'Resignation'}) and separation type (${req.body?.clearanceType || req.body?.clearanceReason || reason || 'Resignation'}) already exists for this employee. A duplicate request is not allowed.`,
+					message: `A completed clearance request with the same reason (${reason || 'Resignation'}) and separation type (${clearanceType}) already exists for this employee. A duplicate request is not allowed.`,
 					requestId: completedDuplicateRequest.requestId,
 					duplicateRequest: completedDuplicateRequest,
 				});
 			}
 		}
-		const requestedOffices = initiatedByHR
+		const hrSettingsRecord = await SystemSettings.findOne().select('hrSettings').lean();
+		const hrSettings = hrSettingsRecord?.hrSettings || {};
+		const selectedOffices = initiatedByHR
 			? ['Department Head', FINAL_HR_STAGE]
 			: normalizeRequiredOffices([
 				...(req.body?.requiredOffices || req.body?.offices || DEFAULT_REQUIRED_OFFICES),
 				'Department Head',
 			]);
-		const workflow = !initiatedByHR && Array.isArray(req.body?.workflow) && req.body.workflow.length
-			? req.body.workflow
-				.map((step) => ({
-					office: step?.office || step?.name || '',
-					status: ['Pending', 'In Progress', 'Completed', 'Rejected'].includes(step?.status) ? step.status : 'Pending',
-					updatedAt: step?.updatedAt || new Date().toISOString(),
-				}))
-				.filter((step) => step.office)
-			: buildRequiredOfficeWorkflow(requestedOffices);
+		const policyOffices = applyHROfficePolicy(selectedOffices, hrSettings);
+		const requestedOffices = policyOffices.length ? policyOffices : getEnabledHROffices(hrSettings);
+		const departmentHeadEnabled = requestedOffices.some((office) => /^department(\s|$)/i.test(office));
+		const workflow = buildRequiredOfficeWorkflow(requestedOffices);
 		workflow.unshift({
 			office: 'Initial HR Review',
 			status: initiatedByHR ? 'Completed' : 'Pending',
@@ -830,7 +830,7 @@ const addClearance = async (req, res) => {
 				remarks: 'Request initiated and employee details checked by HR.',
 			} : {}),
 		});
-		if (!workflow.some((step) => /department\s*head|^department$/i.test(String(step.office || '').trim()))) {
+		if (departmentHeadEnabled && !workflow.some((step) => /department\s*head|^department$/i.test(String(step.office || '').trim()))) {
 			workflow.unshift({ office: 'Department Head', status: 'Pending', updatedAt: new Date().toISOString() });
 		}
 
@@ -862,9 +862,9 @@ const addClearance = async (req, res) => {
 			initialHRReviewedBy: initiatedByHR ? (req.user?.fullName || req.user?.name || 'HR Officer') : '',
 			initialHRReviewedById: initiatedByHR ? (req.user?._id || null) : null,
 			initialHRReviewedAt: initiatedByHR ? new Date() : null,
-			departmentStatus: 'Pending',
+			departmentStatus: departmentHeadEnabled ? 'Pending' : 'Approved',
 			employeeName: resolvedEmployeeName,
-			clearanceType: req.body?.clearanceType || reason || req.body?.clearanceReason || 'Resignation',
+			clearanceType,
 			requiredOffices: requestedOffices,
 			currentStep: initiatedByHR ? 'HR Workflow' : 'Initial HR Review',
 			workflow,
@@ -1348,18 +1348,18 @@ const updateClearance = async (req, res) => {
 			const requestEmployee = reviewRequest.employeeId
 				? await Employee.findOne({ employeeId: reviewRequest.employeeId }).select('department departmentId').lean()
 				: null;
-			const requestDepartmentId = reviewRequest.departmentId || requestEmployee?.departmentId;
+			const requestDepartmentIds = [reviewRequest.departmentId, requestEmployee?.departmentId]
+				.filter(Boolean)
+				.map(String);
 			const userDepartmentId = req.user?.departmentId;
 			const requestDepartment = typeof reviewRequest.department === 'object'
 				? reviewRequest.department?.departmentName || reviewRequest.department?.name || requestEmployee?.department
 				: reviewRequest.department || requestEmployee?.department;
 			const userDepartment = String(req.user?.department || '').trim().toLowerCase();
 			const requestDepartmentName = String(requestDepartment || '').trim().toLowerCase();
-			const matchingDepartmentId = userDepartmentId && requestDepartmentId
-				&& String(userDepartmentId) === String(requestDepartmentId);
-			const conflictingDepartmentIds = userDepartmentId && requestDepartmentId
-				&& String(userDepartmentId) !== String(requestDepartmentId);
-			const matchingDepartmentName = !conflictingDepartmentIds && userDepartment && requestDepartmentName
+			const matchingDepartmentId = userDepartmentId
+				&& requestDepartmentIds.includes(String(userDepartmentId));
+			const matchingDepartmentName = userDepartment && requestDepartmentName
 				&& userDepartment === requestDepartmentName;
 			if (!matchingDepartmentId && !matchingDepartmentName) {
 				return res.status(403).json({ success: false, message: 'This clearance request belongs to another department.' });

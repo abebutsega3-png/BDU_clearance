@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../../context/authContext';
 import {
   FileText,
   Bell,
@@ -165,9 +166,43 @@ const getFinalHRErrorMessage = (error, fallback) => {
   return error.response?.data?.message || error.message || fallback;
 };
 
+const getInitials = (name) => String(name || '')
+  .trim()
+  .split(/\s+/)
+  .filter(Boolean)
+  .slice(0, 2)
+  .map((part) => part[0].toUpperCase())
+  .join('') || 'U';
+
+function PersonAvatar({ name, image, size = 'h-9 w-9', textSize = 'text-xs' }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = typeof image === 'string' ? image.trim() : '';
+
+  if (imageUrl && !imageFailed) {
+    return (
+      <img
+        src={imageUrl}
+        alt={`${name || 'User'} profile`}
+        onError={() => setImageFailed(true)}
+        className={`${size} shrink-0 rounded-full bg-slate-100 object-cover`}
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-label={`${name || 'User'} initials`}
+      className={`${size} ${textSize} flex shrink-0 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-800`}
+    >
+      {getInitials(name)}
+    </span>
+  );
+}
+
 export default function HRFinalClearance() {
   const navigate = useNavigate();
   const { id: routeRequestId } = useParams();
+  const { user } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -377,7 +412,7 @@ export default function HRFinalClearance() {
             </div>
 
             <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5">
-              <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80" alt="User" className="h-8 w-8 rounded-full object-cover" />
+              <PersonAvatar name={user?.name || 'HR Officer'} image={user?.profileImage} size="h-8 w-8" textSize="text-[10px]" />
               <span className="text-[12px] font-semibold text-slate-800">HR Officer</span>
               <ChevronDown size={14} className="text-slate-500" />
             </div>
@@ -483,7 +518,10 @@ export default function HRFinalClearance() {
                         <td className="px-4 py-4 font-medium text-slate-500">{(page - 1) * pageSize + index + 1}</td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
-                            <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80" alt={request.employeeName || 'Employee'} className="h-9 w-9 rounded-full object-cover" />
+                            <PersonAvatar
+                              name={request.employeeName}
+                              image={request.employeePhoto || request.photo || request.profileImage}
+                            />
                             <span className="font-medium text-slate-700">{request.employeeName || '—'}</span>
                           </div>
                         </td>

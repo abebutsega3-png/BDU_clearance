@@ -1,4 +1,5 @@
 import Notification from '../models/Notification.js';
+import { getDisabledEmployeeNotificationTypes, isEmployeeRole } from '../utils/employeeNotificationPreferences.js';
 import ClearanceRequest from '../models/clearance.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
@@ -264,6 +265,10 @@ export const getAllNotifications = async (req, res) => {
       await ensureDepartmentNewRequestNotifications(req.user._id, req.user.department);
       await ensureDepartmentPendingNotifications(req.user._id, req.user.department);
       filter.type = { $in: departmentNotificationTypes };
+    } else if (isEmployeeRole(role) && req.user?._id) {
+      const employee = await User.findById(req.user._id).select('notificationPreferences').lean();
+      const disabledTypes = getDisabledEmployeeNotificationTypes(employee?.notificationPreferences);
+      if (disabledTypes.length) filter.type = { $nin: disabledTypes };
     }
     const notificationsQuery = Notification.find(filter).sort({ createdAt: -1 });
     if (req.query.limit !== undefined) {

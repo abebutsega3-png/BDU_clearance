@@ -53,6 +53,8 @@ const userSchema = new mongoose.Schema({
     },
     notificationPreferences: {
         emailNotifications: { type: Boolean, default: true },
+        clearanceUpdates: { type: Boolean, default: true },
+        requestReturned: { type: Boolean, default: true },
         newClearanceRequest: { type: Boolean, default: true },
         requestResubmitted: { type: Boolean, default: true },
         employeeInformationUpdated: { type: Boolean, default: true },
@@ -71,7 +73,8 @@ const userSchema = new mongoose.Schema({
     },
     displayPreferences: {
         theme: { type: String, enum: ['system', 'light', 'dark'], default: 'system' },
-        language: { type: String, default: 'English' }
+        language: { type: String, enum: ['English', 'Amharic'], default: 'English' },
+        itemsPerPage: { type: Number, enum: [10, 20, 50, 100], default: 20 }
     },
     propertyOffice: {
         name: { type: String, default: 'Property / Asset Management Office' },

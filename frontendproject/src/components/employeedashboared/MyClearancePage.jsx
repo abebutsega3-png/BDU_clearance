@@ -12,6 +12,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
+import { useEmployeeLanguage } from './EmployeeLanguage';
 import { createClearance, fetchClearances, updateClearance } from '../../until/MyclearanceHelper';
 import { computeClearanceProgress, getClearanceRequestStatus } from '../../until/clearanceProgress';
 import { fetchActiveSeparationTypes } from '../../until/separationTypeHelper';
@@ -69,9 +70,11 @@ const getClearanceDateError = ({ requestDate, lastWorkingDate }) => {
 
 export default function MyClearancePage() {
   const { user } = useAuth();
+  const { itemsPerPage, resolvedTheme, t } = useEmployeeLanguage();
   const { pathname } = useLocation();
   const isEmployeeRoute = pathname.startsWith('/employee/');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [requestPage, setRequestPage] = useState(1);
   const [requests, setRequests] = useState([]);
   const [separationTypes, setSeparationTypes] = useState([]);
   const [loadingSeparationTypes, setLoadingSeparationTypes] = useState(true);
@@ -341,8 +344,12 @@ export default function MyClearancePage() {
     }
   };
 
+  const requestPageCount = Math.max(1, Math.ceil(requests.length / itemsPerPage));
+  const currentRequestPage = Math.min(requestPage, requestPageCount);
+  const visibleRequests = requests.slice((currentRequestPage - 1) * itemsPerPage, currentRequestPage * itemsPerPage);
+
   return (
-    <div className="min-h-screen bg-[#f4f6fb] text-slate-800">
+    <div className={`employee-dashboard min-h-screen ${isEmployeeRoute && resolvedTheme === 'dark' ? 'employee-theme-dark' : 'bg-[#f4f6fb] text-slate-800'}`}>
       {isEmployeeRoute && (
         <>
           <div className="hidden lg:block"><EmployeeSidebar /></div>
@@ -358,30 +365,30 @@ export default function MyClearancePage() {
 
       <main className={`mx-auto max-w-7xl space-y-6 p-6 ${isEmployeeRoute ? 'lg:ml-72' : ''}`}>
         <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <h2 className="text-[28px] font-bold text-slate-800">New Clearance Request</h2>
+          <h2 className="text-[28px] font-bold text-slate-800">{t('New Clearance Request')}</h2>
         </div>
 
         <section className="grid gap-5 xl:grid-cols-[1.12fr_1.12fr_1fr]">
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
               <FileText className="h-5 w-5 text-blue-600" />
-              <h3 className="text-[16px] font-bold text-slate-800">Employee Information</h3>
+              <h3 className="text-[16px] font-bold text-slate-800">{t('Employee Information')}</h3>
             </div>
             <div className="space-y-3 p-5">
               <div className="grid grid-cols-2 gap-3">
-                <InfoField label="Full Name" value={employeeName} />
-                <InfoField label="Employee ID" value={employeeId} />
-                <InfoField label="Department" value={department} />
-                <InfoField label="Position" value={position} />
-                <InfoField label="Email" value={email} />
-                <InfoField label="Phone" value={phone} />
-                <InfoField label="Campus" value={campus} />
-                <InfoField label="College / Institute" value={college} />
+                <InfoField label={t('Full Name')} value={employeeName} />
+                <InfoField label={t('Employee ID')} value={employeeId} />
+                <InfoField label={t('Department')} value={department} />
+                <InfoField label={t('Position')} value={position} />
+                <InfoField label={t('Email')} value={email} />
+                <InfoField label={t('Phone')} value={phone} />
+                <InfoField label={t('Campus')} value={campus} />
+                <InfoField label={t('College / Institute')} value={college} />
               </div>
               <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-700">
                 <div className="flex items-start gap-2">
                   <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Employee information is loaded from your profile.</span>
+                  <span>{t('Employee information is loaded from your profile.')}</span>
                 </div>
               </div>
             </div>
@@ -390,25 +397,25 @@ export default function MyClearancePage() {
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
               <FileText className="h-5 w-5 text-blue-600" />
-              <h3 className="text-[16px] font-bold text-slate-800">Clearance Request Information</h3>
+              <h3 className="text-[16px] font-bold text-slate-800">{t('Clearance Request Information')}</h3>
             </div>
             <form id="clearance-form" onSubmit={handleSubmit} className="space-y-4 p-5">
               <div>
-                <label className="mb-2 block text-[12px] font-semibold text-slate-700">Clearance Type <span className="text-red-500">*</span></label>
+                <label className="mb-2 block text-[12px] font-semibold text-slate-700">{t('Clearance Type')} <span className="text-red-500">*</span></label>
                 <select name="clearanceReason" value={formData.clearanceReason} onChange={handleInputChange} required disabled={loadingSeparationTypes || separationTypes.length === 0} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-100">
-                  <option value="">{loadingSeparationTypes ? 'Loading clearance types...' : 'Select Clearance Type'}</option>
+                  <option value="">{loadingSeparationTypes ? t('Loading clearance types...') : t('Select Clearance Type')}</option>
                   {separationTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
-                {!loadingSeparationTypes && separationTypes.length === 0 && <p className="mt-1 text-[11px] text-amber-700">No active clearance types are available. Please contact HR.</p>}
+                {!loadingSeparationTypes && separationTypes.length === 0 && <p className="mt-1 text-[11px] text-amber-700">{t('No active clearance types are available. Please contact HR.')}</p>}
               </div>
 
               <div>
-                <label className="mb-2 block text-[12px] font-semibold text-slate-700">Reason <span className="text-red-500">*</span></label>
-                <textarea name="reason" value={formData.reason} onChange={handleInputChange} rows={3} required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500" placeholder="Explain your reason for requesting clearance." />
+                <label className="mb-2 block text-[12px] font-semibold text-slate-700">{t('Reason')} <span className="text-red-500">*</span></label>
+                <textarea name="reason" value={formData.reason} onChange={handleInputChange} rows={3} required className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500" placeholder={t('Explain your reason for requesting clearance.')} />
               </div>
 
               <div>
-                <label className="mb-2 block text-[12px] font-semibold text-slate-700">Last Working Date <span className="text-red-500">*</span></label>
+                <label className="mb-2 block text-[12px] font-semibold text-slate-700">{t('Last Working Date')} <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input type="date" name="lastWorkingDate" min={getLocalDateOnly()} max={getFutureDateLimit()} value={formData.lastWorkingDate} onChange={handleInputChange} required className="w-full rounded-md border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-[13px] text-slate-700 outline-none focus:border-blue-500" />
@@ -416,13 +423,13 @@ export default function MyClearancePage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-[12px] font-semibold text-slate-700">Additional Remark (Optional)</label>
-                <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows={2} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500" placeholder="Thank you." />
+                <label className="mb-2 block text-[12px] font-semibold text-slate-700">{t('Additional Remark (Optional)')}</label>
+                <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows={2} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[13px] text-slate-700 outline-none focus:border-blue-500" placeholder={t('Thank you.')} />
               </div>
 
               <label className="flex items-start gap-2 text-[12px] text-slate-600">
                 <input type="checkbox" name="confirmed" checked={formData.confirmed} onChange={handleInputChange} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                <span>I confirm that the information provided is correct.</span>
+                <span>{t('I confirm that the information provided is correct.')}</span>
               </label>
 
               {error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">{error}</p>}
@@ -433,12 +440,12 @@ export default function MyClearancePage() {
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
               <Paperclip className="h-5 w-5 text-blue-600" />
-              <h3 className="text-[16px] font-bold text-slate-800">Supporting Documents</h3>
+              <h3 className="text-[16px] font-bold text-slate-800">{t('Supporting Documents')}</h3>
             </div>
             <div className="space-y-4 p-5">
-              <UploadField label="Resignation Letter" fileName="resignation_letter.pdf" />
-              <UploadField label="ID Copy" fileName="id_copy.pdf" />
-              <UploadField label="Other Document (Optional)" fileName="No file chosen" optional />
+              <UploadField label={t('Resignation Letter')} fileName="resignation_letter.pdf" />
+              <UploadField label={t('ID Copy')} fileName="id_copy.pdf" />
+              <UploadField label={t('Other Document (Optional)')} fileName="No file chosen" optional />
 
               <div className="mt-6 flex justify-end gap-3 pt-3">
                 <button type="button" className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -471,12 +478,12 @@ export default function MyClearancePage() {
                 </tr>
               </thead>
               <tbody>
-                {requests.length ? requests.map((request, index) => {
+                {requests.length ? visibleRequests.map((request, index) => {
                   const progressMeta = requestProgressInfo(request);
                   const requestStatus = getClearanceRequestStatus(request);
                   return (
                   <tr key={request.requestId || index} className="border-t border-slate-100 text-[12px] text-slate-700">
-                    <td className="px-4 py-3 font-semibold text-slate-800">{index + 1}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800">{(currentRequestPage - 1) * itemsPerPage + index + 1}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800">{request.requestId}</td>
                     <td className="px-4 py-3">{request.clearanceType || request.clearanceReason || request.type || 'Resignation'}</td>
                     <td className="px-4 py-3">{request.requestDate || formatDate(request.createdAt)}</td>
@@ -528,6 +535,14 @@ export default function MyClearancePage() {
               </tbody>
             </table>
           </div>
+          {requests.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
+            <span>Showing {(currentRequestPage - 1) * itemsPerPage + 1} to {Math.min(currentRequestPage * itemsPerPage, requests.length)} of {requests.length} requests</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setRequestPage((current) => Math.max(1, Math.min(current, requestPageCount) - 1))} disabled={currentRequestPage <= 1} className="rounded border border-slate-200 px-3 py-1.5 disabled:opacity-40">Previous</button>
+              <span>Page {currentRequestPage} of {requestPageCount}</span>
+              <button type="button" onClick={() => setRequestPage((current) => Math.min(requestPageCount, current + 1))} disabled={currentRequestPage >= requestPageCount} className="rounded border border-slate-200 px-3 py-1.5 disabled:opacity-40">Next</button>
+            </div>
+          </div>}
         </section>
 
         {selectedRequestId && (

@@ -1,5 +1,58 @@
 @import "tailwindcss";
 
+.employee-theme-dark {
+	background-color: #0f172a !important;
+	color: #e2e8f0 !important;
+}
+
+.employee-theme-dark [class~="bg-white"],
+.employee-theme-dark [class~="bg-slate-50"],
+.employee-theme-dark [class~="bg-slate-100"],
+.employee-theme-dark [class~="bg-[#f4f9ff]"],
+.employee-theme-dark [class~="bg-[#f4f6fb]"],
+.employee-theme-dark [class~="bg-[#f5f8fc]"],
+.employee-theme-dark [class~="bg-[#f8fbff]"],
+.employee-theme-dark [class~="bg-[#eef2f7]"],
+.employee-theme-dark [class*="bg-gray-50"],
+.employee-theme-dark [class*="bg-gray-100"],
+.employee-theme-dark [class*="bg-blue-50"],
+.employee-theme-dark [class*="bg-emerald-50"],
+.employee-theme-dark [class*="bg-red-50"],
+.employee-theme-dark [class*="bg-amber-50"],
+.employee-theme-dark [class*="bg-purple-50"] {
+	background-color: #1e293b !important;
+}
+
+.employee-theme-dark [class*="border-slate-"],
+.employee-theme-dark [class*="border-blue-"],
+.employee-theme-dark [class*="border-gray-"] {
+	border-color: #334155 !important;
+}
+
+.employee-theme-dark [class*="text-slate-900"],
+.employee-theme-dark [class*="text-slate-800"],
+.employee-theme-dark [class*="text-slate-700"],
+.employee-theme-dark [class*="text-slate-600"] {
+	color: #e2e8f0 !important;
+}
+
+.employee-theme-dark [class*="text-slate-500"],
+.employee-theme-dark [class*="text-slate-400"] {
+	color: #94a3b8 !important;
+}
+
+.employee-theme-dark [class*="text-gray-900"],
+.employee-theme-dark [class*="text-gray-800"],
+.employee-theme-dark [class*="text-gray-700"],
+.employee-theme-dark [class*="text-gray-600"] {
+	color: #e2e8f0 !important;
+}
+
+.employee-theme-dark [class*="text-gray-500"],
+.employee-theme-dark [class*="text-gray-400"] {
+	color: #94a3b8 !important;
+}
+
 .action-button {
 	display: inline-flex;
 	align-items: center;

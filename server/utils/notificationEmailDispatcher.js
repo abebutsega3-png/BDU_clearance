@@ -2,6 +2,7 @@ import Employee from '../models/employee.js';
 import User from '../models/User.js';
 import LibraryOfficerSettings from '../models/LibraryOfficerSettings.js';
 import { sendNotificationEmail } from './emailService.js';
+import { getEmployeePreferenceForNotification, isEmployeeRole } from './employeeNotificationPreferences.js';
 
 const libraryNotificationPreferenceKey = (type) => {
   if (type === 'Clearance Resubmitted') return 'resubmittedClearance';
@@ -32,7 +33,7 @@ export const dispatchNotificationEmails = async (notifications) => {
 
     const [users, employees, librarySettings] = await Promise.all([
       userQueries.length
-        ? User.find({ $or: userQueries }).select('_id employeeId email notificationPreferences propertySettings.emailPreferences').lean()
+        ? User.find({ $or: userQueries }).select('_id employeeId email role roles notificationPreferences propertySettings.emailPreferences').lean()
         : [],
       employeeIds.length
         ? Employee.find({ employeeId: { $in: employeeIds } }).select('employeeId email').lean()
@@ -50,6 +51,12 @@ export const dispatchNotificationEmails = async (notifications) => {
       const user = usersById.get(notification.recipientId?.toString()) || usersByEmployeeId.get(employeeId);
       const employee = employeesById.get(employeeId);
       const librarySettings = librarySettingsByUserId.get(notification.recipientId?.toString());
+      const employeePreference = getEmployeePreferenceForNotification(notification.type);
+      const isEmployee = isEmployeeRole(user?.role)
+        || user?.roles?.some(isEmployeeRole);
+      if (isEmployee && employeePreference && user.notificationPreferences?.[employeePreference] === false) {
+        return Promise.resolve();
+      }
       const libraryPreferenceKey = libraryNotificationPreferenceKey(notification.type);
       if (libraryPreferenceKey && (
         librarySettings?.notificationPreferences?.[libraryPreferenceKey] === false

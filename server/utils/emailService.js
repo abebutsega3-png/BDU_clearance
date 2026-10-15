@@ -25,6 +25,10 @@ const createEmailTransporter = () => {
 };
 
 export const sendNotificationEmail = async ({ recipient, title, message, actionLink, notificationKey }) => {
+  if (process.env.EMAIL_NOTIFICATIONS_ENABLED !== 'true') {
+    return { sent: false, reason: 'Email notifications are disabled.' };
+  }
+
   try {
     const settings = await SystemSettings.findOne().select('notifications').lean();
     const propertyEmailPreferences = recipient?.propertySettings?.emailPreferences;

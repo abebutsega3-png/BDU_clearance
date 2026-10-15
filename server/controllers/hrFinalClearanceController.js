@@ -1,6 +1,5 @@
 import Clearance from '../models/clearance.js';
 import Employee from '../models/employee.js';
-import Role from '../models/role.js';
 import ClearanceRequest from '../models/ClearanceRequest.js';
 import AuditLog from '../models/AuditLog.js';
 import Notification from '../models/Notification.js';
@@ -49,11 +48,20 @@ const notifyDepartmentHeadsAfterInitialHR = async (clearance) => {
     : clearance.department;
   const escapedDepartment = String(department || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const heads = await User.find({
-    $or: [
-      { role: { $regex: '^department[ _]?head$', $options: 'i' } },
-      { roles: { $regex: '^department[ _]?head$', $options: 'i' } },
+    $and: [
+      {
+        $or: [
+          { role: { $regex: '^department[ _]?head$', $options: 'i' } },
+          { roles: { $regex: '^department[ _]?head$', $options: 'i' } },
+        ],
+      },
+      {
+        $or: [
+          ...(clearance.departmentId ? [{ departmentId: clearance.departmentId }] : []),
+          ...(escapedDepartment ? [{ department: { $regex: `^${escapedDepartment}$`, $options: 'i' } }] : []),
+        ],
+      },
     ],
-    ...(escapedDepartment ? { department: { $regex: `^${escapedDepartment}$`, $options: 'i' } } : {}),
     ...(clearance.employeeId ? { employeeId: { $ne: clearance.employeeId } } : {}),
   }).select('_id name email notificationPreferences');
   if (!heads.length) return;
@@ -192,9 +200,8 @@ export const updateInitialHRDecision = async (req, res) => {
       if (!Array.isArray(assignedDepartments) || assignedDepartments.some((office) => typeof office !== 'string')) {
         return res.status(400).json({ success: false, message: 'Selected clearance offices must be provided as a list.' });
       }
-      const configuredRoles = await Role.find({ isActive: true, isClearanceOffice: true }).select('name').lean();
       const allowedOffices = new Map(
-        [...MANUAL_ROUTABLE_OFFICES, ...configuredRoles.map(({ name }) => name)]
+        MANUAL_ROUTABLE_OFFICES
           .map((office) => [normalizeRoutedOffice(office).toLowerCase(), normalizeRoutedOffice(office)])
           .filter(([key, office]) => key && office && !isFinalHRStage(office) && !/^department(\s|$)/i.test(office)),
       );
@@ -350,6 +357,11 @@ export const updateInitialHRDecision = async (req, res) => {
       current.departmentReviewedById = null;
       current.departmentReviewedAt = current.initialHRReviewedAt;
       current.departmentComment = 'Department Head approval skipped because the requester is the Department Head.';
+    } else if (approved) {
+      current.departmentStatus = 'Pending';
+      current.departmentReviewedBy = '';
+      current.departmentReviewedById = null;
+      current.departmentReviewedAt = null;
     }
     current.workflow = (Array.isArray(current.workflow) ? current.workflow : []).map((step) => {
       if (/initial\s*hr|hr\s*review/i.test(String(step.office || step.name || ''))) {
@@ -471,7 +483,7 @@ const getEmployeeProfile = async (employeeId) => {
   if (!employeeId) return null;
   const [employee, user] = await Promise.all([
     Employee.findOne(employeeFilter(employeeId)).select('-password -createdBy').lean(),
-    User.findOne({ employeeId }).select('employeeId name email phoneNumber department position campus employmentType').lean(),
+    User.findOne({ employeeId }).select('employeeId name email phoneNumber department position campus employmentType profileImage photo').lean(),
   ]);
   if (!employee && !user) return null;
   return {
@@ -485,6 +497,7 @@ const getEmployeeProfile = async (employeeId) => {
     phone: employee?.phone || user?.phoneNumber || '',
     email: employee?.email || user?.email || '',
     employmentType: employee?.employmentType || user?.employmentType || '',
+    photo: employee?.photo || employee?.profileImage || user?.profileImage || user?.photo || '',
   };
 };
 
@@ -741,10 +754,26 @@ export const getHRFinalClearanceDetails = async (req, res) => {
       }).lean();
     }
 
+    const reviewClearance = {
+      ...clearance,
+      workflow: [
+        ...(Array.isArray(clearance.workflow) ? clearance.workflow : []),
+        ...(Array.isArray(clearanceRequest?.workflow) ? clearanceRequest.workflow : []),
+      ],
+      departmentClearances: [
+        ...(Array.isArray(clearance.departmentClearances) ? clearance.departmentClearances : []),
+        ...(Array.isArray(clearanceRequest?.departmentClearances) ? clearanceRequest.departmentClearances : []),
+      ],
+      propertyStatus: clearance.propertyStatus || clearanceRequest?.propertyStatus,
+      propertyReviewedBy: clearance.propertyReviewedBy || clearanceRequest?.propertyReviewedBy,
+      propertyReviewedById: clearance.propertyReviewedById || clearanceRequest?.propertyReviewedById,
+      propertyReviewedAt: clearance.propertyReviewedAt || clearanceRequest?.propertyReviewedAt,
+    };
+
     // Calculate progress
-    const { offices: rawDepartmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(clearance);
+    const { offices: rawDepartmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(reviewClearance);
     const resolvedDepartmentClearances = await resolveOfficeReviewers(rawDepartmentClearances);
-    const departmentClearances = await resolvePropertyAuditReviewer(clearance, resolvedDepartmentClearances);
+    const departmentClearances = await resolvePropertyAuditReviewer(reviewClearance, resolvedDepartmentClearances);
     const initialHRReview = [...(Array.isArray(clearance.workflow) ? clearance.workflow : [])]
       .reverse()
       .find((step) => /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')));
@@ -819,7 +848,8 @@ export const getHRFinalClearanceDetails = async (req, res) => {
           hireDate: employeeData.hireDate,
           lastWorkingDate: clearance.lastWorkingDate,
           email: employeeData.email,
-          phone: employeeData.phone
+          phone: employeeData.phone,
+          photo: employeeData.photo || '',
         } : {
           fullName: clearance.employeeName || 'Unknown employee',
           employeeId: clearance.employeeId || '-',
@@ -832,7 +862,8 @@ export const getHRFinalClearanceDetails = async (req, res) => {
           hireDate: '-',
           lastWorkingDate: clearance.lastWorkingDate,
           email: '-',
-          phone: '-'
+          phone: '-',
+          photo: '',
         },
 
         // Clearance Request Information
@@ -1159,49 +1190,61 @@ export const getAllClearanceRequestsForHR = async (req, res) => {
       return 'PENDING';
     };
 
-    const enrichedClearances = await Promise.all(
-      clearances.map(async (clearance) => {
-        let employee = null;
-        if (clearance.employeeId) {
-          employee = await Employee.findOne(employeeFilter(clearance.employeeId)).select('fullName employeeId department position').lean();
-        }
+    const employeeIds = [...new Set(clearances.map((clearance) => clearance.employeeId).filter(Boolean))];
+    const [employees, users] = await Promise.all([
+      employeeIds.length
+        ? Employee.find({ employeeId: { $in: employeeIds } })
+          .select('fullName employeeId department position photo profileImage')
+          .lean()
+        : [],
+      employeeIds.length
+        ? User.find({ employeeId: { $in: employeeIds } })
+          .select('employeeId profileImage photo')
+          .lean()
+        : [],
+    ]);
+    const employeeById = new Map(employees.map((employee) => [employee.employeeId, employee]));
+    const userByEmployeeId = new Map(users.map((user) => [user.employeeId, user]));
 
-        const { offices: departmentClearances, approvedCount, totalOffices: totalDepts } = getOfficeCounts(clearance);
-        const overallStatus = getOverallStatus(clearance);
+    const enrichedClearances = clearances.map((clearance) => {
+      const employee = employeeById.get(clearance.employeeId);
+      const employeeUser = userByEmployeeId.get(clearance.employeeId);
+      const { offices: departmentClearances, approvedCount, totalOffices: totalDepts } = getOfficeCounts(clearance);
+      const overallStatus = getOverallStatus(clearance);
 
-        return {
-          _id: clearance._id,
-          requestId: clearance.requestId,
-          employeeId: clearance.employeeId,
-          employeeName: employee?.fullName || clearance.employeeName,
-          department: employee?.department || clearance.department?.name,
-          position: employee?.position,
-          clearanceType: clearance.clearanceType,
-          status: clearance.status,
-          initialHRStatus: clearance.initialHRStatus,
-          initialHRAssessmentCompleted: clearance.initialHRAssessmentCompleted === true || isHRInitiatedRequest(clearance),
-          departmentStatus: clearance.departmentStatus,
-          manualRoutingEnabled: clearance.manualRoutingEnabled === true,
-          assignedDepartments: clearance.assignedDepartments || [],
-          requiredOffices: clearance.requiredOffices || [],
-          requestSource: clearance.requestSource || 'Employee Portal',
-          requestedByRole: clearance.requestedByRole || (isHRInitiatedRequest(clearance) ? 'HR_OFFICER' : 'EMPLOYEE'),
-          isHRInitiated: isHRInitiatedRequest(clearance),
-          initiatedBy: clearance.initiatedBy || null,
-          initiatedByName: clearance.initiatedByName || '',
-          overallStatus,
-          departmentClearances,
-          completedDepartments: approvedCount,
-          totalDepartments: totalDepts,
-          officeProgress: `${approvedCount}/${totalDepts}`,
-          progress: totalDepts === 0
-            ? (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved' ? 100 : 0)
-            : Math.round((approvedCount / totalDepts) * 100),
-          requestDate: clearance.requestDate,
-          createdAt: clearance.createdAt
-        };
-      })
-    );
+      return {
+        _id: clearance._id,
+        requestId: clearance.requestId,
+        employeeId: clearance.employeeId,
+        employeeName: employee?.fullName || clearance.employeeName,
+        employeePhoto: employee?.photo || employee?.profileImage || employeeUser?.profileImage || employeeUser?.photo || '',
+        department: employee?.department || clearance.department?.name,
+        position: employee?.position,
+        clearanceType: clearance.clearanceType,
+        status: clearance.status,
+        initialHRStatus: clearance.initialHRStatus,
+        initialHRAssessmentCompleted: clearance.initialHRAssessmentCompleted === true || isHRInitiatedRequest(clearance),
+        departmentStatus: clearance.departmentStatus,
+        manualRoutingEnabled: clearance.manualRoutingEnabled === true,
+        assignedDepartments: clearance.assignedDepartments || [],
+        requiredOffices: clearance.requiredOffices || [],
+        requestSource: clearance.requestSource || 'Employee Portal',
+        requestedByRole: clearance.requestedByRole || (isHRInitiatedRequest(clearance) ? 'HR_OFFICER' : 'EMPLOYEE'),
+        isHRInitiated: isHRInitiatedRequest(clearance),
+        initiatedBy: clearance.initiatedBy || null,
+        initiatedByName: clearance.initiatedByName || '',
+        overallStatus,
+        departmentClearances,
+        completedDepartments: approvedCount,
+        totalDepartments: totalDepts,
+        officeProgress: `${approvedCount}/${totalDepts}`,
+        progress: totalDepts === 0
+          ? (clearance.initialHRStatus === 'Approved' && clearance.departmentStatus === 'Approved' ? 100 : 0)
+          : Math.round((approvedCount / totalDepts) * 100),
+        requestDate: clearance.requestDate,
+        createdAt: clearance.createdAt
+      };
+    });
 
     res.json({
       success: true,

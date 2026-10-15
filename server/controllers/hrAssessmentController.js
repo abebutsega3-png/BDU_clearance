@@ -1,12 +1,7 @@
 import mongoose from 'mongoose';
 import Clearance from '../models/clearance.js';
 import Employee from '../models/employee.js';
-import Role from '../models/role.js';
-import {
-  isFinalHRStage,
-  MANUAL_ROUTABLE_OFFICES,
-  normalizeRoutedOffice,
-} from '../utils/clearanceWorkflow.js';
+import { MANUAL_ROUTABLE_OFFICES } from '../utils/clearanceWorkflow.js';
 
 const CHECKLIST_KEYS = [
   'empInfoVerified',
@@ -66,21 +61,7 @@ export const getClearanceOffices = async (req, res) => {
   }
 
   try {
-    const roles = await Role.find({ isActive: true, isClearanceOffice: true })
-      .select('name')
-      .sort({ name: 1 })
-      .lean();
-    const officesByName = new Map();
-    [...MANUAL_ROUTABLE_OFFICES, ...roles.map((role) => role.name)]
-      .filter((name) => typeof name === 'string' && name.trim())
-      .forEach((name) => {
-        const canonical = normalizeRoutedOffice(name);
-        if (canonical && !isFinalHRStage(canonical) && !/^department(\s|$)/i.test(canonical)
-          && !officesByName.has(canonical.toLowerCase())) {
-          officesByName.set(canonical.toLowerCase(), canonical);
-        }
-      });
-    return res.status(200).json({ success: true, data: [...officesByName.values()] });
+    return res.status(200).json({ success: true, data: MANUAL_ROUTABLE_OFFICES });
   } catch (error) {
     console.error('Unable to load clearance offices for HR routing:', error);
     return res.status(500).json({ success: false, message: 'Unable to load the clearance office list.' });

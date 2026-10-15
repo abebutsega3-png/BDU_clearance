@@ -79,6 +79,11 @@ const getDepartment = (request) => request?.employeeRecord?.department
   || request?.employee?.department
   || '—';
 
+const getClearanceType = (request) => {
+  const value = request?.clearanceReason || request?.clearanceType || 'Resignation';
+  return String(value).trim().replace(/^./, (character) => character.toUpperCase());
+};
+
 const getSupportingDocuments = (request) => {
   const documents = request?.supportingDocuments || request?.documents || request?.attachments;
   if (Array.isArray(documents)) return documents;
@@ -103,7 +108,7 @@ const isRequestComplete = (request) => Boolean(
   request?.employeeId
   && getEmployeeName(request) !== 'Unknown employee'
   && asText(getDepartment(request)) !== '—'
-  && (request?.clearanceType || request?.reason)
+  && (request?.clearanceType || request?.clearanceReason || request?.reason)
   && request?.reason,
 );
 
@@ -418,7 +423,7 @@ export default function HRAssessmentPage() {
                   <td className="px-3 py-2.5 font-semibold text-blue-700">{item.requestId || item._id}</td>
                   <td className="px-3 py-2.5 font-medium text-slate-800">{getEmployeeName(item)}</td>
                   <td className="px-3 py-2.5 text-slate-600">{item.employeeId || '—'}</td>
-                  <td className="px-3 py-2.5 text-slate-600">{item.clearanceType || item.reason || '—'}</td>
+                  <td className="px-3 py-2.5 text-slate-600">{getClearanceType(item)}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{displayDate(item.requestDate || item.createdAt)}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{displayDate(item.lastWorkingDate)}</td>
                   <td className="px-3 py-2.5"><StatusBadge status={item.initialHRStatus || 'Pending'} /></td>
@@ -474,7 +479,7 @@ export default function HRAssessmentPage() {
                     <InfoRow label="Employment Status" value={request.employeeRecord?.status || 'Not available'} />
                   </InfoCard>
                   <InfoCard title="Request Information" icon={FileText}>
-                    <InfoRow label="Clearance Type" value={request.clearanceType || request.reason} />
+                    <InfoRow label="Clearance Type" value={getClearanceType(request)} />
                     <InfoRow label="Reason" value={request.reason || request.remarks} />
                     <InfoRow label="Request Date" value={displayDate(request.requestDate || request.createdAt)} />
                     <InfoRow label="Last Working Date" value={displayDate(request.lastWorkingDate)} />

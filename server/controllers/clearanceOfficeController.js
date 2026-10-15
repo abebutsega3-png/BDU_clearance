@@ -119,6 +119,7 @@ export const reviewOfficeRequest = async (req, res) => {
           status: nextStatus,
           reviewedBy: reviewer,
           reviewedById: req.user?._id || null,
+          ...(decision === 'approve' ? { approvedBy: reviewer, approvedById: req.user?._id || null } : {}),
           reviewedAt,
           updatedAt: reviewedAt,
           remarks: comment,

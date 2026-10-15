@@ -41,6 +41,19 @@ test('normalizeRequiredOffices preserves selected offices and removes duplicates
   ]);
 });
 
+test('legacy officer labels normalize to their office so they cannot create duplicate workflow steps', () => {
+  assert.equal(normalizeRoutedOffice('Finance Officer'), 'Finance Office');
+  assert.equal(normalizeRoutedOffice('ICT Officer'), 'ICT Office');
+  assert.equal(normalizeRoutedOffice('Library Officer'), 'Library');
+  assert.equal(normalizeRoutedOffice('Transport Officer'), 'Transport Office');
+  assert.deepEqual(normalizeRequiredOffices([
+    'Finance Office',
+    'Finance Officer',
+    'ICT Officer',
+    'ICT Office',
+  ]), ['Finance Office', 'ICT Office']);
+});
+
 test('request source recognizes HR flags and keeps employee requests separate', () => {
   assert.equal(isHRInitiatedRequest({ isHRInitiated: true }), true);
   assert.equal(isHRInitiatedRequest({ requestedByRole: 'HR_OFFICER' }), true);

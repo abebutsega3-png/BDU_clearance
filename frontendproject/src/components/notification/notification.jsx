@@ -69,7 +69,7 @@ const toLocalDateInputValue = (value) => {
 
 export default function NotificationsPage() {
   const { t: adminT } = useOptionalAdminLanguage();
-  const { t: employeeT } = useEmployeeLanguage();
+  const { t: employeeT, itemsPerPage, resolvedTheme } = useEmployeeLanguage();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user } = useAuth();
@@ -78,6 +78,7 @@ export default function NotificationsPage() {
   const isHrRoute = pathname.startsWith('/hr-office/');
   const t = isEmployeeRoute ? employeeT : adminT;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationPage, setNotificationPage] = useState(1);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -222,9 +223,16 @@ export default function NotificationsPage() {
     }
     return true;
   });
-  const visibleNotifications = (activeTab === 'Unread'
+  const filteredVisibleNotifications = (activeTab === 'Unread'
     ? filteredNotifications.filter((item) => item.unread)
     : filteredNotifications);
+  const notificationPageSize = isEmployeeRoute ? itemsPerPage : Math.max(filteredVisibleNotifications.length, 1);
+  const notificationPageCount = Math.max(1, Math.ceil(filteredVisibleNotifications.length / notificationPageSize));
+  const currentNotificationPage = Math.min(notificationPage, notificationPageCount);
+  const visibleNotifications = filteredVisibleNotifications.slice(
+    (currentNotificationPage - 1) * notificationPageSize,
+    currentNotificationPage * notificationPageSize,
+  );
   const countByType = (type) => unreadNotifications.filter((item) => item.type === type).length;
   const selectedNotifications = notifications.filter((item) => selectedIds.includes(String(item.id)));
   const allVisibleSelected = visibleNotifications.length > 0
@@ -376,7 +384,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800">
+    <div className={`min-h-screen font-sans text-slate-800 ${isEmployeeRoute && resolvedTheme === 'dark' ? 'employee-dashboard employee-theme-dark' : 'bg-slate-100'}`}>
       {isEmployeeRoute && <><div className="hidden lg:block"><EmployeeSidebar /></div>      {menuOpen && <><button type="button" aria-label={t('Close menu')} className="fixed inset-0 z-40 bg-slate-900/30 lg:hidden" onClick={() => setMenuOpen(false)} /><div className="relative z-50 lg:hidden"><EmployeeSidebar onNavigate={() => setMenuOpen(false)} /></div></>}<EmployeeNavbar onMenuClick={() => setMenuOpen(true)} /></>}
       
       {/* TOP NAVBAR */}
@@ -570,6 +578,14 @@ export default function NotificationsPage() {
               </div>
             ))}
           </div>
+          {isEmployeeRoute && filteredVisibleNotifications.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+            <span>Showing {(currentNotificationPage - 1) * notificationPageSize + 1} to {Math.min(currentNotificationPage * notificationPageSize, filteredVisibleNotifications.length)} of {filteredVisibleNotifications.length} notifications</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setNotificationPage((current) => Math.max(1, Math.min(current, notificationPageCount) - 1))} disabled={currentNotificationPage <= 1} className="rounded border border-slate-200 px-3 py-1.5 disabled:opacity-40">Previous</button>
+              <span>Page {currentNotificationPage} of {notificationPageCount}</span>
+              <button type="button" onClick={() => setNotificationPage((current) => Math.min(notificationPageCount, current + 1))} disabled={currentNotificationPage >= notificationPageCount} className="rounded border border-slate-200 px-3 py-1.5 disabled:opacity-40">Next</button>
+            </div>
+          </div>}
         </div>
 
         {/* RIGHT SECTION: SUMMARY & QUICK ACTIONS */}

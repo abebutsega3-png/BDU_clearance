@@ -11,7 +11,9 @@ const normalizeDepartment = (value) => String(value || '')
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const departmentQuery = (department) => {
-  const name = typeof department === 'object' ? department?.departmentName || '' : department;
+  const name = typeof department === 'object'
+    ? department?.departmentName || department?.name || ''
+    : department;
   const nameRegex = { $regex: `^${escapeRegExp(name)}$`, $options: 'i' };
   const nameFilters = [
     { department: nameRegex },
@@ -21,7 +23,7 @@ const departmentQuery = (department) => {
   const departmentId = typeof department === 'object' ? department?._id || department?.departmentId : null;
   return {
     $or: departmentId
-      ? [{ departmentId }, ...nameFilters.map((filter) => ({ departmentId: null, ...filter }))]
+      ? [{ departmentId }, ...nameFilters]
       : nameFilters,
   };
 };
@@ -34,7 +36,7 @@ const departmentRequestQuery = async (department) => {
       initialHRStatus: 'Approved',
       $or: [
         ...departmentFilters,
-        { departmentId: null, employeeId: { $in: employees.map((employee) => employee.employeeId) } },
+        { employeeId: { $in: employees.map((employee) => employee.employeeId) } },
       ],
     }],
   };
@@ -59,17 +61,17 @@ const withDepartmentStatus = (query, status) => ({
 });
 
 const resolveDepartmentHeadDepartment = async (user) => {
-  if (user?.departmentId) {
-    const department = await Department.findById(user.departmentId).lean();
-    if (department) return department;
-  }
-
   const identity = [user?.name, user?.employeeId].filter(Boolean).map((value) => String(value).trim());
   if (identity.length) {
     const department = await Department.findOne({
       departmentHead: { $in: identity.map((value) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) },
     }).lean();
     if (department?.departmentName?.trim()) return department;
+  }
+
+  if (user?.departmentId) {
+    const department = await Department.findById(user.departmentId).lean();
+    if (department) return department;
   }
 
   const employeeIdentityQuery = user?.employeeId

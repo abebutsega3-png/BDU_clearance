@@ -20,6 +20,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/authContext';
+import { useEmployeeLanguage } from './EmployeeLanguage';
 import { fetchClearances } from '../../until/MyclearanceHelper';
 import EmployeeNavbar from './employeenavbar';
 import EmployeeSidebar from './employeesidbar';
@@ -103,6 +104,7 @@ const statusBadge = {
 
 export default function EmployeeDashboard() {
   const { user, loading: authLoading } = useAuth();
+  const { resolvedTheme, t } = useEmployeeLanguage();
   const apiBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/api\/clearance\/?$/, '').replace(/\/api\/?$/, '');
   const [menuOpen, setMenuOpen] = useState(false);
   const [requests, setRequests] = useState([]);
@@ -237,7 +239,7 @@ export default function EmployeeDashboard() {
   const hasActiveRequest = Boolean(currentRequest && ['Pending', 'In Progress', 'Returned', 'Rejected'].includes(currentRequest.status || 'Pending'));
 
   return (
-    <div className="min-h-screen bg-[#f5f8fc] text-slate-700">
+    <div className={`employee-dashboard min-h-screen ${resolvedTheme === 'dark' ? 'employee-theme-dark' : 'bg-[#f5f8fc] text-slate-700'}`}>
       <div className="hidden lg:block"><EmployeeSidebar /></div>
       {menuOpen && (
         <>
@@ -251,8 +253,8 @@ export default function EmployeeDashboard() {
         {error && <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-[10px] text-red-600">{error}</p>}
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h1 className="text-xl font-bold text-slate-800">Welcome back, {employeeName}! 👋</h1>
-          <p className="mt-1 text-[11px] text-slate-500">Here is an overview of your clearance status.</p>
+          <h1 className="text-xl font-bold text-slate-800">{t('Welcome back,')} {employeeName}! 👋</h1>
+          <p className="mt-1 text-[11px] text-slate-500">{t('Here is an overview of your clearance status.')}</p>
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -261,45 +263,45 @@ export default function EmployeeDashboard() {
               <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-lg ${toneStyles[tone]}`}>
                 <Icon size={18} />
               </div>
-              <p className="text-[11px] font-semibold text-slate-500">{label}</p>
+              <p className="text-[11px] font-semibold text-slate-500">{t(label)}</p>
               <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
-              <p className="text-[10px] text-slate-400">{note}</p>
+              <p className="text-[10px] text-slate-400">{t(note)}</p>
             </div>
           ))}
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-          <Panel title="Current Clearance Request" action={<Link to="/employee/my-clearance" className="flex items-center gap-1 text-[10px] font-semibold text-blue-600">View Clearance Details <ChevronRight size={12} /></Link>}>
+          <Panel title={t('Current Clearance Request')} action={<Link to="/employee/my-clearance" className="flex items-center gap-1 text-[10px] font-semibold text-blue-600">{t('View Clearance Details')} <ChevronRight size={12} /></Link>}>
             {loading ? (
-              <div className="p-5 text-center text-[10px] text-slate-400">Loading current clearance...</div>
+              <div className="p-5 text-center text-[10px] text-slate-400">{t('Loading current clearance...')}</div>
             ) : currentRequest ? (
               <div className="space-y-4 p-5">
                 <div className="grid gap-2 text-[10px] sm:grid-cols-3">
                   <div className="rounded-lg bg-slate-50 p-3">
-                    <span className="text-slate-400">Request No:</span>
+                    <span className="text-slate-400">{t('Request No:')}</span>
                     <p className="mt-1 font-bold text-slate-800">{currentRequest.requestId || '-'}</p>
                   </div>
                   <div className="rounded-lg bg-slate-50 p-3">
-                    <span className="text-slate-400">Type:</span>
+                    <span className="text-slate-400">{t('Type:')}</span>
                     <p className="mt-1 font-bold text-slate-800">{currentRequest.clearanceType || currentRequest.reason || 'Resignation'}</p>
                   </div>
                   <div className="rounded-lg bg-slate-50 p-3">
-                    <span className="text-slate-400">Request Date:</span>
+                    <span className="text-slate-400">{t('Request Date:')}</span>
                     <p className="mt-1 font-bold text-slate-800">{formatDate(currentRequest.requestDate || currentRequest.createdAt)}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <span className="text-[10px] text-slate-500">Overall Status:</span>
+                  <span className="text-[10px] text-slate-500">{t('Overall Status:')}</span>
                   <span className={`rounded px-2.5 py-1 text-[10px] font-bold ${statusBadge[activeRequestStatus] || statusBadge.Pending}`}>
-                    {activeRequestStatus.toUpperCase()}
+                    {t(activeRequestStatus).toUpperCase()}
                   </span>
                 </div>
 
                 <div>
                   <div className="mb-2 flex items-center justify-between text-[10px] text-slate-500">
-                    <span>Progress:</span>
-                    <span>{progressCount} / {totalOffices} Offices</span>
+                    <span>{t('Progress:')}</span>
+                    <span>{progressCount} / {totalOffices} {t('Offices')}</span>
                   </div>
                   <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
                     <div className="h-full rounded-full bg-blue-600" style={{ width: `${progressPercent}%` }} />
@@ -308,15 +310,15 @@ export default function EmployeeDashboard() {
                 </div>
 
                 <div className="space-y-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Office Status</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('Office Status')}</div>
                   <div className="space-y-2">
                     {officeStatusEntries.map((office) => (
                       <div key={`${office.office}-${office.status}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white p-2.5 text-[10px]">
                         <div className="flex items-center gap-2 truncate">
-                          <span className="min-w-[70px] font-semibold text-slate-700">{office.office}</span>
+                          <span className="min-w-[70px] font-semibold text-slate-700">{t(office.office)}</span>
                         </div>
                         <span className={`rounded px-2 py-1 font-bold ${statusBadge[office.status] || statusBadge.Pending}`}>
-                          {office.status === 'Completed' ? 'Approved' : office.status === 'Returned' ? 'Returned' : office.status === 'In Progress' ? 'In Progress' : 'Pending'}
+                          {t(office.status === 'Completed' ? 'Approved' : office.status)}
                         </span>
                       </div>
                     ))}
@@ -324,27 +326,27 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="p-5 text-center text-[10px] text-slate-400">No active clearance request found.</div>
+              <div className="p-5 text-center text-[10px] text-slate-400">{t('No active clearance request found.')}</div>
             )}
           </Panel>
 
           {currentRequest && returnedOffice && ['Returned', 'Rejected'].includes(String(currentRequest.status || '')) && (
-            <Panel title="Action Required" action={<Link to="/employee/my-clearance" className="text-[10px] font-semibold text-blue-600">View Details</Link>}>
+            <Panel title={t('Action Required')} action={<Link to="/employee/my-clearance" className="text-[10px] font-semibold text-blue-600">{t('View Details')}</Link>}>
               <div className="space-y-4 p-5">
                 <div className="flex items-center gap-2 text-red-600">
                   <XCircle size={16} />
-                  <span className="text-[11px] font-bold">Your clearance request has been returned by {returnedOffice.office}.</span>
+                  <span className="text-[11px] font-bold">{t('Your clearance request has been returned by')} {t(returnedOffice.office)}.</span>
                 </div>
 
                 <div className="rounded-lg bg-red-50 p-3 text-[10px] text-red-700">
-                  <p className="font-semibold">Reason:</p>
+                  <p className="font-semibold">{t('Reason:')}</p>
                   <p className="mt-1">{returnReason}</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Link to="/employee/my-clearance" className="rounded-md bg-blue-600 px-3 py-2 text-[10px] font-semibold text-white">View Details</Link>
+                  <Link to="/employee/my-clearance" className="rounded-md bg-blue-600 px-3 py-2 text-[10px] font-semibold text-white">{t('View Details')}</Link>
                   <button type="button" className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700">
-                    Resubmit Request
+                    {t('Resubmit Request')}
                   </button>
                 </div>
               </div>
@@ -353,15 +355,15 @@ export default function EmployeeDashboard() {
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-          <Panel title="Recent Requests" action={<Link to="/employee/my-clearance" className="text-[10px] font-semibold text-blue-600">View All Requests</Link>}>
+          <Panel title={t('Recent Requests')} action={<Link to="/employee/my-clearance" className="text-[10px] font-semibold text-blue-600">{t('View All Requests')}</Link>}>
             <div className="overflow-x-auto p-4">
               <table className="min-w-full text-left text-[10px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-slate-500">
-                    <th className="pb-2 pr-4 font-semibold">Request No</th>
-                    <th className="pb-2 pr-4 font-semibold">Type</th>
-                    <th className="pb-2 pr-4 font-semibold">Status</th>
-                    <th className="pb-2 pr-4 font-semibold text-right">Action</th>
+                    <th className="pb-2 pr-4 font-semibold">{t('Request No')}</th>
+                    <th className="pb-2 pr-4 font-semibold">{t('Type')}</th>
+                    <th className="pb-2 pr-4 font-semibold">{t('Status')}</th>
+                    <th className="pb-2 pr-4 font-semibold text-right">{t('Action')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -371,16 +373,16 @@ export default function EmployeeDashboard() {
                       <td className="py-3 pr-4 text-slate-600">{request.type}</td>
                       <td className="py-3 pr-4">
                         <span className={`rounded px-2 py-1 font-bold ${statusBadge[request.status] || statusBadge.Pending}`}>
-                          {String(request.status).toUpperCase()}
+                          {t(String(request.status)).toUpperCase()}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-right">
-                        <Link to="/employee/my-clearance" className="font-semibold text-blue-600">View</Link>
+                        <Link to="/employee/my-clearance" className="font-semibold text-blue-600">{t('View')}</Link>
                       </td>
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan={4} className="py-6 text-center text-slate-400">No recent requests found.</td>
+                      <td colSpan={4} className="py-6 text-center text-slate-400">{t('No recent requests found.')}</td>
                     </tr>
                   )}
                 </tbody>
@@ -388,7 +390,7 @@ export default function EmployeeDashboard() {
             </div>
           </Panel>
 
-          <Panel title="My Certificates" action={latestCertificate ? <Link to="/employee/documents" className="text-[10px] font-semibold text-blue-600">View</Link> : null}>
+          <Panel title={t('My Certificates')} action={latestCertificate ? <Link to="/employee/documents" className="text-[10px] font-semibold text-blue-600">{t('View')}</Link> : null}>
             {latestCertificate ? (
               <div className="space-y-4 p-5">
                 <div className="flex items-start gap-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
@@ -396,33 +398,33 @@ export default function EmployeeDashboard() {
                     <ShieldCheck size={16} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[11px] font-bold text-emerald-700">Employee Clearance Certificate</p>
-                    <p className="mt-2 text-[10px] text-slate-600">Certificate No:</p>
+                    <p className="text-[11px] font-bold text-emerald-700">{t('Employee Clearance Certificate')}</p>
+                    <p className="mt-2 text-[10px] text-slate-600">{t('Certificate No:')}</p>
                     <p className="font-mono text-[10px] font-semibold text-slate-800">{latestCertificate.certificateNo}</p>
                   </div>
                 </div>
 
                 <div className="space-y-2 text-[10px] text-slate-600">
-                  <div className="flex items-center justify-between"><span>Status:</span><span className="font-bold text-emerald-600">✅ ISSUED</span></div>
-                  <div className="flex items-center justify-between"><span>Issue Date:</span><span className="font-semibold text-slate-800">{formatDate(latestCertificate.issuedAt || latestCertificate.completedDate)}</span></div>
+                  <div className="flex items-center justify-between"><span>{t('Status:')}</span><span className="font-bold text-emerald-600">✅ {t('ISSUED')}</span></div>
+                  <div className="flex items-center justify-between"><span>{t('Issue Date:')}</span><span className="font-semibold text-slate-800">{formatDate(latestCertificate.issuedAt || latestCertificate.completedDate)}</span></div>
                 </div>
 
                 <div className="flex gap-2">
-                  <Link to="/employee/documents" className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-center text-[10px] font-semibold text-white">👁 View</Link>
-                  <Link to="/employee/documents" className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-center text-[10px] font-semibold text-slate-700">⬇ Download</Link>
+                  <Link to="/employee/documents" className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-center text-[10px] font-semibold text-white">👁 {t('View')}</Link>
+                  <Link to="/employee/documents" className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-center text-[10px] font-semibold text-slate-700">⬇ {t('Download')}</Link>
                 </div>
               </div>
             ) : (
               <div className="p-5 text-center text-[10px] text-slate-500">
-                <p className="font-semibold text-slate-700">No certificate issued yet.</p>
-                <p className="mt-1">Your certificate will appear here once it is issued.</p>
+                <p className="font-semibold text-slate-700">{t('No certificate issued yet.')}</p>
+                <p className="mt-1">{t('Your certificate will appear here once it is issued.')}</p>
               </div>
             )}
           </Panel>
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-          <Panel title="Recent Notifications" action={<Link to="/employee/notifications" className="text-[10px] font-semibold text-blue-600">View All Notifications</Link>}>
+          <Panel title={t('Recent Notifications')} action={<Link to="/employee/notifications" className="text-[10px] font-semibold text-blue-600">{t('View All Notifications')}</Link>}>
             <div className="space-y-3 p-4">
               {recentNotifications.length ? recentNotifications.map((item, idx) => (
                 <div key={`${item.title}-${idx}`} className="flex items-start gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
@@ -430,17 +432,17 @@ export default function EmployeeDashboard() {
                     {item.type.includes('certificate') || item.type.includes('CERTIFICATE') ? <ShieldCheck size={14} /> : item.type.includes('returned') || item.type.includes('RETURN') ? <RefreshCw size={14} /> : item.type.includes('completed') || item.type.includes('COMPLETED') ? <CheckCircle2 size={14} /> : <Bell size={14} />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-bold text-slate-800">{item.title}</p>
+                    <p className="text-[11px] font-bold text-slate-800">{t(item.title)}</p>
                     <p className="mt-1 text-[10px] text-slate-500">{item.time}</p>
                   </div>
                 </div>
               )) : (
-                <div className="py-8 text-center text-[10px] text-slate-400">No recent notifications.</div>
+                <div className="py-8 text-center text-[10px] text-slate-400">{t('No recent notifications.')}</div>
               )}
             </div>
           </Panel>
 
-          <Panel title="Quick Actions">
+          <Panel title={t('Quick Actions')}>
             <div className="grid grid-cols-2 gap-3 p-4">
               <button
                 type="button"
@@ -448,22 +450,22 @@ export default function EmployeeDashboard() {
                 className={`flex flex-col items-center justify-center gap-2 rounded-lg border p-3 text-center text-[10px] ${hasActiveRequest ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400' : 'border-blue-200 bg-blue-50 text-blue-700'}`}
               >
                 <Plus size={18} />
-                <span className="font-semibold">New Clearance Request</span>
+                <span className="font-semibold">{t('New Clearance Request')}</span>
               </button>
 
               <Link to="/employee/my-clearance" className="flex flex-col items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center text-[10px] text-emerald-700">
                 <FolderOpen size={18} />
-                <span className="font-semibold">My Clearance Requests</span>
+                <span className="font-semibold">{t('My Clearance Requests')}</span>
               </Link>
 
               <Link to="/employee/documents" className="flex flex-col items-center justify-center gap-2 rounded-lg border border-purple-200 bg-purple-50 p-3 text-center text-[10px] text-purple-700">
                 <ShieldCheck size={18} />
-                <span className="font-semibold">My Certificates</span>
+                <span className="font-semibold">{t('My Certificates')}</span>
               </Link>
 
               <Link to="/employee/profile" className="flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center text-[10px] text-slate-700">
                 <UserRound size={18} />
-                <span className="font-semibold">My Profile</span>
+                <span className="font-semibold">{t('My Profile')}</span>
               </Link>
             </div>
           </Panel>

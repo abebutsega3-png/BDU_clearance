@@ -71,7 +71,8 @@ const SystemSettingsSchema = new mongoose.Schema({
       finance: { type: Boolean, default: true },
       property: { type: Boolean, default: true },
       ict: { type: Boolean, default: true },
-      library: { type: Boolean, default: true }
+      library: { type: Boolean, default: true },
+      transport: { type: Boolean, default: true }
     },
     finalHrClearanceEnabled: { type: Boolean, default: true },
     generateCertificateAfterApproval: { type: Boolean, default: true },
@@ -81,7 +82,9 @@ const SystemSettingsSchema = new mongoose.Schema({
       clearanceResubmitted: { type: Boolean, default: true },
       allOfficesApproved: { type: Boolean, default: true },
       clearanceCompleted: { type: Boolean, default: true },
-      certificateGenerated: { type: Boolean, default: true }
+      certificateGenerated: { type: Boolean, default: true },
+      emailEnabled: { type: Boolean, default: true },
+      systemNotificationsEnabled: { type: Boolean, default: true }
     },
     certificate: {
       generation: { type: String, default: 'Automatic (Recommended)' },

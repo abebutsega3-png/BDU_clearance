@@ -73,13 +73,13 @@ const EmployeeSidebar = ({ onNavigate }) => {
         />
 
         {/* Profile */}
-        <SidebarItem
+        {/* <SidebarItem
           to="/employee/documents"
           icon={<UserCircle size={20} />}
           label={t('Documents')}
           active={pathname === '/employee/documents'}
           onNavigate={onNavigate}
-        />
+        /> */}
          <SidebarItem
           to="/employee/my-certificates"
           icon={<UserCircle size={20} />}

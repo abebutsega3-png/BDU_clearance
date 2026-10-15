@@ -61,6 +61,30 @@ const dateLabel = (value) => {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString();
 };
 
+const canonicalOffice = (value) => {
+  const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const aliases = {
+    finance: 'Finance Office',
+    'finance office': 'Finance Office',
+    'finance officer': 'Finance Office',
+    property: 'Property / Asset Office',
+    'property office': 'Property / Asset Office',
+    'property / asset office': 'Property / Asset Office',
+    'property officer': 'Property / Asset Office',
+    'property/store officer': 'Property / Asset Office',
+    library: 'Library',
+    'library office': 'Library',
+    'library officer': 'Library',
+    ict: 'ICT Office',
+    'ict office': 'ICT Office',
+    'ict officer': 'ICT Office',
+    transport: 'Transport Office',
+    'transport office': 'Transport Office',
+    'transport officer': 'Transport Office',
+  };
+  return aliases[normalized] || '';
+};
+
 export default function HRWorkflowPanel() {
   const [queue, setQueue] = useState([]);
   const [offices, setOffices] = useState([]);
@@ -148,7 +172,9 @@ export default function HRWorkflowPanel() {
         const previouslyAssigned = Array.isArray(details.assignedDepartments)
           ? details.assignedDepartments
           : [];
-        setSelectedDepts(Object.fromEntries(previouslyAssigned.map((office) => [office, true])));
+        setSelectedDepts(Object.fromEntries(
+          previouslyAssigned.map(canonicalOffice).filter(Boolean).map((office) => [office, true]),
+        ));
       })
       .catch((loadError) => {
         if (!active) return;
@@ -339,7 +365,7 @@ export default function HRWorkflowPanel() {
                 </div>
                 {!offices.length && (
                   <p role="alert" className="mt-2 text-xs text-rose-700">
-                    No clearance offices are configured. Ask a System Admin to add active clearance-office roles.
+                    No clearance offices are available. Refresh the page or contact support.
                   </p>
                 )}
                 {!offices.some((office) => selectedDepts[office]) && (

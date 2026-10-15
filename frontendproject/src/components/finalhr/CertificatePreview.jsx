@@ -38,6 +38,7 @@ const displayReviewerName = (value) => {
 };
 const normalizeOfficeName = (value) => {
   const name = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (name === 'initialhrreview' || name === 'hrreview') return 'finalhrclearance';
   if (name.includes('department')) return 'departmenthead';
   if (name.includes('finance')) return 'financeoffice';
   if (name.includes('property') || name.includes('asset')) return 'propertyassetoffice';
@@ -47,6 +48,15 @@ const normalizeOfficeName = (value) => {
   if (name.includes('finalhr') || name === 'hroffice') return 'finalhrclearance';
   return name;
 };
+const getOfficeRoleLabel = (officeName) => ({
+  finalhrclearance: 'HR Officer',
+  departmenthead: 'Department Head',
+  financeoffice: 'Finance Officer',
+  library: 'Library Officer',
+  propertyassetoffice: 'Property Officer',
+  ictoffice: 'ICT Officer',
+  transportoffice: 'Transport Officer',
+}[normalizeOfficeName(officeName)] || 'Assigned Officer');
 
 const getOfficeSummary = (clearance) => {
   const finalApprovalRecorded = clearance?.finalHRApproval === true
@@ -68,7 +78,11 @@ const getOfficeSummary = (clearance) => {
     {
       name: 'HR Office',
       status: initialHRApproved ? 'APPROVED' : clearance?.initialHRStatus || 'PENDING',
-      approvedBy: clearance?.initialHRReviewedBy || (finalApprovalRecorded ? clearance?.finalHRReviewedBy : '') || clearance?.finalHROfficer || clearance?.hrManagerName,
+      approvedBy: clearance?.initialHRReviewedBy
+        || clearance?.initialHRReviewedByName
+        || (finalApprovalRecorded ? clearance?.finalHRReviewedBy || clearance?.certificate?.generatedBy : '')
+        || clearance?.finalHROfficer
+        || clearance?.hrManagerName,
       approvalDate: clearance?.initialHRReviewedAt || (finalApprovalRecorded ? clearance?.finalHRApprovalDate || clearance?.updatedAt : ''),
     },
     { name: 'Department Head', status: clearance?.departmentStatus || 'PENDING', approvedBy: clearance?.departmentReviewedBy, approvalDate: clearance?.departmentReviewedAt },
@@ -78,8 +92,11 @@ const getOfficeSummary = (clearance) => {
     ...(Array.isArray(clearance?.workflow) ? clearance.workflow : []),
     ...(Array.isArray(clearance?.history) ? clearance.history : []),
     ...(Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : []),
+    ...(Array.isArray(clearance?.officesProgress) ? clearance.officesProgress : []),
+    ...(Array.isArray(clearance?.approvals) ? clearance.approvals : []),
   ];
   const officeStatusFields = {
+    finalhrclearance: ['initialHRStatus', 'initialHRReviewedBy', 'initialHRReviewedAt'],
     financeoffice: ['financeStatus', 'financeReviewedBy', 'financeReviewedAt'],
     library: ['libraryStatus', 'libraryReviewedBy', 'libraryReviewedAt'],
     propertyassetoffice: ['propertyStatus', 'propertyReviewedBy', 'propertyReviewedAt'],
@@ -97,6 +114,9 @@ const getOfficeSummary = (clearance) => {
     const officeProgress = [...(Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : [])]
       .reverse()
       .find((entry) => normalizeOfficeName(entry?.office || entry?.name) === normalizeOfficeName(office.name));
+    const propertyReview = normalizeOfficeName(office.name) === 'propertyassetoffice'
+      ? clearance?.propertyClearance || clearance?.propertyReview || {}
+      : {};
     const status = normalizeOfficeName(office.name) === 'departmenthead'
       ? clearance?.departmentStatus
       : mappedFields.length
@@ -105,19 +125,32 @@ const getOfficeSummary = (clearance) => {
     const isHrOffice = normalizeOfficeName(office.name) === 'finalhrclearance';
     const reviewerCandidates = [
       office.approvedBy,
+      office.approvedByName,
+      office.reviewerName,
+      office.clearedBy,
+      office.approver,
       officeProgress?.clearedBy,
       officeProgress?.approvedBy,
+      officeProgress?.approvedByName,
+      officeProgress?.reviewedBy,
+      officeProgress?.reviewerName,
       officeProgress?.officerName,
       mappedFields.length ? clearance?.[mappedFields[1]] : '',
+      propertyReview.approvedBy,
+      propertyReview.approvedByName,
+      propertyReview.reviewedBy,
+      propertyReview.reviewerName,
       match?.approvedBy,
+      match?.approvedByName,
       match?.reviewedBy,
+      match?.reviewedByName,
       match?.clearedBy,
       match?.performedBy,
       match?.officerName,
     ];
     const approvedBy = reviewerCandidates
       .map(displayReviewerName)
-      .find((name) => name !== '—') || '—';
+      .find((name) => name !== '—') || getOfficeRoleLabel(office.name);
     const approvalDate = [
       office.approvalDate,
       officeProgress?.clearedDate,
