@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
+import apiBaseUrl from '../until/apiBaseUrl';
 
 const INITIAL_FORM_DATA = {
   fullName: '',
@@ -54,7 +55,7 @@ export default function Contact() {
     setFormError('');
     setFormStatus('');
     try {
-      await axios.post('/api/public/home/contact', formData);
+      await axios.post(`${apiBaseUrl}/api/public/home/contact`, formData);
       setFormStatus('Your message has been received. The Employee Clearance Support Office will contact you during working hours.');
       setFormData(INITIAL_FORM_DATA);
     } catch (error) {

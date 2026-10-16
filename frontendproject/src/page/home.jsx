@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import apiBaseUrl from '../until/apiBaseUrl';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -74,7 +75,7 @@ export default function Home() {
 
   useEffect(() => {
     let isMounted = true;
-    axios.get('/api/public/home')
+    axios.get(`${apiBaseUrl}/api/public/home`)
       .then(({ data }) => {
         if (isMounted && data.success) setHomeData({ stats: data.stats, offices: data.offices || [], error: false });
         else if (isMounted) setHomeData((current) => ({ ...current, error: true }));
