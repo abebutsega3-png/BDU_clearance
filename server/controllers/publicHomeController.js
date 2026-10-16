@@ -1,6 +1,6 @@
 import Employee from '../models/employee.js';
 import Clearance from '../models/clearance.js';
-import ClearanceStep from '../models/ClearanceStep.js';
+import ClearanceStep from '../models/clearancestep.js';
 
 const officeDescription = (name) => {
   const value = name.toLowerCase();
