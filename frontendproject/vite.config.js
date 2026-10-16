@@ -1,14 +1,20 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  base: '/',
+
   plugins: [react(), tailwindcss()],
+
   server: {
     host: '127.0.0.1',
     port: 5173,
     strictPort: false,
-    hmr: { overlay: true },
+    hmr: {
+      overlay: true,
+    },
     watch: {
       usePolling: true,
       interval: 300,
@@ -20,19 +26,26 @@ export default defineConfig({
       },
     },
   },
+
   build: {
-    chunkSizeWarningLimit: 1000, // የ Warning ገደቡን ወደ 1000 kB ከፍ ያደርገዋል
+    chunkSizeWarningLimit: 1000,
+
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom')) {
+            if (
+              id.includes('react') ||
+              id.includes('react-dom')
+            ) {
               return 'vendor-react';
             }
+
             if (id.includes('lucide-react')) {
               return 'vendor-icons';
             }
-            return 'vendor'; // ሌሎች ትልልቅ ላይብረሪዎች
+
+            return 'vendor';
           }
         },
       },
