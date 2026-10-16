@@ -1,3 +1,4 @@
+
 import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
@@ -8,7 +9,9 @@ import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import User from './models/User.js';
 
-dotenv.config({ path: fileURLToPath(new URL('./.env', import.meta.url)) });
+dotenv.config({
+  path: fileURLToPath(new URL('./.env', import.meta.url)),
+});
 
 // Authentication & Core Routers
 import authRouter from './routes/auth.js';
@@ -60,7 +63,7 @@ import propertyProfileRouter from './routes/propertyprofile.js';
 import propertySettingsRouter from './routes/propertysetting.js';
 
 // Finance Routers
-import financeDashboardRouter from './routes/finanacedashboaredrouter.js'; 
+import financeDashboardRouter from './routes/finanacedashboaredrouter.js';
 import financeClearanceRequestRouter from './routes/financeclearanceRequestRoutes.js';
 import financeReportRouter from './routes/financeReportRoutes.js';
 import financeProfileRouter from './routes/financeProfileRoutes.js';
@@ -76,23 +79,27 @@ import clearanceOfficeRouter from './routes/clearanceOfficeRoutes.js';
 const app = express();
 const httpServer = createServer(app);
 
-// Middlewares
+// Middleware: CORS
 const configuredFrontendOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
 const allowFrontendOrigin = (origin, callback) => {
+  // Allow requests without an Origin header (e.g. health checks).
   if (!origin || configuredFrontendOrigins.includes(origin)) {
     callback(null, true);
     return;
   }
 
+  // In development, allow local frontend origins.
   if (process.env.NODE_ENV !== 'production') {
     try {
       const { hostname, protocol } = new URL(origin);
-      const isLocalFrontend = protocol === 'http:'
-        && ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+      const isLocalFrontend =
+        protocol === 'http:' &&
+        ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+
       callback(null, isLocalFrontend);
       return;
     } catch {
@@ -104,10 +111,13 @@ const allowFrontendOrigin = (origin, callback) => {
   callback(null, false);
 };
 
-app.use(cors({
-  origin: allowFrontendOrigin,
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: allowFrontendOrigin,
+    credentials: true,
+  }),
+);
+
 const io = new Server(httpServer, {
   cors: {
     origin: allowFrontendOrigin,
@@ -115,16 +125,32 @@ const io = new Server(httpServer, {
   },
 });
 
+// Socket.IO authentication
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
-    if (typeof token !== 'string' || !token) return next(new Error('Authentication required.'));
+
+    if (typeof token !== 'string' || !token) {
+      return next(new Error('Authentication required.'));
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_KEY);
-    if (decoded.tokenUse === 'refresh') return next(new Error('Invalid access token.'));
-    const user = await User.findById(decoded._id).select('_id tokenVersion').lean();
-    if (!user || (decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
+
+    if (decoded.tokenUse === 'refresh') {
+      return next(new Error('Invalid access token.'));
+    }
+
+    const user = await User.findById(decoded._id)
+      .select('_id tokenVersion')
+      .lean();
+
+    if (
+      !user ||
+      (decoded.tokenVersion || 0) !== (user.tokenVersion || 0)
+    ) {
       return next(new Error('Session is no longer valid.'));
     }
+
     socket.data.userId = String(user._id);
     return next();
   } catch {
@@ -135,8 +161,28 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   socket.join(`user:${socket.data.userId}`);
 });
+
 app.set('io', io);
+
+// Request body parsing
 app.use(express.json({ limit: '5mb' }));
+
+// Health check: GET /
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'BDU Clearance API is running successfully',
+    status: 'OK',
+  });
+});
+
+// Health check: GET /api/health
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    message: 'BDU Clearance API is running',
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // 1. Core & Admin Routes
 app.use('/api/auth', authRouter);
@@ -202,15 +248,24 @@ app.use('/api/finance/profile', financeProfileRouter);
 app.use('/api/finance/settings', financeSettingsRouter);
 app.use('/api/finance/notifications', financeNotificationRouter);
 
-// 7. Global 404 Route Catch-all
-app.use((req, res, next) => {
-  res.status(404).json({ message: `Route not found: ${req.originalUrl}` });
+// 7. Global 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    message: `Route not found: ${req.originalUrl}`,
+  });
 });
 
-// 8. Global Error Handling Middleware
+// 8. Global error handler
 app.use((err, req, res, next) => {
   console.error('Server Error:', err.stack);
-  res.status(500).json({ message: 'Internal Server Error', error: err.message });
+
+  res.status(500).json({
+    message: 'Internal Server Error',
+    error:
+      process.env.NODE_ENV === 'production'
+        ? undefined
+        : err.message,
+  });
 });
 
 // Server Setup
@@ -220,11 +275,12 @@ httpServer.on('error', (error) => {
   if (error.code === 'EADDRINUSE') {
     console.error(
       `Port ${PORT} is already in use. Another server is already listening there. ` +
-      'Stop the previous dev server with Ctrl+C in its terminal, or configure this app to use a free port.',
+        'Stop the previous dev server with Ctrl+C in its terminal, or configure this app to use a free port.',
     );
   } else {
     console.error('Unable to start the HTTP server:', error.message);
   }
+
   process.exit(1);
 });
 
@@ -233,18 +289,23 @@ const connectToDatabaseWithRetry = async () => {
 
   while (true) {
     const dbConnected = await connectToDB();
+
     if (dbConnected) {
+      console.log('MongoDB connection established.');
       break;
     }
 
-    console.error('MongoDB is unavailable. Retrying connection in 10 seconds...');
+    console.error(
+      'MongoDB is unavailable. Retrying connection in 10 seconds...',
+    );
+
     await new Promise((resolve) => setTimeout(resolve, 10000));
   }
 };
 
 const startServer = () => {
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running successfully on http://127.0.0.1:${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
     void connectToDatabaseWithRetry().catch((error) => {
       console.error('Database connection retry failed:', error.message);
     });
