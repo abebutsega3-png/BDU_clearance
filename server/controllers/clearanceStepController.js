@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import ClearanceStep from '../models/ClearanceStep.js';
+import ClearanceStep from '../models/clearancestep.js';
 
 const formatStep = (step) => ({
   id: step._id,
