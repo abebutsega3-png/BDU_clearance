@@ -1,16 +1,14 @@
 {
+  "exec": "node --trace-uncaught --unhandled-rejections=strict",
   "watch": [
-    "server/index.js",
-    "server/controllers",
-    "server/db",
-    "server/middleware",
-    "server/models",
-    "server/routes",
-    "server/utils"
+    "server"
   ],
   "ext": "js,json",
   "ignore": [
-    "server/tests/**"
+    "node_modules/**",
+    "frontendproject/**",
+    "server/tests/**",
+    "server/uploads/**"
   ],
-  "delay": 500
+  "delay": 1000
 }

@@ -2,6 +2,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+require('../scripts/load-backend-env.cjs');
+const backendPort = Number(process.env.BACKEND_PORT || process.env.PORT || 3000);
 
 export default defineConfig({
   base: '/',
@@ -15,13 +20,9 @@ export default defineConfig({
     hmr: {
       overlay: true,
     },
-    watch: {
-      usePolling: true,
-      interval: 300,
-    },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3000',
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
       },
     },

@@ -1,11 +1,12 @@
 {
   "name": "BDU_clearance",
   "version": "1.0.0",
- "scripts": {
-  "dev": "concurrently --kill-others-on-fail --names \"frontend,server\" -c \"cyan,magenta\" \"npm run dev:frontend\" \"npm run dev:server\"",
-  "dev:frontend": "node scripts/wait-for-server.cjs && npm --prefix frontendproject run dev",
-  "dev:server": "nodemon --watch server server/index.js"
-},
+  "scripts": {
+    "predev": "npx kill-port 3000",
+    "dev": "concurrently --raw --names \"frontend,server\" -c \"cyan,magenta\" \"npm run dev:frontend\" \"npm run dev:server\"",
+    "dev:frontend": "node scripts/wait-for-server.cjs && npm --prefix frontendproject run dev",
+    "dev:server": "nodemon server/index.js"
+  },
   "devDependencies": {
     "concurrently": "^9.2.1",
     "kill-port": "^2.0.1"

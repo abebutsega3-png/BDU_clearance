@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import User from './models/User.js';
 
 dotenv.config({
@@ -269,19 +270,55 @@ app.use((err, req, res, next) => {
 });
 
 // Server Setup
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.BACKEND_PORT || process.env.PORT || 3000);
+let shuttingDown = false;
+
+const formatError = (error) => (
+  error instanceof Error ? error.stack || error.message : String(error)
+);
+
+const handleFatalError = async (source, error) => {
+  console.error(`${source}:`, formatError(error));
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  const shutdownTimeout = setTimeout(() => {
+    console.error('Graceful shutdown timed out; forcing process exit.');
+    process.exit(1);
+  }, 10000);
+
+  try {
+    await new Promise((resolve) => io.close(resolve));
+    await mongoose.disconnect();
+  } catch (shutdownError) {
+    console.error('Error during fatal-error shutdown:', formatError(shutdownError));
+  } finally {
+    clearTimeout(shutdownTimeout);
+    process.exit(1);
+  }
+};
+
+process.on('uncaughtException', (error) => {
+  void handleFatalError('Uncaught exception', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  void handleFatalError('Unhandled promise rejection', reason);
+});
 
 httpServer.on('error', (error) => {
   if (error.code === 'EADDRINUSE') {
     console.error(
-      `Port ${PORT} is already in use. Another server is already listening there. ` +
-        'Stop the previous dev server with Ctrl+C in its terminal, or configure this app to use a free port.',
+      `Port ${PORT} is already in use. This server will not stop the process using it.`,
+    );
+    console.error(
+      `Check the owning process in PowerShell with: Get-NetTCPConnection -LocalPort ${PORT} | Select-Object LocalAddress, LocalPort, OwningProcess`,
     );
   } else {
-    console.error('Unable to start the HTTP server:', error.message);
+    console.error('Unable to start the HTTP server:', error.stack || error);
   }
 
-  process.exit(1);
+  process.exitCode = 1;
 });
 
 const connectToDatabaseWithRetry = async () => {
@@ -307,7 +344,7 @@ const startServer = () => {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
     void connectToDatabaseWithRetry().catch((error) => {
-      console.error('Database connection retry failed:', error.message);
+      console.error('Database connection retry failed:', error.stack || error);
     });
   });
 };
