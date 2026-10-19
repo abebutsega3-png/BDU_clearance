@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Bell, BookOpen, Building2, Check, ChevronRight, ClipboardList, DollarSign, FileCheck2, LayoutDashboard, MoreVertical, Pencil, Plus, Search, Settings, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAdminLanguage } from '../admindashboared/AdminLanguage';
 
@@ -40,7 +40,10 @@ export default function Permissions() {
 	const [roleList, setRoleList] = useState(roles);
 	const [message, setMessage] = useState('');
 	const [deleting, setDeleting] = useState(false);
+	const [editingPermissions, setEditingPermissions] = useState(false);
+	const [savingPermissions, setSavingPermissions] = useState(false);
 	const navigate = useNavigate();
+	const location = useLocation();
 	useEffect(() => {
 		const loadRoles = async () => {
 			try {
@@ -48,19 +51,77 @@ export default function Permissions() {
 				if (response.data.roles) {
 					const loadedRoles = response.data.roles.map((role) => ({ ...role, users: role.userCount || 0, color: 'blue', system: false }));
 					setRoleList(loadedRoles);
-					if (loadedRoles.length) setActiveRole(loadedRoles[0]);
+					const createdRoleId = location.state?.createdRole?._id;
+					const selectedRole = loadedRoles.find((role) => role._id === createdRoleId) || loadedRoles[0];
+					if (selectedRole) {
+						setActiveRole(selectedRole);
+						if (createdRoleId && selectedRole._id === createdRoleId) {
+							setActiveTab('roles');
+							setEditingPermissions(true);
+							setMessage(t('Role created successfully. Configure its permissions below.'));
+						}
+					}
 				}
 			} catch (error) {
 				console.error('Unable to load roles:', error);
 			}
 		};
 		loadRoles();
-	}, []);
+	}, [location.state, t]);
 	const filteredRoles = useMemo(() => roleList.filter((role) => role.name.toLowerCase().includes(search.toLowerCase())), [roleList, search]);
-	const activePermissions = modules.map(([name, Icon]) => [name, Icon, ...permissionLabels.map((label) => {
+	const knownModules = new Set(modules.map(([name]) => name.toLowerCase()));
+	const roleModules = [
+		...modules,
+		...(activeRole.permissions || [])
+			.filter((permission) => typeof permission.module === 'string'
+				&& permission.module.trim()
+				&& !knownModules.has(permission.module.trim().toLowerCase())
+				&& !(permission.module.trim().toLowerCase() === 'clearance request' && knownModules.has('clearance requests')))
+			.map((permission) => [permission.module.trim(), ShieldCheck]),
+	];
+	const activePermissions = roleModules.map(([name, Icon]) => [name, Icon, ...permissionLabels.map((label) => {
 		const permission = activeRole.permissions?.find((item) => item.module === name || (name === 'Clearance Requests' && item.module === 'Clearance Request'));
 		return permission?.actions?.includes(label.toLowerCase()) || false;
 	})]);
+	const togglePermission = (moduleName, permissionName) => {
+		const action = permissionName.toLowerCase();
+		const nextPermissions = roleModules.map(([name]) => {
+			const existing = activeRole.permissions?.find((item) => item.module === name || (name === 'Clearance Requests' && item.module === 'Clearance Request'));
+			const actions = existing?.actions || [];
+			return {
+				module: name,
+				actions: name === moduleName
+					? actions.includes(action) ? actions.filter((item) => item !== action) : [...actions, action]
+					: actions,
+			};
+		});
+		const updatedRole = { ...activeRole, permissions: nextPermissions };
+		setActiveRole(updatedRole);
+		setRoleList((currentRoles) => currentRoles.map((role) => role._id === updatedRole._id ? updatedRole : role));
+	};
+	const savePermissions = async () => {
+		if (!activeRole._id) return;
+		setSavingPermissions(true);
+		setMessage('');
+		try {
+			const response = await axios.put(`/api/roles/${activeRole._id}`, {
+				name: activeRole.name,
+				description: activeRole.description || '',
+				status: activeRole.isActive === false ? 'Inactive' : 'Active',
+				isClearanceOffice: activeRole.isClearanceOffice === true,
+				permissions: activeRole.permissions || [],
+			}, { headers: { Authorization: `******'token')}` } });
+			const savedRole = { ...response.data.role, users: activeRole.users, color: activeRole.color, system: false };
+			setActiveRole(savedRole);
+			setRoleList((currentRoles) => currentRoles.map((role) => role._id === savedRole._id ? savedRole : role));
+			setEditingPermissions(false);
+			setMessage(t('Permissions saved successfully.'));
+		} catch (error) {
+			setMessage(t(error.response?.data?.message || 'Unable to save permissions. Please try again.'));
+		} finally {
+			setSavingPermissions(false);
+		}
+	};
 	const handleDelete = async () => {
 		if (!activeRole._id || activeRole.system || !window.confirm(`Delete the role "${activeRole.name}"?`)) return;
 		setDeleting(true);
@@ -70,6 +131,7 @@ export default function Permissions() {
 			const remainingRoles = roleList.filter((role) => role._id !== activeRole._id);
 			setRoleList(remainingRoles);
 			setActiveRole(remainingRoles[0] || roles[0]);
+			setEditingPermissions(false);
 			setMessage(t('Role deleted successfully.'));
 		} catch (error) {
 			setMessage(t(error.response?.data?.message || 'Unable to delete role. Please try again.'));
@@ -84,11 +146,17 @@ export default function Permissions() {
 			<div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center"><div><h1 className="text-xl font-bold text-slate-900">{t('Role & Permissions')}</h1><p className="mt-1 text-xs text-slate-500">{t('Manage user roles and their permissions in the system.')}</p></div><Link to="/admin/roles-permissions/add" className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"><Plus size={16} /> {t('Add New Role')}</Link></div>
 			<div className="flex gap-8 border-b border-slate-200">{[['roles', 'Roles', ShieldCheck], ['permissions', 'Permissions', Users]].map(([tab, label, Icon]) => <button key={tab} onClick={() => setActiveTab(tab)} className={`inline-flex items-center gap-2 border-b-2 px-2 py-4 text-xs font-semibold ${activeTab === tab ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500'}`}><Icon size={15} /> {t(label)}</button>)}</div>
 			{activeTab === 'roles' ? <div className="mt-4 flex flex-col gap-4 lg:flex-row">
-				<div className="w-full shrink-0 rounded-md border border-slate-200 bg-white p-3 lg:w-64"><div className="mb-3 px-1 text-xs font-bold text-slate-600">{t('Roles')} ({roleList.length})</div><div className="relative mb-3"><Search className="absolute left-2.5 top-2 text-slate-400" size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('Search roles...')} className="w-full rounded border border-slate-200 py-1.5 pl-8 pr-2 text-[10px] outline-none focus:border-blue-400" /></div><div className="space-y-1">{filteredRoles.map((role) => <button key={role.name} onClick={() => setActiveRole(role)} className={`flex w-full items-center gap-2 rounded-md p-2 text-left transition ${activeRole.name === role.name ? 'bg-blue-50' : 'hover:bg-slate-50'}`}><span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${colorClasses[role.color] || colorClasses.blue}`}><Users size={14} /></span><span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-semibold text-slate-700">{t(role.name)}</span><span className="block text-[9px] text-slate-400">{role.users} {t(role.users === 1 ? 'user' : 'users')}</span></span><span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-600">{t('Active')}</span></button>)}</div><Link to="/admin/roles-permissions/add" className="mt-3 flex w-full items-center justify-center gap-1 rounded border border-blue-200 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50"><Plus size={14} /> {t('Add New Role')}</Link></div>
+				<div className="w-full shrink-0 rounded-md border border-slate-200 bg-white p-3 lg:w-64"><div className="mb-3 px-1 text-xs font-bold text-slate-600">{t('Roles')} ({roleList.length})</div><div className="relative mb-3"><Search className="absolute left-2.5 top-2 text-slate-400" size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('Search roles...')} className="w-full rounded border border-slate-200 py-1.5 pl-8 pr-2 text-[10px] outline-none focus:border-blue-400" /></div><div className="space-y-1">{filteredRoles.map((role) => <button key={role._id || role.name} onClick={() => { setActiveRole(role); setEditingPermissions(false); setMessage(''); }} className={`flex w-full items-center gap-2 rounded-md p-2 text-left transition ${(activeRole._id && activeRole._id === role._id) || (!activeRole._id && activeRole.name === role.name) ? 'bg-blue-50' : 'hover:bg-slate-50'}`}><span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${colorClasses[role.color] || colorClasses.blue}`}><Users size={14} /></span><span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-semibold text-slate-700">{t(role.name)}</span><span className="block text-[9px] text-slate-400">{role.users} {t(role.users === 1 ? 'user' : 'users')}</span></span><span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${role.isActive === false ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-600'}`}>{t(role.isActive === false ? 'Inactive' : 'Active')}</span></button>)}</div><Link to="/admin/roles-permissions/add" className="mt-3 flex w-full items-center justify-center gap-1 rounded border border-blue-200 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50"><Plus size={14} /> {t('Add New Role')}</Link></div>
 				<div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white">
+					<div className="flex justify-end gap-2 px-4 pt-3">
+						{editingPermissions ? <>
+							<button type="button" onClick={() => { const savedRole = roleList.find((role) => role._id === activeRole._id); if (savedRole) setActiveRole(savedRole); setEditingPermissions(false); setMessage(''); }} disabled={savingPermissions} className="rounded border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('Cancel')}</button>
+							<button type="button" onClick={savePermissions} disabled={savingPermissions} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{t(savingPermissions ? 'Saving...' : 'Save Permissions')}</button>
+						</> : <button type="button" onClick={() => setEditingPermissions(true)} disabled={!activeRole._id || activeRole.system} className="inline-flex items-center gap-1 rounded border border-slate-200 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Pencil size={13} /> {t('Edit Permissions')}</button>}
+					</div>
 					<div className="flex flex-col justify-between gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-start"><div className="flex items-start gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm"><ShieldCheck size={23} /></span><div><h2 className="text-sm font-bold text-slate-800">{t('Role Details')}</h2><div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-700">{t(activeRole.name)}<span className="rounded bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-600">{t('Active')}</span></div><p className="mt-1 text-[10px] text-slate-500">{t('Description')}: {t('Manage employee information and clearance requests.')}</p><p className="mt-1 text-[10px] text-slate-500"><Users className="mr-1 inline" size={11} /> {t('Users with this role')}: {activeRole.users}</p></div></div><div className="flex gap-2"><button onClick={() => activeRole._id && navigate(`/admin/roles-permissions/edit/${activeRole._id}`)} disabled={!activeRole._id} className="inline-flex items-center gap-1 rounded border border-slate-200 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"><Pencil size={13} /> {t('Edit Role')}</button>{activeRole._id && !activeRole.system && <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-1 rounded border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={13} /> {t(deleting ? 'Deleting...' : 'Delete Role')}</button>}<button aria-label={t('More role actions')} className="rounded border border-slate-200 p-1.5 text-slate-500"><MoreVertical size={14} /></button></div></div>
 					<div className="flex gap-6 border-b border-slate-200 px-4"><button className="border-b-2 border-blue-500 py-3 text-xs font-semibold text-blue-600">{t('Permissions')} ({modules.length * permissionLabels.length})</button><button className="py-3 text-xs font-semibold text-slate-500">{t('Users with this role')} ({activeRole.users})</button></div>
-					<div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-[10px]"><thead><tr className="bg-slate-50 text-left font-bold text-slate-600"><th className="px-4 py-3">{t('Module / Feature')}</th>{permissionLabels.map((label) => <th key={label} className="px-2 py-3 text-center">{t(label)}</th>)}</tr></thead><tbody>{activePermissions.map(([name, Icon, ...permissions]) => <tr key={name} className="border-t border-slate-100"><td className="px-4 py-2.5 font-medium text-slate-700"><Icon className="mr-2 inline text-blue-600" size={14} />{t(name)}</td>{permissions.map((allowed, index) => <td key={`${name}-${index}`} className="px-2 py-2.5 text-center"><PermissionState allowed={allowed} /></td>)}</tr>)}</tbody></table></div>
+					<div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-[10px]"><thead><tr className="bg-slate-50 text-left font-bold text-slate-600"><th className="px-4 py-3">{t('Module / Feature')}</th>{permissionLabels.map((label) => <th key={label} className="px-2 py-3 text-center">{t(label)}</th>)}</tr></thead><tbody>{activePermissions.map(([name, Icon, ...permissions]) => <tr key={name} className="border-t border-slate-100"><td className="px-4 py-2.5 font-medium text-slate-700"><Icon className="mr-2 inline text-blue-600" size={14} />{t(name)}</td>{permissions.map((allowed, index) => <td key={`${name}-${index}`} className="px-2 py-2.5 text-center">{editingPermissions ? <input type="checkbox" aria-label={`${name} ${permissionLabels[index]}`} checked={allowed} onChange={() => togglePermission(name, permissionLabels[index])} className="h-3.5 w-3.5 cursor-pointer accent-blue-600" /> : <PermissionState allowed={allowed} />}</td>)}</tr>)}</tbody></table></div>
 					<div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500"><span>{t('Showing')} 1 {t('to')} {activePermissions.length} {t('of')} {activePermissions.length} {t('modules')}</span><span className="flex gap-4"><span className="inline-flex items-center gap-1"><PermissionState allowed /> {t('Allowed')}</span><span className="inline-flex items-center gap-1"><PermissionState allowed={false} /> {t('Denied')}</span></span></div>{message && <p className={`border-t px-4 py-3 text-xs ${message.includes('successfully') ? 'border-emerald-100 text-emerald-600' : 'border-rose-100 text-rose-600'}`}>{message}</p>}
 				</div>
 			</div> : <div className="mt-4 rounded-md border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">{t('Select a role to manage its permissions.')}</div>}

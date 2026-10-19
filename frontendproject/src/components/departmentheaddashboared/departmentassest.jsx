@@ -233,9 +233,9 @@ export default function DepartmentAssets() {
 		<div className="space-y-4 text-slate-700">
 			<header className="flex flex-wrap items-start justify-between gap-4">
 				<div>
-					<p className="mb-1 flex items-center gap-2 text-[11px] text-slate-400"><span>Home</span><span>/</span><span>Handover</span><span>/</span><span className="font-semibold text-teal-700">Obligations Check</span></p>
-					<h1 className="text-xl font-bold text-slate-900">Handover / Obligations Check</h1>
-					<p className="mt-1 text-[11px] text-slate-500">Verify the employee has no pending work, assets, or obligations with your department before approving clearance.</p>
+					<p className="mb-1 flex items-center gap-2 text-[11px] text-slate-400"><span>Home</span><span>/</span><span>Handover</span><span>/</span><span className="font-semibold text-blue-700">Department Clearance</span></p>
+					<h1 className="text-xl font-bold text-slate-900">Department Head Checklist</h1>
+					<p className="mt-1 text-[11px] text-slate-500">Review responsibilities, documents, and department assets before approving employee clearance.</p>
 				</div>
 				{request && <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-right shadow-sm"><p className="text-[10px] font-semibold uppercase text-slate-400">Request Status</p><span className="mt-1 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">{request.departmentStatus || 'Pending'}</span></div>}
 			</header>
@@ -263,60 +263,96 @@ export default function DepartmentAssets() {
 					</div>
 				</section>
 
-				<section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-					<div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-						<div><h2 className="flex items-center gap-2 text-sm font-bold text-slate-900"><ClipboardCheck size={16} className="text-blue-600" />{profile.title}</h2><p className="mt-1 text-[10px] text-slate-500">Check each item and add a note when further explanation is useful.</p></div>
-						<div className="text-right"><p className="text-xs font-bold text-slate-800">{clearedCount} / {checklist.length} Cleared</p><p className="text-[10px] text-slate-500">{notApplicableCount} marked N/A</p></div>
+				<section className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+					<div className="bg-gradient-to-r from-blue-950 via-blue-800 to-blue-700 px-5 py-5 text-white sm:px-7">
+						<div className="flex flex-wrap items-center justify-between gap-4">
+							<div className="flex items-center gap-3">
+								<span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-white/15"><ClipboardCheck size={27} /></span>
+								<div>
+									<h2 className="text-lg font-extrabold sm:text-xl">{profile.title}</h2>
+									<p className="mt-1 text-xs text-blue-100 sm:text-sm">Before approving an employee clearance, check every item below.</p>
+								</div>
+							</div>
+							<div className="min-w-40 rounded-lg border border-white/20 bg-white/10 px-4 py-2.5">
+								<div className="flex items-center justify-between gap-4 text-xs font-semibold"><span>Checklist progress</span><span>{clearedCount + notApplicableCount}/{checklist.length}</span></div>
+								<div className="mt-2 h-2 overflow-hidden rounded-full bg-white/25"><div className="h-full rounded-full bg-emerald-300 transition-all" style={{ width: `${checklist.length ? ((clearedCount + notApplicableCount) / checklist.length) * 100 : 0}%` }} /></div>
+							</div>
+						</div>
 					</div>
-					<div className="max-h-[440px] overflow-auto">
-						<table className="w-full min-w-[850px] text-left text-[10px]">
-							<thead className="sticky top-0 z-10 bg-slate-50 text-[9px] font-bold uppercase tracking-wide text-slate-500">
-								<tr><th className="w-9 px-3 py-2 text-center">#</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">Description / Details</th><th className="w-32 px-3 py-2">Status</th><th className="min-w-40 px-3 py-2">Remarks</th><th className="min-w-36 px-3 py-2">Attachment</th><th className="min-w-44 px-3 py-2">Action</th></tr>
-							</thead>
-							<tbody className="divide-y divide-slate-100">
-								{checklist.map((item, index) => {
-									const sectionTitle = profile.sections.find((section) => section.key === item.section)?.title || 'Department';
-									const document = item.attachment;
-									const documentName = document ? getDocumentName(document) : '';
-									const statusClass = item.status === 'Cleared' ? 'bg-emerald-50 text-emerald-700' : item.status === 'N/A' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700';
-									return (
-										<tr key={`${item.section}-${item.item}`} className="align-middle">
-											<td className="px-3 py-2 text-center text-slate-400">{index + 1}</td>
-											<td className="px-3 py-2 font-semibold text-slate-700">{sectionTitle}</td>
-											<td className="px-3 py-2 font-medium text-slate-800">{item.item}</td>
-											<td className="px-3 py-2"><select aria-label={`${item.item} status`} value={item.status} disabled={!canReview} onChange={(event) => updateItem(item.item, 'status', event.target.value)} className={`w-full rounded-full border-0 px-2 py-1.5 text-[10px] font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-80 ${statusClass}`}><option>Pending</option><option>Cleared</option><option>N/A</option></select></td>
-											<td className="px-3 py-2"><input aria-label={`${item.item} remarks`} value={item.note} disabled={!canReview} onChange={(event) => updateItem(item.item, 'note', event.target.value)} placeholder="Add remarks" className="w-full rounded border border-slate-200 px-2 py-1.5 text-[10px] outline-none focus:border-teal-500 disabled:bg-slate-50" /></td>
-											<td className="px-3 py-2">
-												<label className={`inline-flex cursor-pointer items-center gap-1 rounded border border-slate-200 px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50 ${!canReview || Boolean(uploadingItem) ? 'cursor-not-allowed opacity-50' : ''}`}>
-													<Upload size={11} />{uploadingItem === item.item ? 'Uploading...' : 'Upload'}
-													<input
-														type="file"
-														accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
-														disabled={!canReview || Boolean(uploadingItem)}
-														className="sr-only"
-														onChange={(event) => {
-															const file = event.target.files?.[0];
-															void uploadAttachment(item, file);
-															event.target.value = '';
-														}}
-													/>
-												</label>
-												{documentName && <span className="mt-1 flex max-w-40 items-center gap-1 truncate text-blue-700" title={documentName}><Paperclip size={11} />{documentName}</span>}
-											</td>
-											<td className="px-3 py-2">
-												{document?.storageName ? (
-													<div className="flex flex-wrap items-center gap-1">
-														<button type="button" onClick={() => previewAttachment(item)} disabled={Boolean(attachmentActionItem)} className="inline-flex items-center gap-1 rounded border border-blue-200 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"><Eye size={11} />{attachmentActionItem === item.item ? 'Opening...' : 'View'}</button>
-														<button type="button" onClick={() => downloadAttachment(item)} disabled={Boolean(attachmentActionItem)} className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download size={11} />Download</button>
-														<button type="button" onClick={() => setPendingDeleteItem(item)} disabled={!canReview || Boolean(attachmentActionItem)} className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 size={11} />Delete</button>
+					<div className="grid items-stretch gap-3 p-3 sm:gap-4 sm:p-4 xl:grid-cols-3">
+						{profile.sections.map((section, sectionIndex) => {
+							const SectionIcon = section.icon;
+							const sectionItems = checklist.filter((item) => item.section === section.key);
+							const sectionStyle = section.tone === 'blue'
+								? { border: 'border-blue-500', header: 'bg-gradient-to-r from-blue-700 to-blue-600', body: 'bg-blue-50/70', badge: 'bg-blue-700', icon: 'text-blue-700', item: 'border-blue-100' }
+								: section.tone === 'emerald'
+									? { border: 'border-emerald-600', header: 'bg-gradient-to-r from-emerald-800 to-emerald-700', body: 'bg-emerald-50/70', badge: 'bg-emerald-800', icon: 'text-emerald-700', item: 'border-emerald-100' }
+									: section.tone === 'violet'
+										? { border: 'border-violet-500', header: 'bg-gradient-to-r from-violet-800 to-violet-700', body: 'bg-violet-50/70', badge: 'bg-violet-800', icon: 'text-violet-700', item: 'border-violet-100' }
+										: { border: 'border-amber-500', header: 'bg-gradient-to-r from-amber-700 to-amber-600', body: 'bg-amber-50/70', badge: 'bg-amber-700', icon: 'text-amber-700', item: 'border-amber-100' };
+							const firstItemNumber = profile.sections.slice(0, sectionIndex).reduce((total, previous) => total + previous.items.length, 1);
+							return (
+								<article key={section.key} className={`overflow-hidden rounded-xl border-2 ${sectionStyle.border}`}>
+									<div className={`${sectionStyle.header} flex min-h-16 items-center gap-3 px-3 py-2.5 text-white`}>
+										<span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-lg font-extrabold text-slate-800">{sectionIndex + 1}</span>
+										<SectionIcon size={27} className="shrink-0" />
+										<div className="min-w-0">
+											<h3 className="text-sm font-extrabold leading-tight">{section.title}</h3>
+											<p className="mt-0.5 text-[10px] text-white/85">{sectionItems.length} checklist items</p>
+										</div>
+									</div>
+									<div className={`h-full space-y-2.5 p-2.5 ${sectionStyle.body}`}>
+										{sectionItems.map((item, itemIndex) => {
+											const document = item.attachment;
+											const documentName = document ? getDocumentName(document) : '';
+											const detailsOpen = Boolean(item.note || documentName);
+											const checkboxId = `department-checklist-${section.key}-${itemIndex}`;
+											return (
+												<div key={`${item.section}-${item.item}`} className={`rounded-lg border bg-white/85 p-2.5 shadow-sm ${sectionStyle.item}`}>
+													<div className="flex items-start gap-2.5">
+														<input
+															id={checkboxId}
+															type="checkbox"
+															aria-label={`Mark ${item.item} cleared`}
+															checked={item.status === 'Cleared'}
+															disabled={!canReview}
+															onChange={(event) => updateItem(item.item, 'status', event.target.checked ? 'Cleared' : 'Pending')}
+															className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-blue-700 disabled:cursor-not-allowed"
+														/>
+														<span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-extrabold text-white ${sectionStyle.badge}`}>{firstItemNumber + itemIndex}</span>
+														<div className="min-w-0 flex-1">
+															<label htmlFor={checkboxId} className={`cursor-pointer text-xs font-bold leading-snug text-slate-900 ${item.status === 'Cleared' ? 'text-emerald-800' : ''}`}>{item.item}</label>
+															<div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+																<span className={`text-[10px] font-semibold ${item.status === 'Cleared' ? 'text-emerald-700' : item.status === 'N/A' ? 'text-slate-500' : 'text-amber-700'}`}>{item.status === 'Cleared' ? 'Cleared' : item.status === 'N/A' ? 'Not applicable' : 'Pending review'}</span>
+																{documentName && <span className="inline-flex max-w-full items-center gap-1 truncate text-[10px] text-blue-700" title={documentName}><Paperclip size={10} />{documentName}</span>}
+															</div>
+														</div>
 													</div>
-												) : <span className="text-slate-400">-</span>}
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
+													<details open={detailsOpen || undefined} className="ml-7 mt-2 border-t border-slate-100 pt-2">
+														<summary className={`cursor-pointer select-none text-[10px] font-semibold ${sectionStyle.icon}`}>Remarks and attachments</summary>
+														<div className="mt-2 space-y-2">
+															<input aria-label={`${item.item} remarks`} value={item.note} disabled={!canReview} onChange={(event) => updateItem(item.item, 'note', event.target.value)} placeholder="Add remarks" className="w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[10px] outline-none focus:border-blue-500 disabled:bg-slate-50" />
+															<div className="flex flex-wrap items-center gap-2">
+																<select aria-label={`${item.item} status`} value={item.status} disabled={!canReview} onChange={(event) => updateItem(item.item, 'status', event.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 outline-none focus:border-blue-500 disabled:opacity-60"><option>Pending</option><option>Cleared</option><option>N/A</option></select>
+																<label className={`inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 ${!canReview || Boolean(uploadingItem) ? 'cursor-not-allowed opacity-50' : ''}`}>
+																	<Upload size={11} />{uploadingItem === item.item ? 'Uploading...' : 'Upload file'}
+																	<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" disabled={!canReview || Boolean(uploadingItem)} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; void uploadAttachment(item, file); event.target.value = ''; }} />
+																</label>
+																{document?.storageName && <>
+																	<button type="button" onClick={() => previewAttachment(item)} disabled={Boolean(attachmentActionItem)} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"><Eye size={11} />{attachmentActionItem === item.item ? 'Opening...' : 'View'}</button>
+																	<button type="button" onClick={() => downloadAttachment(item)} disabled={Boolean(attachmentActionItem)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download size={11} />Download</button>
+																	<button type="button" onClick={() => setPendingDeleteItem(item)} disabled={!canReview || Boolean(attachmentActionItem)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 size={11} />Delete</button>
+																</>}
+															</div>
+														</div>
+													</details>
+												</div>
+											);
+										})}
+									</div>
+								</article>
+							);
+						})}
 					</div>
 				</section>
 

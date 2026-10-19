@@ -1,10 +1,12 @@
 import bcrypt from 'bcrypt';
+import { randomBytes } from 'node:crypto';
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Employee from '../models/employee.js';
 import Department from '../models/department.js';
 import { recordAuditLog } from './auditLogger.js';
 import { selectActiveRole } from '../utils/userRoleState.js';
+import { sendCredentialsEmail } from '../utils/emailService.js';
 
 const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -99,7 +101,8 @@ const parseUserRoles = (value) => {
 
 const addUser = async (req, res) => {
   try {
-    const { username, employeeId, password, confirmPassword, role, roles, status, activeRole } = req.body;
+    const { username, employeeId, password, confirmPassword, role, roles, status, activeRole, sendCredentials } = req.body;
+    const shouldSendCredentials = sendCredentials === true;
     const selectedRoles = parseUserRoles(roles?.length ? roles : role);
     if (!username?.trim() || !employeeId?.trim() || !selectedRoles.length) {
       return res.status(400).json({ success: false, message: 'Username, employee ID, and at least one role are required.' });
@@ -107,7 +110,9 @@ const addUser = async (req, res) => {
     if (password && password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Password and confirm password must match.' });
     }
-
+    if (shouldSendCredentials && (typeof password !== 'string' || password.length < 8)) {
+      return res.status(400).json({ success: false, message: 'Enter the password you want emailed. It must be at least 8 characters.' });
+    }
     const employee = await Employee.findOne({ employeeId: employeeId.trim() }).lean();
     if (!employee) return res.status(404).json({ success: false, message: 'Linked employee was not found.' });
     const departmentRecord = employee.departmentId
@@ -119,8 +124,21 @@ const addUser = async (req, res) => {
     const normalizedEmail = employee.email?.trim().toLowerCase() || '';
     const existingEmployeeUser = await User.findOne({ employeeId: normalizedEmployeeId }).select('_id username employeeId email roles role activeRole status').lean();
 
-    if (!existingEmployeeUser && !password) {
+    if (shouldSendCredentials && existingEmployeeUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'This employee already has a user account. Use the separate Send Credentials action to reset and email a temporary password.',
+      });
+    }
+    if (!existingEmployeeUser && !password && sendCredentials !== true) {
       return res.status(400).json({ success: false, message: 'A password is required to create a new user account.' });
+    }
+    const senderEmail = typeof req.user?.email === 'string' ? req.user.email.trim().toLowerCase() : '';
+    if (shouldSendCredentials && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
+      return res.status(400).json({ success: false, message: 'Your account must have a valid registered email address to send credentials.' });
+    }
+    if (shouldSendCredentials && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ success: false, message: 'The employee does not have a valid email address.' });
     }
 
     const duplicateUsername = await User.findOne({ username: normalizedUsername }).select('_id username employeeId').lean();
@@ -189,6 +207,9 @@ const addUser = async (req, res) => {
       });
     }
 
+    const temporaryPassword = shouldSendCredentials
+      ? password
+      : password || randomBytes(32).toString('base64url');
     const user = await User.create({
       username: normalizedUsername,
       employeeId: normalizedEmployeeId,
@@ -196,12 +217,40 @@ const addUser = async (req, res) => {
       email: normalizedEmail,
       department: employee.department,
       departmentId: employee.departmentId || departmentRecord?._id || null,
-      password: await bcrypt.hash(password, 10),
+      password: await bcrypt.hash(temporaryPassword, 12),
       role: resolvedActiveRole,
       roles: resolvedRoles,
       activeRole: resolvedActiveRole,
       status: status || 'Active',
+      mustChangePassword: shouldSendCredentials,
     });
+
+    if (shouldSendCredentials) {
+      try {
+        await sendCredentialsEmail({
+          recipient: { name: user.name, email: normalizedEmail },
+          sender: { name: req.user.name, email: senderEmail },
+          username: user.username,
+          password: temporaryPassword,
+        });
+      } catch (error) {
+        console.error('Credential email delivery failed during user creation:', error.message);
+        let accountRemoved = true;
+        try {
+          const deletion = await User.deleteOne({ _id: user._id });
+          accountRemoved = deletion.deletedCount === 1;
+        } catch (rollbackError) {
+          accountRemoved = false;
+          console.error('Unable to remove user after credential email failure:', rollbackError);
+        }
+        return res.status(502).json({
+          success: false,
+          message: accountRemoved
+            ? 'The credentials email could not be sent, so the new user account was not kept. Check the server SMTP configuration and retry.'
+            : 'The credentials email could not be sent and the new account could not be removed automatically. Contact an administrator before retrying.',
+        });
+      }
+    }
 
     await recordAuditLog({
       req,
@@ -215,10 +264,17 @@ const addUser = async (req, res) => {
         employeeId: user.employeeId,
         role: user.role,
         status: user.status,
+        credentialsEmailSent: shouldSendCredentials,
       },
     });
 
-    return res.status(201).json({ success: true, message: 'User created successfully.', user: { id: user._id, username: user.username } });
+    return res.status(201).json({
+      success: true,
+      message: shouldSendCredentials
+        ? 'User created successfully and login credentials sent by email.'
+        : 'User created successfully.',
+      user: { id: user._id, username: user.username },
+    });
   } catch (error) {
     console.error('Error in addUser:', error);
     return res.status(500).json({ success: false, message: 'Server error while creating user.' });
@@ -239,6 +295,9 @@ const updateUser = async (req, res) => {
     }
     if (password && password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Password and confirm password must match.' });
+    }
+    if (password && password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
     }
 
     const user = await User.findById(userId);
@@ -377,4 +436,79 @@ const resetUserPassword = async (req, res) => {
   }
 };
 
-export { getUsers, getUser, addUser, updateUser, resetUserPassword };
+const sendUserCredentials = async (req, res) => {
+  try {
+    const employeeId = typeof req.body.employeeId === 'string' ? req.body.employeeId.trim() : '';
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!employeeId && !email) {
+      return res.status(400).json({ success: false, message: 'An employee ID or email address is required.' });
+    }
+
+    let employee = employeeId
+      ? await Employee.findOne({ employeeId }).lean()
+      : await Employee.findOne({ email }).collation({ locale: 'en', strength: 2 }).lean();
+    let user = employeeId
+      ? await User.findOne({ employeeId })
+      : await User.findOne({ email }).collation({ locale: 'en', strength: 2 });
+
+    if (!employee && email && user?.employeeId) {
+      employee = await Employee.findOne({ employeeId: user.employeeId }).lean();
+    }
+    if (!user && employee) {
+      user = await User.findOne({ employeeId: employee.employeeId });
+    }
+    if (!employee && !user) {
+      return res.status(404).json({ success: false, message: 'Employee was not found.' });
+    }
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'No user account was found for this employee.' });
+    }
+
+    const recipientEmail = employee?.email?.trim().toLowerCase() || user.email?.trim().toLowerCase() || '';
+    if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+      return res.status(400).json({ success: false, message: 'The employee does not have a valid email address.' });
+    }
+    const senderEmail = typeof req.user?.email === 'string' ? req.user.email.trim().toLowerCase() : '';
+    if (!senderEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
+      return res.status(400).json({ success: false, message: 'Your account must have a valid registered email address to send credentials.' });
+    }
+
+    const temporaryPassword = randomBytes(18).toString('base64url');
+    user.password = await bcrypt.hash(temporaryPassword, 12);
+    user.mustChangePassword = true;
+    user.passwordChangedAt = null;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    await user.save();
+
+    try {
+      await sendCredentialsEmail({
+        recipient: { name: user.name, email: recipientEmail },
+        sender: { name: req.user.name, email: senderEmail },
+        username: user.username,
+        password: temporaryPassword,
+      });
+    } catch (error) {
+      console.error('User credential email delivery failed:', error.message);
+      return res.status(502).json({
+        success: false,
+        message: 'The temporary password was set, but the email could not be sent. Check the server SMTP configuration and that it is authorized to send as your registered email, then retry.',
+      });
+    }
+
+    void recordAuditLog({
+      req,
+      user: req.user,
+      action: 'SEND_USER_CREDENTIALS',
+      module: 'Users',
+      description: `Sent login credentials to ${user.name || user.username}.`,
+      newValues: { userId: user._id, username: user.username, employeeId: user.employeeId },
+    }).catch((error) => console.error('Credential email audit log failed:', error.message));
+
+    return res.status(200).json({ success: true, message: 'Login credentials sent successfully.' });
+  } catch (error) {
+    console.error('Error sending user credentials:', error);
+    return res.status(500).json({ success: false, message: 'Unable to send login credentials.' });
+  }
+};
+
+export { getUsers, getUser, addUser, updateUser, resetUserPassword, sendUserCredentials };

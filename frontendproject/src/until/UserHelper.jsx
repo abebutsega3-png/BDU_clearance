@@ -31,6 +31,13 @@ export const createUser = async (userData) => {
   return response.data;
 };
 
+export const sendUserCredentials = async (employeeId) => {
+  const response = await axios.post('/api/users/send-credentials', { employeeId }, {
+    headers: getUserHeaders(),
+  });
+  return response.data;
+};
+
 export const updateUser = async (userId, userData) => {
   const response = await axios.put(`${userApiUrl}/${encodeURIComponent(userId)}`, userData, {
     headers: getUserHeaders(),

@@ -1523,6 +1523,7 @@ const updateClearance = async (req, res) => {
 			requestUpdates.libraryComment = comment;
 			requestUpdates.libraryReturnReason = returnReason;
 			requestUpdates.libraryReviewedBy = req.user?.fullName || req.user?.name || 'Library Officer';
+			requestUpdates.libraryReviewedById = req.user?._id || null;
 			requestUpdates.libraryReviewedAt = new Date();
 			if (status === 'Rejected') {
 				requestUpdates.status = 'Returned';
@@ -1636,6 +1637,12 @@ const updateClearance = async (req, res) => {
 			const libraryStep = {
 				...(libraryIndex >= 0 ? workflow[libraryIndex] : { office: 'Library Office' }),
 				status: libraryWorkflowStatus,
+				reviewedBy: requestUpdates.libraryReviewedBy,
+				reviewedById: requestUpdates.libraryReviewedById,
+				...(libraryDecision.status === 'Completed' ? {
+					approvedBy: requestUpdates.libraryReviewedBy,
+					approvedById: requestUpdates.libraryReviewedById,
+				} : {}),
 				updatedAt: new Date(),
 				comment: libraryDecision.comment || '',
 				returnReason: libraryDecision.returnReason || '',
@@ -1772,7 +1779,16 @@ const updateClearance = async (req, res) => {
 			module: 'Clearance Request',
 			description: `${clearance.employeeName || 'An employee'} clearance status changed to ${clearance.status}.`,
 			oldValues: { requestId: clearance.requestId, status: requestUpdates.status || 'Previous status' },
-			newValues: { requestId: clearance.requestId, status: clearance.status },
+			newValues: {
+				requestId: clearance.requestId,
+				status: clearance.status,
+				...(libraryDecision ? {
+					office: 'Library',
+					libraryStatus: requestUpdates.libraryStatus,
+					libraryReviewedBy: requestUpdates.libraryReviewedBy,
+					libraryReviewedById: requestUpdates.libraryReviewedById,
+				} : {}),
+			},
 		});
 		if (requiresIctClearance(clearance)) await createIctClearanceRequestFromClearance(clearance);
 		const statusMessages = {

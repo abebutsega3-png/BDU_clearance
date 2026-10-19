@@ -4,7 +4,7 @@ import axios from 'axios';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Download, Eye, Printer, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Download, Eye, ImageUp, Printer, X } from 'lucide-react';
 import universityLogo from '../../assets/image.png';
 
 const formatDate = (value, fallback = '—') => {
@@ -33,7 +33,7 @@ const authConfig = () => ({
 });
 const displayReviewerName = (value) => {
   const name = String(getReviewerName(value) || '').trim();
-  const roleLabels = /^(hr(?: officer)?|finance officer|department head|library officer|property(?:\s*\/\s*asset)? officer|ict officer|transport officer)$/i;
+  const roleLabels = /^(?:hr(?: officer| office)?|human resources(?: office)?|finance(?: officer| office)?|department head|library(?: officer| office)?|property(?:\s*\/\s*asset)?(?: officer| office)?|ict(?: officer| office)?|transport(?: officer| office)?)$/i;
   return !name || name === '-' || name === '—' || roleLabels.test(name) ? '—' : name;
 };
 const normalizeOfficeName = (value) => {
@@ -48,16 +48,6 @@ const normalizeOfficeName = (value) => {
   if (name.includes('finalhr') || name === 'hroffice') return 'finalhrclearance';
   return name;
 };
-const getOfficeRoleLabel = (officeName) => ({
-  finalhrclearance: 'HR Officer',
-  departmenthead: 'Department Head',
-  financeoffice: 'Finance Officer',
-  library: 'Library Officer',
-  propertyassetoffice: 'Property Officer',
-  ictoffice: 'ICT Officer',
-  transportoffice: 'Transport Officer',
-}[normalizeOfficeName(officeName)] || 'Assigned Officer');
-
 const getOfficeSummary = (clearance) => {
   const finalApprovalRecorded = clearance?.finalHRApproval === true
     && String(clearance?.status || '').toLowerCase() === 'completed';
@@ -103,7 +93,6 @@ const getOfficeSummary = (clearance) => {
     ictoffice: ['ictStatus', 'ictReviewedBy', 'ictReviewedAt'],
     transportoffice: ['transportStatus', 'transportReviewedBy', 'transportReviewedAt'],
   };
-
   return offices.map((office) => {
     const matchingSteps = reviewSteps.filter((step) => normalizeOfficeName(step?.name || step?.office || step?.department)
       === normalizeOfficeName(office.name));
@@ -111,11 +100,17 @@ const getOfficeSummary = (clearance) => {
       || [...matchingSteps].reverse().find((step) => step?.status)
       || {};
     const mappedFields = officeStatusFields[normalizeOfficeName(office.name)] || [];
-    const officeProgress = [...(Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : [])]
+    const officeProgress = [
+      ...(Array.isArray(clearance?.departmentClearances) ? clearance.departmentClearances : []),
+      ...(Array.isArray(clearance?.officesProgress) ? clearance.officesProgress : []),
+    ]
       .reverse()
       .find((entry) => normalizeOfficeName(entry?.office || entry?.name) === normalizeOfficeName(office.name));
     const propertyReview = normalizeOfficeName(office.name) === 'propertyassetoffice'
       ? clearance?.propertyClearance || clearance?.propertyReview || {}
+      : {};
+    const libraryReview = normalizeOfficeName(office.name) === 'library'
+      ? clearance?.libraryClearance || clearance?.libraryReview || {}
       : {};
     const status = normalizeOfficeName(office.name) === 'departmenthead'
       ? clearance?.departmentStatus
@@ -124,33 +119,43 @@ const getOfficeSummary = (clearance) => {
         : '';
     const isHrOffice = normalizeOfficeName(office.name) === 'finalhrclearance';
     const reviewerCandidates = [
+      office.clearedBy,
+      officeProgress?.clearedBy,
+      officeProgress?.approvedBy,
+      officeProgress?.reviewedBy,
+      officeProgress?.officerName,
+      mappedFields.length ? clearance?.[mappedFields[1]] : '',
+      normalizeOfficeName(office.name) === 'library' ? clearance?.libraryReviewedByName : '',
+      normalizeOfficeName(office.name) === 'finalhrclearance' ? clearance?.initialHRReviewedByName : '',
+      normalizeOfficeName(office.name) === 'propertyassetoffice' ? clearance?.propertyReviewedByName : '',
       office.approvedBy,
       office.approvedByName,
       office.reviewerName,
-      office.clearedBy,
       office.approver,
-      officeProgress?.clearedBy,
-      officeProgress?.approvedBy,
+      match?.clearedBy,
+      match?.approvedBy,
       officeProgress?.approvedByName,
-      officeProgress?.reviewedBy,
       officeProgress?.reviewerName,
-      officeProgress?.officerName,
-      mappedFields.length ? clearance?.[mappedFields[1]] : '',
+      normalizeOfficeName(office.name) === 'library' ? clearance?.libraryClearance?.reviewedBy : '',
+      normalizeOfficeName(office.name) === 'library' ? clearance?.libraryClearance?.approvedBy : '',
+      libraryReview.reviewedByName,
+      libraryReview.approvedByName,
+      libraryReview.officerName,
       propertyReview.approvedBy,
       propertyReview.approvedByName,
       propertyReview.reviewedBy,
       propertyReview.reviewerName,
-      match?.approvedBy,
+      propertyReview.reviewedByName,
+      propertyReview.officerName,
       match?.approvedByName,
       match?.reviewedBy,
       match?.reviewedByName,
-      match?.clearedBy,
       match?.performedBy,
       match?.officerName,
     ];
     const approvedBy = reviewerCandidates
       .map(displayReviewerName)
-      .find((name) => name !== '—') || getOfficeRoleLabel(office.name);
+      .find((name) => name !== '—') || '—';
     const approvalDate = [
       office.approvalDate,
       officeProgress?.clearedDate,
@@ -170,6 +175,7 @@ const getOfficeSummary = (clearance) => {
     return {
       ...office,
       status: String(resolvedStatus).toUpperCase(),
+      clearedBy: approvedBy,
       approvedBy,
       approvalDate: approvalDate || '',
     };
@@ -184,6 +190,8 @@ export default function CertificatePreview() {
   const [issuing, setIssuing] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [certificateImage, setCertificateImage] = useState('');
+  const [officialStamp, setOfficialStamp] = useState('');
+  const [stampUploading, setStampUploading] = useState(false);
   const [detailsLoaded, setDetailsLoaded] = useState(false);
   const autoDownloadStarted = useRef(false);
   const requestId = clearance.requestId || clearance._id;
@@ -216,7 +224,7 @@ export default function CertificatePreview() {
       return undefined;
     }
     let active = true;
-    axios.get(`http://localhost:3000/api/hr-final-clearance/clearance/${requestId}`, {
+    axios.get(`/api/hr-final-clearance/clearance/${requestId}`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
     }).then(({ data }) => {
       if (active && data?.clearance) setClearance((current) => ({ ...current, ...data.clearance }));
@@ -229,6 +237,18 @@ export default function CertificatePreview() {
     });
     return () => { active = false; };
   }, [requestId]);
+
+  useEffect(() => {
+    let active = true;
+    axios.get('http://localhost:3000/api/hr/settings', authConfig())
+      .then(({ data }) => {
+        if (active) setOfficialStamp(data?.settings?.officialStamp || '');
+      })
+      .catch((error) => {
+        if (active) setSaveError(getCertificateErrorMessage(error, 'Unable to load the official stamp.'));
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const certificateElement = document.getElementById('certificate-image-source');
@@ -249,7 +269,7 @@ export default function CertificatePreview() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [clearance, officeSummary, finalStatus, location.state?.autoDownload]);
+  }, [clearance, officeSummary, finalStatus, officialStamp, location.state?.autoDownload]);
 
   useEffect(() => {
     if (!location.state?.autoDownload || !detailsLoaded || !certificateImage
@@ -307,7 +327,7 @@ export default function CertificatePreview() {
       setSaving(true);
       setSaveError('');
       const { data } = await axios.post(
-        `http://localhost:3000/api/hr-final-clearance/clearance/${requestId}/certificate`,
+        `/api/hr-final-clearance/clearance/${requestId}/certificate`,
         {},
         authConfig(),
       );
@@ -351,6 +371,38 @@ export default function CertificatePreview() {
       setSaveError(getCertificateErrorMessage(error, 'Unable to issue certificate to employee.'));
     } finally {
       setIssuing(false);
+    }
+  };
+
+  const handleStampUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setSaveError('Choose a PNG or JPEG image for the official stamp.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setSaveError('The official stamp must be 2 MB or smaller.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('stamp', file);
+    setStampUploading(true);
+    setSaveError('');
+    try {
+      const { data } = await axios.post(
+        'http://localhost:3000/api/hr/settings/official-stamp',
+        formData,
+        authConfig(),
+      );
+      setOfficialStamp(data.officialStamp);
+      setCertificateImage('');
+    } catch (error) {
+      setSaveError(getCertificateErrorMessage(error, 'Unable to upload the official stamp.'));
+    } finally {
+      setStampUploading(false);
     }
   };
 
@@ -429,7 +481,7 @@ export default function CertificatePreview() {
               {officeSummary.map((office, index) => (
                 <div key={`${office.name}-${index}`} className="grid grid-cols-[1.4fr_1fr_0.9fr_1fr] border-b border-slate-200 last:border-b-0 text-[12px] text-slate-700">
                   <div className="px-3 py-2 font-medium">{index + 1}. {office.name}</div>
-                  <div className="px-3 py-2">{displayValue(office.approvedBy)}</div>
+                  <div className="px-3 py-2">{displayValue(office.clearedBy || office.approvedBy)}</div>
                   <div className="px-3 py-2">{formatDate(office.approvalDate)}</div>
                   <div className="px-3 py-2 text-right">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 font-bold ${office.status === 'APPROVED' || office.status === 'CLEARED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -456,11 +508,33 @@ export default function CertificatePreview() {
               </div>
               <div className="space-y-3 text-center">
                 <div>Official Stamp</div>
-                <div className="mx-auto h-20 w-44 border-2 border-dashed border-slate-400 pt-8 text-slate-400">STAMP</div>
+                <div className="mx-auto flex h-20 w-44 items-center justify-center overflow-hidden border-2 border-dashed border-slate-400">
+                  {officialStamp
+                    ? <img src={officialStamp} alt="Official HR stamp" className="h-full w-full object-contain" />
+                    : <span className="text-slate-400">STAMP</span>}
+                </div>
                 <div>Issue Date: {formatDate(completedDate || new Date())}</div>
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div>
+            <div className="text-[12px] font-semibold text-slate-700">Official Stamp</div>
+            <div className="text-[11px] text-slate-500">Upload or replace the stamp shown on this certificate and its PDF.</div>
+          </div>
+          <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#1d3b82] px-4 py-2 text-[12px] font-semibold text-white hover:bg-blue-900 ${stampUploading ? 'cursor-wait opacity-60' : ''}`}>
+            <ImageUp size={14} />
+            {stampUploading ? 'Uploading...' : officialStamp ? 'Replace Stamp' : 'Upload Stamp'}
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={handleStampUpload}
+              disabled={stampUploading}
+              className="sr-only"
+            />
+          </label>
         </div>
 
         {saveError && <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-right text-[12px] text-red-700">{saveError}</div>}

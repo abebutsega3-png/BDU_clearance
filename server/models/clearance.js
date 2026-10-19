@@ -66,6 +66,7 @@ const clearanceSchema = new mongoose.Schema({
 	libraryComment: { type: String, default: '' },
 	libraryReturnReason: { type: String, default: '' },
 	libraryReviewedBy: { type: String, default: '' },
+	libraryReviewedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 	libraryReviewedAt: { type: Date, default: null },
 	departmentStatus: { type: String, enum: ['Pending', 'In Progress', 'Approved', 'Returned'], default: 'Pending', index: true },
 	departmentReturnReason: { type: String, default: '' },

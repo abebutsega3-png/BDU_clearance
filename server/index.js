@@ -188,6 +188,7 @@ app.get('/api/health', (req, res) => {
 // 1. Core & Admin Routes
 app.use('/api/auth', authRouter);
 app.use('/api/user', userRouter);
+app.use('/api/users', userRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/roles', roleRouter);
 app.use('/api/employee', employeeRouter);

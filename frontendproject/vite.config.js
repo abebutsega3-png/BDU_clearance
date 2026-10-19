@@ -1,4 +1,3 @@
-
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -16,14 +15,24 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
-    strictPort: false,
-    hmr: {
-      overlay: true,
+    strictPort: false, // ፖርቱ ከተያዘ በራሱ ወደ ሌላ እንዳይቀይርና እንዳይዘጋ ያደርጋል
+    
+    // በዊንዶውስ ላይ ፋይሎች በሚቀየሩበት ጊዜ ፍሮንትኤንዱ በድንገት እንዳይቆም/እንዳይዘጋ ያደርጋል
+    watch: {
+      usePolling: true,
+      interval: 100,
     },
+
+    // ኤረር ሲኖር የ HMR ስክሪን መጥቶ ሰርቨሩን እንዳያቆመው ያደርጋል
+    hmr: {
+      overlay: false,
+    },
+
     proxy: {
       '/api': {
         target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
+        secure: false,
       },
     },
   },

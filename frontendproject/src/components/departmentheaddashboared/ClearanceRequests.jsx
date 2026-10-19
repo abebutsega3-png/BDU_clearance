@@ -1,21 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search,
-  Calendar,
   Filter,
   RotateCcw,
-  Eye,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  X,
-  CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { freshChecklist, getChecklistProfile } from './departmentChecklist';
-
 const departmentUpdateUrl = (id) => `http://localhost:3000/api/clearance/${id}`;
 const updateDepartmentClearance = async (id, payload) => {
   const response = await axios.put(departmentUpdateUrl(id), payload, {
@@ -62,14 +56,18 @@ export default function ClearanceRequests() {
   const [isReturnMode, setIsReturnMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
-  const [departmentClearanceItems, setDepartmentClearanceItems] = useState([]);
   const [stats, setStats] = useState({ all: 0, pending: 0, underReview: 0, approved: 0, returned: 0, completed: 0 });
-  const checklistProfile = selectedRequest ? getChecklistProfile(selectedRequest) : null;
-  const checklistPreview = selectedRequest && checklistProfile
-    ? freshChecklist(checklistProfile, selectedRequest)
-    : [];
 
-  const fetchRequests = async () => {
+  const selectRequest = (request) => {
+    setSelectedRequest(request);
+    setReviewStatus(getDepartmentStatus(request));
+    setComment(request?.departmentComment || request?.remarks || '');
+    setReturnReason(request?.departmentReturnReason || request?.returnReason || '');
+    setIsReturnMode(false);
+    setError('');
+  };
+
+  const fetchRequests = useCallback(async () => {
     try {
       const response = await axios.get('http://localhost:3000/api/clearance-requests', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
@@ -87,11 +85,11 @@ export default function ClearanceRequests() {
     } catch (fetchError) {
       setError(fetchError.response?.data?.message || 'Unable to load clearance requests.');
     }
-  };
+  }, [activeTab, page, searchParams, searchTerm, clearanceType, fromDate, toDate]);
 
   useEffect(() => {
     fetchRequests();
-  }, [activeTab, page, searchParams, searchTerm, clearanceType, fromDate, toDate]);
+  }, [fetchRequests]);
 
   useEffect(() => {
     if (selectedRequest) {
@@ -99,23 +97,6 @@ export default function ClearanceRequests() {
       setComment(selectedRequest.departmentComment || selectedRequest.remarks || '');
       setReturnReason(selectedRequest.departmentReturnReason || selectedRequest.returnReason || '');
       setIsReturnMode(false);
-      
-      const savedItems = Array.isArray(selectedRequest.departmentClearances)
-        ? selectedRequest.departmentClearances
-        : [];
-      const defaultItems = ['Department Documents', 'Department Materials', 'Office / Room', 'Department Responsibility'];
-      const items = defaultItems.map((itemName) => {
-        const savedItem = savedItems.find((item) =>
-          [item.office, item.item, item.name].filter(Boolean).some((value) => String(value).toLowerCase() === itemName.toLowerCase())
-        );
-        return {
-          item: itemName,
-          status: savedItem?.status || (getDepartmentStatus(selectedRequest) === 'Approved' ? 'Cleared' : 'Pending'),
-          comment: savedItem?.comment || '',
-          returnReason: savedItem?.returnReason || '',
-        };
-      });
-      setDepartmentClearanceItems(items);
     }
   }, [selectedRequest]);
 
@@ -126,15 +107,6 @@ export default function ClearanceRequests() {
     setToDate('');
     setPage(1);
     fetchRequests();
-  };
-
-  const selectRequest = (request) => {
-    setSelectedRequest(request);
-    setReviewStatus(getDepartmentStatus(request));
-    setComment(request?.departmentComment || request?.remarks || '');
-    setReturnReason(request?.departmentReturnReason || request?.returnReason || '');
-    setIsReturnMode(false);
-    setError('');
   };
 
   const saveDepartmentDecision = async (status, requestOverride = null) => {
@@ -688,52 +660,6 @@ export default function ClearanceRequests() {
                 </div>
               </div>
 
-              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">{checklistProfile?.title || 'Department Clearance Checklist'}</h3>
-                    <p className="mt-1 text-[11px] text-slate-500">{checklistProfile?.description}</p>
-                  </div>
-                  <span className="rounded-md bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
-                    {checklistPreview.filter((item) => item.status === 'Cleared').length} / {checklistPreview.length} Cleared
-                  </span>
-                </div>
-                <div className="max-h-72 overflow-auto">
-                  <table className="w-full min-w-[620px] text-left text-[11px]">
-                    <thead className="sticky top-0 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="w-10 px-3 py-2 text-center">#</th>
-                        <th className="px-3 py-2">Category</th>
-                        <th className="px-3 py-2">Description / Details</th>
-                        <th className="px-3 py-2">Status</th>
-                        <th className="px-3 py-2">Remarks</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {checklistPreview.map((item, index) => {
-                        const sectionTitle = checklistProfile?.sections.find((section) => section.key === item.section)?.title || 'Department';
-                        const statusClass = item.status === 'Cleared'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : item.status === 'N/A'
-                            ? 'bg-slate-100 text-slate-600'
-                            : 'bg-amber-50 text-amber-700';
-                        return (
-                          <tr key={`${item.section}-${item.item}`}>
-                            <td className="px-3 py-2 text-center text-slate-400">{index + 1}</td>
-                            <td className="px-3 py-2 font-medium text-slate-600">{sectionTitle}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-800">{item.item}</td>
-                            <td className="px-3 py-2">
-                              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusClass}`}>{item.status}</span>
-                            </td>
-                            <td className="px-3 py-2 text-slate-600">{item.note || '-'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
               {/* Decision Form Section */}
               <div className="border border-slate-200 rounded-lg p-5 bg-white">
                 <h3 className="text-sm font-bold text-slate-900 mb-4">Department Head Decision</h3>
@@ -750,7 +676,7 @@ export default function ClearanceRequests() {
                   <div className="space-y-4">
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <p className="text-xs text-blue-800">
-                        <span className="font-bold">Reviewing:</span> Check all department clearance items above. If everything is complete, approve. If there are issues, return the request.
+                        <span className="font-bold">Reviewing:</span> Complete the department checklist below. If everything is complete, approve. If there are issues, return the request.
                       </p>
                     </div>
                     <div>

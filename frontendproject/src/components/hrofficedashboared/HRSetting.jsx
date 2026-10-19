@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Bell, Check, Save, Settings, ShieldCheck } from 'lucide-react';
+import { Bell, Check, ImageUp, Save, Settings, ShieldCheck } from 'lucide-react';
 
 const API_URL = 'http://localhost:3000/api/hr/settings';
 const defaults = {
@@ -19,6 +19,7 @@ const defaults = {
 	},
 	certificate: { generation: 'Automatic (Recommended)', trigger: 'After HR Approval', numberPrefix: 'BDU-CLR', format: 'PDF' },
 	security: { sessionTimeout: '30 minutes', notifyOnNewLogin: true },
+	officialStamp: '',
 };
 
 const auth = () => ({ headers: { Authorization: `******'token') || ''}` } });
@@ -49,6 +50,7 @@ export default function HRSetting() {
 	const [saving, setSaving] = useState(false);
 	const [message, setMessage] = useState('');
 	const [saveError, setSaveError] = useState('');
+	const [stampUploading, setStampUploading] = useState(false);
 	const successTimer = useRef(null);
 
 	useEffect(() => {
@@ -103,6 +105,37 @@ export default function HRSetting() {
 		}
 	};
 
+	const uploadStamp = async (event) => {
+		const file = event.target.files?.[0];
+		event.target.value = '';
+		if (!file) return;
+		if (!['image/png', 'image/jpeg'].includes(file.type)) {
+			setSaveError('Choose a PNG or JPEG image for the official stamp.');
+			return;
+		}
+		if (file.size > 2 * 1024 * 1024) {
+			setSaveError('The official stamp must be 2 MB or smaller.');
+			return;
+		}
+
+		const formData = new FormData();
+		formData.append('stamp', file);
+		setStampUploading(true);
+		setMessage('');
+		setSaveError('');
+		try {
+			const response = await axios.post(`${API_URL}/official-stamp`, formData, auth());
+			setSettings((current) => ({ ...current, officialStamp: response.data.officialStamp }));
+			setMessage(response.data?.message || 'Official stamp uploaded successfully.');
+			window.clearTimeout(successTimer.current);
+			successTimer.current = window.setTimeout(() => setMessage(''), 3000);
+		} catch (error) {
+			setSaveError(error.response?.data?.message || error.message || 'Unable to upload the official stamp.');
+		} finally {
+			setStampUploading(false);
+		}
+	};
+
 	if (loading) return <div role="status" className="p-6 text-center text-xs text-slate-500">Loading HR settings...</div>;
 	if (loadError) return <div role="alert" className="m-4 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">{loadError}</div>;
 
@@ -145,6 +178,16 @@ export default function HRSetting() {
 						<Field label="GENERATE CERTIFICATE WHEN"><select className={inputClass} value={settings.certificate.trigger} onChange={(event) => update('certificate', 'trigger', event.target.value)}><option>After HR Approval</option><option>After All Offices Approved</option></select></Field>
 						<Field label="CERTIFICATE NUMBER PREFIX"><input required maxLength={20} pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,19}" title="Use up to 20 letters, numbers, hyphens, or underscores." className={inputClass} value={settings.certificate.numberPrefix} onChange={(event) => update('certificate', 'numberPrefix', event.target.value)} /></Field>
 						<Field label="CERTIFICATE FORMAT"><select className={inputClass} value={settings.certificate.format} onChange={(event) => update('certificate', 'format', event.target.value)}><option>PDF</option><option>PDF and QR Code</option></select></Field>
+						<div className="border-t border-slate-100 pt-3">
+							<p className="mb-2 text-[10px] font-semibold text-slate-600">OFFICIAL CERTIFICATE STAMP</p>
+							{settings.officialStamp && <img src={settings.officialStamp} alt="Current official HR stamp" className="mb-2 h-20 w-36 rounded border border-slate-200 bg-white object-contain p-1" />}
+							<label className="inline-flex cursor-pointer items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-50">
+								<ImageUp size={13} />
+								{stampUploading ? 'Uploading...' : settings.officialStamp ? 'Replace Stamp' : 'Upload Stamp'}
+								<input type="file" accept="image/png,image/jpeg" onChange={uploadStamp} disabled={stampUploading} className="sr-only" />
+							</label>
+							<p className="mt-1 text-[9px] text-slate-500">PNG or JPEG, up to 2 MB. The stamp is added automatically to certificate previews and PDFs.</p>
+						</div>
 					</div>
 				</Section>
 				<Section id="security" title="4. Security Settings" icon={ShieldCheck}>

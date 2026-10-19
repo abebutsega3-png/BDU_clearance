@@ -5,10 +5,16 @@ const isAdmin = (req) => req.user?.role?.toLowerCase() === 'admin' || req.user?.
 
 const validatePermissions = (permissions) => {
   if (!Array.isArray(permissions)) return [];
-  return permissions.filter((item) => item?.module && Array.isArray(item.actions)).map((item) => ({
-    module: item.module,
-    actions: item.actions.filter((action) => ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'reject', 'cancel', 'export'].includes(action)),
-  }));
+  const allowedActions = new Set(['view', 'create', 'edit', 'delete', 'submit', 'approve', 'reject', 'cancel', 'export']);
+  return permissions
+    .filter((item) => typeof item?.module === 'string' && item.module.trim() && Array.isArray(item.actions))
+    .map((item) => ({
+      module: item.module.trim(),
+      actions: [...new Set(item.actions
+        .filter((action) => typeof action === 'string')
+        .map((action) => action.trim().toLowerCase())
+        .filter((action) => allowedActions.has(action)))],
+    }));
 };
 
 export const getRoles = async (req, res) => {

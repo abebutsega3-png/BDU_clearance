@@ -78,3 +78,22 @@ export const sendPasswordResetEmail = async ({ recipient, actionLink }) => {
     html: `<p>${escapeHtml(greeting)}</p><p>${escapeHtml(instructions)}</p><p><a href="${escapeHtml(actionLink)}">Reset your password</a></p><p>If you did not request a password reset, you can ignore this email.</p>`,
   });
 };
+
+export const sendCredentialsEmail = async ({ recipient, sender, username, password }) => {
+  const transporter = createEmailTransporter();
+  const greeting = `Hello${recipient?.name ? ` ${recipient.name}` : ''},`;
+  const instructions = 'Your Bahir Dar University Clearance Management System account is ready. Sign in with the credentials below, then change your password immediately.';
+  const loginUrl = new URL('/login', process.env.APP_BASE_URL || 'http://localhost:5173').toString();
+  const senderName = String(sender?.name || 'Bahir Dar University HR').trim();
+  const senderEmail = String(sender?.email || '').trim().toLowerCase();
+  if (!senderEmail) throw new Error('The authenticated HR officer does not have a registered email address.');
+  const message = `${greeting}\n\n${instructions}\n\nUsername: ${username}\nTemporary password: ${password}\n\nSign in and change your password: ${loginUrl}\n\nIf you did not expect this email, please contact your administrator.`;
+  await transporter.sendMail({
+    from: { name: senderName, address: senderEmail },
+    replyTo: { name: senderName, address: senderEmail },
+    to: recipient.email,
+    subject: 'Your BDU account login credentials',
+    text: message,
+    html: `<div style="font-family:Arial,sans-serif;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto"><h2 style="color:#1d4ed8">Your BDU account is ready</h2><p>${escapeHtml(greeting)}</p><p>${escapeHtml(instructions)}</p><table style="border-collapse:collapse;width:100%;margin:20px 0"><tr><th style="text-align:left;padding:10px;border:1px solid #e2e8f0;background:#f8fafc">Username</th><td style="padding:10px;border:1px solid #e2e8f0">${escapeHtml(username)}</td></tr><tr><th style="text-align:left;padding:10px;border:1px solid #e2e8f0;background:#f8fafc">Temporary password</th><td style="padding:10px;border:1px solid #e2e8f0;font-family:monospace">${escapeHtml(password)}</td></tr></table><p style="color:#b45309"><strong>For your security, change this password immediately after signing in.</strong></p><p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none">Sign in and change password</a></p><p>If you did not expect this email, please contact your administrator.</p><p style="color:#64748b">Sent by ${escapeHtml(senderName)} (${escapeHtml(senderEmail)})</p></div>`,
+  });
+};

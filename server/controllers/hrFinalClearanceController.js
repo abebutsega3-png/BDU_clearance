@@ -538,7 +538,7 @@ const getRequiredCoreOffices = (clearance) => {
 };
 
 const normalizeOfficeStatus = (value) => String(value || '').trim().toLowerCase();
-const isReviewerRoleLabel = (value) => /^(hr(?: officer)?|finance officer|department head|library officer|property(?:\s*\/\s*asset)? officer|ict officer|transport officer)$/i
+const isReviewerRoleLabel = (value) => /^(?:hr(?: officer| office)?|human resources(?: office)?|finance(?: officer| office)?|department head|library(?: officer| office)?|property(?:\s*\/\s*asset)?(?: officer| office)?|ict(?: officer| office)?|transport(?: officer| office)?)$/i
   .test(String(value || '').trim());
 
 const findEmployeeUser = async (clearance) => {
@@ -643,20 +643,46 @@ const getOfficeCounts = (clearance) => {
 };
 
 const resolveOfficeReviewers = async (offices) => {
+  const usableReviewerName = (...values) => values
+    .map((value) => String(value || '').trim())
+    .find((value) => value
+      && !['-', '—'].includes(value)
+      && !isReviewerRoleLabel(value)
+      && !mongoose.Types.ObjectId.isValid(value)) || '';
+  const getReviewerId = (value) => {
+    const id = value && typeof value === 'object'
+      && !mongoose.Types.ObjectId.isValid(String(value))
+      ? value._id || value.id
+      : value;
+    return mongoose.Types.ObjectId.isValid(String(id || '')) ? id : '';
+  };
   const reviewerIds = offices
-    .map((office) => office.reviewerId || office.clearedBy)
+    .map((office) => getReviewerId(office.reviewerId)
+      || getReviewerId(office.clearedBy))
     .filter((value) => mongoose.Types.ObjectId.isValid(String(value || '')));
   const users = reviewerIds.length
-    ? await User.find({ _id: { $in: reviewerIds } }).select('_id name').lean()
+    ? await User.find({ _id: { $in: reviewerIds } }).select('_id name fullName username email').lean()
     : [];
-  const names = new Map(users.map((user) => [String(user._id), user.name || '—']));
+  const names = new Map(users.map((user) => [
+    String(user._id),
+    usableReviewerName(user.fullName, user.name, user.username, user.email?.split('@')[0]),
+  ]));
   return offices.map((office) => {
-    const reviewerId = office.reviewerId || office.clearedBy;
-    const storedName = names.get(String(reviewerId)) || office.clearedBy;
-    const isRoleLabel = !storedName || storedName === '-' || storedName === '—' || isReviewerRoleLabel(storedName);
+    const directName = office.clearedBy && typeof office.clearedBy === 'object'
+      ? usableReviewerName(
+        office.clearedBy.fullName,
+        office.clearedBy.name,
+        office.clearedBy.username,
+        office.clearedBy.email?.split('@')[0],
+      )
+      : usableReviewerName(office.clearedBy);
+    const reviewerId = getReviewerId(office.reviewerId)
+      || getReviewerId(directName);
+    const storedName = names.get(String(reviewerId)) || directName;
     return {
       ...office,
-      clearedBy: isRoleLabel ? '—' : storedName,
+      clearedBy: storedName || '—',
+      approvedBy: storedName || '—',
     };
   });
 };
@@ -694,7 +720,7 @@ const resolvePropertyAuditReviewer = async (clearance, offices) => {
   const [storedReviewer] = await resolveOfficeReviewers([{ clearedBy: reviewerName, reviewerId }]);
   if (storedReviewer?.clearedBy && storedReviewer.clearedBy !== '—') {
     return offices.map((office) => office === propertyOffice
-      ? { ...office, clearedBy: storedReviewer.clearedBy }
+      ? { ...office, clearedBy: storedReviewer.clearedBy, approvedBy: storedReviewer.clearedBy }
       : office);
   }
 
@@ -712,14 +738,50 @@ const resolvePropertyAuditReviewer = async (clearance, offices) => {
   const auditReviewerName = String(auditLog?.newValues?.approvedBy || '').trim();
   if (auditReviewerName && !isReviewerRoleLabel(auditReviewerName)) {
     return offices.map((office) => office === propertyOffice
-      ? { ...office, clearedBy: auditReviewerName }
+      ? { ...office, clearedBy: auditReviewerName, approvedBy: auditReviewerName }
       : office);
   }
   if (!auditLog?.userId) return offices;
 
   const [reviewer] = await resolveOfficeReviewers([{ reviewerId: auditLog.userId }]);
   return offices.map((office) => office === propertyOffice && reviewer?.clearedBy !== '—'
-    ? { ...office, clearedBy: reviewer.clearedBy }
+    ? { ...office, clearedBy: reviewer.clearedBy, approvedBy: reviewer.clearedBy }
+    : office);
+};
+
+const resolveLibraryAuditReviewer = async (clearance, offices) => {
+  const libraryOffice = offices.find((office) => normalizeOfficeName(office.office || office.name) === 'Library');
+  if (!libraryOffice) return offices;
+  const ictName = offices.find((office) => normalizeOfficeName(office.office || office.name) === 'ICT Office')?.clearedBy;
+  const currentName = String(libraryOffice.clearedBy || '').trim();
+  if (currentName && currentName !== '—' && currentName !== '-' && currentName.toLowerCase() !== String(ictName || '').trim().toLowerCase()) {
+    return offices;
+  }
+
+  const requestId = String(clearance.requestId || '').trim();
+  if (!requestId) return offices;
+  const auditLogs = await AuditLog.find({
+    module: 'Clearance Request',
+    action: { $in: ['UPDATE_CLEARANCE', 'COMPLETE_CLEARANCE'] },
+    'newValues.requestId': requestId,
+    userId: { $ne: null },
+  }).sort({ createdAt: -1 }).select('userId actorRole newValues').lean();
+  const auditLog = auditLogs.find((entry) => (
+    /library/i.test(String(entry.actorRole || ''))
+    || /library/i.test(String(entry.newValues?.office || ''))
+    || entry.newValues?.libraryReviewedById
+  ));
+  const reviewerId = currentName && currentName.toLowerCase() === String(ictName || '').trim().toLowerCase()
+    ? auditLog?.newValues?.libraryReviewedById || auditLog?.userId
+    : libraryOffice.reviewerId || auditLog?.newValues?.libraryReviewedById || auditLog?.userId;
+  if (!reviewerId) return offices;
+  const [reviewer] = await resolveOfficeReviewers([{ reviewerId }]);
+  if (!reviewer?.clearedBy || reviewer.clearedBy === '—'
+    || reviewer.clearedBy.toLowerCase() === String(ictName || '').trim().toLowerCase()) {
+    return offices;
+  }
+  return offices.map((office) => office === libraryOffice
+    ? { ...office, clearedBy: reviewer.clearedBy, approvedBy: reviewer.clearedBy }
     : office);
 };
 
@@ -764,6 +826,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         ...(Array.isArray(clearance.departmentClearances) ? clearance.departmentClearances : []),
         ...(Array.isArray(clearanceRequest?.departmentClearances) ? clearanceRequest.departmentClearances : []),
       ],
+      libraryStatus: clearance.libraryStatus || clearanceRequest?.libraryStatus,
+      libraryReviewedBy: clearance.libraryReviewedBy || clearanceRequest?.libraryReviewedBy,
+      libraryReviewedById: clearance.libraryReviewedById || clearanceRequest?.libraryReviewedById,
       propertyStatus: clearance.propertyStatus || clearanceRequest?.propertyStatus,
       propertyReviewedBy: clearance.propertyReviewedBy || clearanceRequest?.propertyReviewedBy,
       propertyReviewedById: clearance.propertyReviewedById || clearanceRequest?.propertyReviewedById,
@@ -773,8 +838,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
     // Calculate progress
     const { offices: rawDepartmentClearances, approvedCount, totalOffices: totalDepartments } = getOfficeCounts(reviewClearance);
     const resolvedDepartmentClearances = await resolveOfficeReviewers(rawDepartmentClearances);
-    const departmentClearances = await resolvePropertyAuditReviewer(reviewClearance, resolvedDepartmentClearances);
-    const initialHRReview = [...(Array.isArray(clearance.workflow) ? clearance.workflow : [])]
+    const propertyResolvedOffices = await resolvePropertyAuditReviewer(reviewClearance, resolvedDepartmentClearances);
+    const departmentClearances = await resolveLibraryAuditReviewer(reviewClearance, propertyResolvedOffices);
+    const initialHRReview = [...reviewClearance.workflow]
       .reverse()
       .find((step) => /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')));
     const initialHRReviewerNames = [
@@ -787,7 +853,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
     ].filter(Boolean);
     const initialHRReviewer = await resolveOfficeReviewers([{
       clearedBy: initialHRReviewerNames.find((name) => !isReviewerRoleLabel(name)) || initialHRReviewerNames[0],
-      reviewerId: clearance.initialHRReviewedById || initialHRReview?.reviewedById
+      reviewerId: reviewClearance.initialHRReviewedById || initialHRReview?.reviewedById
         || initialHRReview?.approvedById || initialHRReview?.performedById || initialHRReview?.reviewerId,
     }]);
     const finalHRApprovalStep = getFinalHRApprovalStep(clearance);
@@ -874,7 +940,9 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         lastWorkingDate: clearance.lastWorkingDate,
         expectedLastWorkingDate: clearanceRequest?.expectedLastWorkingDate,
         initialHRReviewedBy: initialHRReviewer[0].clearedBy,
-        initialHRReviewedById: clearance.initialHRReviewedById || null,
+        initialHRReviewedByName: initialHRReviewer[0].clearedBy,
+        initialHRReviewedById: reviewClearance.initialHRReviewedById || initialHRReview?.reviewedById
+          || initialHRReview?.approvedById || initialHRReview?.performedById || initialHRReview?.reviewerId || null,
         initialHRReviewedAt: clearance.initialHRReviewedAt,
         returnedBy: clearance.returnedBy || (clearance.initialHRStatus === 'Returned' ? clearance.initialHRReviewedBy : ''),
         returnedOffice: clearance.returnedOffice || (clearance.initialHRStatus === 'Returned' ? 'HR Officer' : ''),
@@ -885,8 +953,11 @@ export const getHRFinalClearanceDetails = async (req, res) => {
         financeReviewedBy: clearance.financeReviewedBy,
         financeReviewedAt: clearance.financeReviewedAt,
         libraryReviewedBy: clearance.libraryReviewedBy || clearance.libraryClearance?.reviewedBy,
+        libraryReviewedById: clearance.libraryReviewedById || clearance.libraryClearance?.reviewedById,
         libraryReviewedAt: clearance.libraryReviewedAt,
         propertyReviewedBy,
+        propertyReviewedByName: propertyReviewedBy,
+        propertyReviewedById: reviewClearance.propertyReviewedById || null,
         propertyReviewedAt: clearance.propertyReviewedAt,
         ictReviewedBy: clearance.ictReviewedBy || clearance.ictClearance?.reviewedBy,
         ictReviewedAt: clearance.ictReviewedAt,
@@ -927,7 +998,7 @@ export const getHRFinalClearanceDetails = async (req, res) => {
           || finalHRApprovalStep?.approvedAt || finalHRApprovalStep?.updatedAt || null,
 
         // Clearance History
-        history: clearance.workflow || [],
+        history: reviewClearance.workflow,
 
         // Timestamps
         createdAt: clearance.createdAt,
@@ -1356,9 +1427,35 @@ export const getGeneratedCertificates = async (req, res) => {
     const clearances = await Clearance.find({ 'certificate.number': { $exists: true } })
       .sort({ 'certificate.generatedAt': -1 })
       .lean();
+    const requestIds = clearances.map((clearance) => clearance.requestId).filter(Boolean);
+    const relatedRequests = requestIds.length
+      ? await ClearanceRequest.find({ requestId: { $in: requestIds } })
+        .select('requestId workflow departmentClearances libraryStatus libraryReviewedBy libraryReviewedById propertyStatus propertyReviewedBy propertyReviewedById propertyReviewedAt')
+        .lean()
+      : [];
+    const requestsById = new Map(relatedRequests.map((request) => [request.requestId, request]));
 
     const certificates = await Promise.all(clearances.map(async (clearance) => {
-      const initialHRReview = [...(Array.isArray(clearance.workflow) ? clearance.workflow : [])]
+      const clearanceRequest = requestsById.get(clearance.requestId);
+      const reviewClearance = {
+        ...clearance,
+        workflow: [
+          ...(Array.isArray(clearance.workflow) ? clearance.workflow : []),
+          ...(Array.isArray(clearanceRequest?.workflow) ? clearanceRequest.workflow : []),
+        ],
+        departmentClearances: [
+          ...(Array.isArray(clearance.departmentClearances) ? clearance.departmentClearances : []),
+          ...(Array.isArray(clearanceRequest?.departmentClearances) ? clearanceRequest.departmentClearances : []),
+        ],
+        libraryStatus: clearance.libraryStatus || clearanceRequest?.libraryStatus,
+        libraryReviewedBy: clearance.libraryReviewedBy || clearanceRequest?.libraryReviewedBy,
+        libraryReviewedById: clearance.libraryReviewedById || clearanceRequest?.libraryReviewedById,
+        propertyStatus: clearance.propertyStatus || clearanceRequest?.propertyStatus,
+        propertyReviewedBy: clearance.propertyReviewedBy || clearanceRequest?.propertyReviewedBy,
+        propertyReviewedById: clearance.propertyReviewedById || clearanceRequest?.propertyReviewedById,
+        propertyReviewedAt: clearance.propertyReviewedAt || clearanceRequest?.propertyReviewedAt,
+      };
+      const initialHRReview = [...(Array.isArray(reviewClearance.workflow) ? reviewClearance.workflow : [])]
         .reverse()
         .find((step) => /initial\s*hr|hr\s*review/i.test(String(step.office || step.name || '')));
       const initialHRReviewerNames = [
@@ -1367,16 +1464,18 @@ export const getGeneratedCertificates = async (req, res) => {
         initialHRReview?.clearedBy,
         initialHRReview?.performedBy,
         initialHRReview?.officerName,
-        clearance.initialHRReviewedBy,
+        reviewClearance.initialHRReviewedBy,
       ].filter(Boolean);
-      const [initialHRReviewer, clearanceSummary] = await Promise.all([
+      const [initialHRReviewer, resolvedClearanceSummary] = await Promise.all([
         resolveOfficeReviewers([{
           clearedBy: initialHRReviewerNames.find((name) => !isReviewerRoleLabel(name)) || initialHRReviewerNames[0],
-          reviewerId: clearance.initialHRReviewedById || initialHRReview?.reviewedById
+          reviewerId: reviewClearance.initialHRReviewedById || initialHRReview?.reviewedById
             || initialHRReview?.approvedById || initialHRReview?.performedById || initialHRReview?.reviewerId,
         }]),
-        resolveOfficeReviewers(getOfficeProgress(clearance)),
+        resolveOfficeReviewers(getOfficeProgress(reviewClearance)),
       ]);
+      const propertyResolvedSummary = await resolvePropertyAuditReviewer(reviewClearance, resolvedClearanceSummary);
+      const clearanceSummary = await resolveLibraryAuditReviewer(reviewClearance, propertyResolvedSummary);
       return {
         _id: clearance._id,
         certificateNo: clearance.certificate.number,
@@ -1402,7 +1501,10 @@ export const getGeneratedCertificates = async (req, res) => {
         finalHRReviewedById: clearance.finalHRReviewedById || clearance.certificate.generatedById || null,
         finalHRReviewedByPosition: clearance.finalHRReviewedByPosition || clearance.certificate.generatedByPosition || '',
         clearanceId: clearance.requestId || clearance._id,
-        clearanceSummary,
+        clearanceSummary: clearanceSummary.map((office) => ({
+          ...office,
+          name: office.office,
+        })),
       };
     }));
 

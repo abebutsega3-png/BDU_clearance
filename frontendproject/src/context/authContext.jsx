@@ -4,6 +4,7 @@ import { canonicalizeRole } from '../until/authRoles';
 
 const userContext = createContext();
 let refreshPromise;
+const MAX_AUTOMATIC_VERIFICATION_RETRIES = 3;
 
 const normalizeUserRoleState = (user) => {
   if (!user) return user;
@@ -37,6 +38,13 @@ const isAuthenticationFailure = (error) => {
   return Boolean(authorization?.startsWith('Bearer '))
     || /authentication token|session has been revoked/i.test(message);
 };
+
+const isTransientVerificationFailure = (error) => (
+  !error.response
+  || error.response.status >= 500
+  || error.response.status === 429
+  || ['ECONNABORTED', 'ETIMEDOUT', 'ERR_NETWORK'].includes(error.code)
+);
 
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -127,14 +135,27 @@ const AuthProvider = ({ children }) => {
             automaticRetryCount.current = 0;
             localStorage.removeItem('token');
             setAuthError('');
-          } else if (automaticRetryCount.current < 2) {
+          } else if (isTransientVerificationFailure(error)) {
             automaticRetryCount.current += 1;
-            retryScheduled = true;
-            retryTimer = window.setTimeout(() => {
-              if (requestId !== verificationId.current) return;
-              setLoading(true);
-              setVerificationAttempt((attempt) => attempt + 1);
-            }, 1000 * automaticRetryCount.current);
+            if (automaticRetryCount.current <= MAX_AUTOMATIC_VERIFICATION_RETRIES) {
+              retryScheduled = true;
+              const retryDelay = Math.min(1000 * (2 ** (automaticRetryCount.current - 1)), 10000);
+              setAuthError(
+                `The server or database is temporarily unavailable. Retrying automatically (${automaticRetryCount.current} of ${MAX_AUTOMATIC_VERIFICATION_RETRIES})...`,
+              );
+              retryTimer = window.setTimeout(() => {
+                if (requestId !== verificationId.current) return;
+                setLoading(true);
+                setVerificationAttempt((attempt) => attempt + 1);
+              }, retryDelay);
+            } else {
+              setUser(null);
+              setAuthError(
+                error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT'
+                  ? 'The session check timed out after several attempts. Check that the backend and database are running, then retry.'
+                  : 'The server or database is unavailable after several attempts. Check your connection, then retry.',
+              );
+            }
           } else {
             console.error('Session verification failed after retries:', error.message);
             const message = error.response?.data?.message

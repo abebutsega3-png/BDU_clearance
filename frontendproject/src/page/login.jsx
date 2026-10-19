@@ -18,6 +18,9 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const sessionWarning = typeof location.state?.sessionWarning === 'string'
+    ? location.state.sessionWarning
+    : '';
 
   const changeMode = (nextMode) => {
     setMode(nextMode);
@@ -163,6 +166,7 @@ export default function Login() {
         </div>
 
         {error && <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+        {sessionWarning && <p role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{sessionWarning} Please sign in again when the service is available.</p>}
         {notice && <p role="status" className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">{notice}</p>}
 
         {(mode === 'login' || mode === 'request-reset') && (

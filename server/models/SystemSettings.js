@@ -66,6 +66,7 @@ const SystemSettingsSchema = new mongoose.Schema({
     maintenanceMode: { type: Boolean, default: false }
   },
   hrSettings: {
+    officialStamp: { type: String, default: '' },
     requiredOffices: {
       departmentHead: { type: Boolean, default: true },
       finance: { type: Boolean, default: true },
